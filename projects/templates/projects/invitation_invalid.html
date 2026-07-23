@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+
+{% block title %}Invitation unavailable | Construction Manager{% endblock %}
+
+{% block content %}
+<div class="auth-shell">
+    <section class="auth-card text-center">
+        <i class="bi bi-link-45deg empty-state__icon"></i>
+        <h1>Invitation unavailable</h1>
+        <p>This invitation has expired, was revoked, or has already been accepted.</p>
+        {% if error %}<p class="text-danger">{{ error }}</p>{% endif %}
+        <p>Please ask the contractor to send a new invitation.</p>
+    </section>
+</div>
+{% endblock %}

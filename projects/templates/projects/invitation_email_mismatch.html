@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+
+{% block title %}Different account required | Construction Manager{% endblock %}
+
+{% block content %}
+<div class="auth-shell">
+    <section class="auth-card">
+        <p class="eyebrow">Account mismatch</p>
+        <h1>Use the invited email</h1>
+        <p>This invitation was sent to <strong>{{ invitation.email }}</strong>, but you are logged in as <strong>{{ user.email }}</strong>.</p>
+        <p>Log out, then open the invitation again using the invited account.</p>
+    </section>
+</div>
+{% endblock %}

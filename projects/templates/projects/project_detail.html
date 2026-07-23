@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ project.name }} | Construction Manager{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb">
+    <a href="{% url 'core:home' %}">Projects</a>
+    <i class="bi bi-chevron-right" aria-hidden="true"></i>
+    <span>{{ project.name }}</span>
+</nav>
+
+<section class="project-hero">
+    <div>
+        <div class="project-hero__meta">
+            <span>{{ project.organization.name }}</span>
+            <span class="status-pill status-pill--{{ project.status }}">{{ project.get_status_display }}</span>
+        </div>
+        <h1>{{ project.name }}</h1>
+        {% if project.description %}<p>{{ project.description }}</p>{% endif %}
+    </div>
+    {% if can_invite_clients %}
+    <a class="btn btn-primary" href="{% url 'projects:invite_client' project.pk %}">
+        <i class="bi bi-person-plus"></i> Invite customer
+    </a>
+    {% endif %}
+</section>
+
+<div class="role-banner">
+    <i class="bi bi-shield-check" aria-hidden="true"></i>
+    <span>
+        {% if user.is_superuser %}Superuser access
+        {% elif project_membership %}{{ project_membership.get_role_display }} portal access
+        {% elif organization_membership %}{{ organization_membership.get_role_display }} access
+        {% endif %}
+    </span>
+</div>
+
+<section class="module-grid" aria-label="Project modules">
+    <article class="module-card module-card--ready">
+        <i class="bi bi-chat-dots"></i>
+        <div><h2>Messages</h2><p>Project conversations and notifications.</p></div>
+        <span>Shell ready</span>
+    </article>
+    <article class="module-card module-card--ready">
+        <i class="bi bi-file-earmark-check"></i>
+        <div><h2>Documents</h2><p>Review, approve, or decline project documents.</p></div>
+        <span>Shell ready</span>
+    </article>
+    <article class="module-card module-card--ready">
+        <i class="bi bi-arrow-left-right"></i>
+        <div><h2>Change orders</h2><p>Pricing, customer decisions, and approval history.</p></div>
+        <span>Shell ready</span>
+    </article>
+    <article class="module-card module-card--ready">
+        <i class="bi bi-palette"></i>
+        <div><h2>Selections</h2><p>Finish options, allowances, and customer choices.</p></div>
+        <span>Shell ready</span>
+    </article>
+    <article class="module-card">
+        <i class="bi bi-calendar3"></i>
+        <div><h2>Schedule</h2><p>Milestones and customer-visible dates.</p></div>
+        <span>Coming next</span>
+    </article>
+    {% if can_view_project_financials %}
+    <article class="module-card">
+        <i class="bi bi-graph-up-arrow"></i>
+        <div><h2>Project financials</h2><p>Project costs and accounting status.</p></div>
+        <span>Restricted</span>
+    </article>
+    {% endif %}
+</section>
+{% endblock %}

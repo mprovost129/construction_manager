@@ -1,0 +1,57 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="{% block meta_description %}{% endblock %}">
+    <title>{% block title %}Construction Manager{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="{% static 'css/main.css' %}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body class="app-body">
+    <header class="app-header">
+        <nav class="app-nav" aria-label="Primary navigation">
+            {% block nav %}
+            <a class="app-brand" href="{% url 'core:home' %}">
+                <span class="app-brand__mark" aria-hidden="true"><i class="bi bi-buildings"></i></span>
+                <span>Construction Manager</span>
+            </a>
+            <a class="app-nav__link" href="{% url 'core:home' %}">Projects</a>
+            {% if user.is_authenticated %}
+                <span class="app-nav__identity">{{ user.email }}</span>
+                <form method="post" action="{% url 'logout' %}" class="app-nav__logout">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-light">Log out</button>
+                </form>
+            {% else %}
+                <a class="btn btn-sm btn-light" href="{% url 'login' %}">Log in</a>
+            {% endif %}
+            {% endblock %}
+        </nav>
+    </header>
+
+    <main class="app-main container-xl">
+        {% if messages %}
+        <ul class="messages" aria-label="Notifications">
+            {% for message in messages %}
+            <li class="message message--{{ message.tags }}">{{ message }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="app-footer container-xl">
+        {% block footer %}{% endblock %}
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{% static 'js/main.js' %}"></script>
+    {% block extra_js %}{% endblock %}
+
+</body>
+</html>

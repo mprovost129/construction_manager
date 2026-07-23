@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+
+{% block title %}Accept invitation | Construction Manager{% endblock %}
+
+{% block content %}
+<div class="auth-shell">
+    <section class="auth-card auth-card--wide">
+        <p class="eyebrow">{{ invitation.project.organization.name }}</p>
+        <h1>Join {{ invitation.project.name }}</h1>
+        {% if authenticated_match %}
+        <p>You are logged in as <strong>{{ user.email }}</strong>. Confirm to add this project to your account.</p>
+        <form method="post">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary w-100">Accept project invitation</button>
+        </form>
+        {% elif existing_user %}
+        <p>An account already exists for <strong>{{ invitation.email }}</strong>. Log in to accept this project invitation.</p>
+        <a class="btn btn-primary w-100" href="{% url 'login' %}?next={% url 'projects:accept_invitation' invitation.token %}">Log in and continue</a>
+        {% else %}
+        <p>Create a password for <strong>{{ invitation.email }}</strong> to enter the customer portal.</p>
+        <form method="post" class="stacked-form">
+            {% csrf_token %}
+            {{ form.non_field_errors }}
+            {% for field in form %}
+            <div class="form-field">
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+                {% if field.help_text %}<div class="help-text">{{ field.help_text|safe }}</div>{% endif %}
+                {{ field.errors }}
+            </div>
+            {% endfor %}
+            <button type="submit" class="btn btn-primary w-100">Create account and join project</button>
+        </form>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

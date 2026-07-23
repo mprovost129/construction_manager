@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+
+{% block title %}Projects | Construction Manager{% endblock %}
+{% block meta_description %}Access construction projects and client portals.{% endblock %}
+
+{% block content %}
+{% if user.is_authenticated %}
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">Workspace</p>
+        <h1>Your projects</h1>
+        <p class="text-secondary mb-0">Open a project to view its portal and activity.</p>
+    </div>
+</section>
+
+{% if projects %}
+<div class="project-grid">
+    {% for project in projects %}
+    <a class="project-card" href="{% url 'projects:detail' project.pk %}">
+        <div class="project-card__topline">
+            <span>{{ project.organization.name }}</span>
+            <span class="status-pill status-pill--{{ project.status }}">{{ project.get_status_display }}</span>
+        </div>
+        <h2>{{ project.name }}</h2>
+        {% if project.code %}<p class="project-code">{{ project.code }}</p>{% endif %}
+        <span class="project-card__action">Open project <i class="bi bi-arrow-right"></i></span>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <i class="bi bi-folder2-open" aria-hidden="true"></i>
+    <h2>No projects yet</h2>
+    <p>Your assigned projects will appear here.</p>
+</div>
+{% endif %}
+{% else %}
+<section class="landing-hero">
+    <p class="eyebrow">Built for clear project decisions</p>
+    <h1>One place for builders and customers to stay aligned.</h1>
+    <p>Review documents, track project activity, approve change orders, and keep every conversation connected to the job.</p>
+    <a class="btn btn-primary btn-lg" href="{% url 'login' %}">Log in with email</a>
+</section>
+{% endif %}
+{% endblock %}
