@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}Team | {{ organization.name }}{% endblock %}
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:company_list' %}">Company</a><i class="bi bi-chevron-right"></i><span>{{ organization.name }}</span></nav>
+<section class="page-heading">
+    <div><p class="eyebrow">{{ organization.name }}</p><h1>Team &amp; roles</h1><p class="text-secondary mb-0">Manage internal access. Project customers are managed within each project.</p></div>
+    {% if can_manage_team %}<a class="btn btn-primary" href="{% url 'projects:invite_team_member' organization.slug %}"><i class="bi bi-person-plus"></i> Invite team member</a>{% endif %}
+</section>
+
+<section class="admin-panel">
+    <div class="section-heading"><div><p class="eyebrow">Internal users</p><h2>Team members</h2></div></div>
+    <div class="table-responsive"><table class="admin-table"><thead><tr><th>Email</th><th>Role</th><th>Status</th>{% if can_manage_team %}<th class="text-end">Manage</th>{% endif %}</tr></thead><tbody>
+    {% for membership in team_memberships %}
+    <tr><td>{{ membership.user.email }}{% if membership.user == user %} <span class="muted-label">You</span>{% endif %}</td><td>{{ membership.get_role_display }}</td><td>{% if membership.is_active %}Active{% else %}Inactive{% endif %}</td>
+    {% if can_manage_team %}<td class="text-end">{% if membership.user != user %}<form method="post" action="{% url 'projects:update_team_membership' organization.slug membership.pk %}" class="inline-form inline-form--controls">{% csrf_token %}<select name="role" aria-label="Role for {{ membership.user.email }}"><option value="admin"{% if membership.role == 'admin' %} selected{% endif %}>Admin</option><option value="staff"{% if membership.role == 'staff' %} selected{% endif %}>Staff</option><option value="accountant"{% if membership.role == 'accountant' %} selected{% endif %}>Accountant</option></select><label class="check-label"><input type="checkbox" name="is_active"{% if membership.is_active %} checked{% endif %}> Active</label><button class="btn btn-sm btn-outline-secondary" type="submit">Save</button></form>{% else %}<span class="text-secondary">Current account</span>{% endif %}</td>{% endif %}</tr>
+    {% endfor %}
+    </tbody></table></div>
+</section>
+
+{% if can_manage_team %}<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Invitation history</p><h2>Team invitations</h2></div></div>
+{% if team_invitations %}<div class="table-responsive"><table class="admin-table"><thead><tr><th>Email</th><th>Role</th><th>Status</th><th class="text-end">Actions</th></tr></thead><tbody>
+{% for invitation in team_invitations %}<tr><td>{{ invitation.email }}</td><td>{{ invitation.get_role_display }}</td><td>{% if invitation.accepted_at %}Accepted{% elif invitation.revoked_at %}Revoked{% elif invitation.is_valid %}Pending{% else %}Expired{% endif %}</td><td class="text-end">{% if not invitation.accepted_at %}<form method="post" action="{% url 'projects:resend_team_invitation' organization.slug invitation.pk %}" class="inline-form">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" type="submit">Resend</button></form>{% if not invitation.revoked_at %}<form method="post" action="{% url 'projects:revoke_team_invitation' organization.slug invitation.pk %}" class="inline-form">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit">Revoke</button></form>{% endif %}{% else %}<span class="text-secondary">Completed</span>{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="empty-copy">No team invitations have been sent.</p>{% endif %}</section>{% endif %}
+
+{% if activity_events %}<section class="activity-panel"><div class="section-heading"><div><p class="eyebrow">Audit trail</p><h2>Company activity</h2></div></div><ol class="activity-list">{% for event in activity_events %}<li><span class="activity-list__marker"></span><div><strong>{{ event.summary }}</strong><span>{{ event.created_at|date:"M j, Y g:i A" }}</span></div></li>{% endfor %}</ol></section>{% endif %}
+{% endblock %}

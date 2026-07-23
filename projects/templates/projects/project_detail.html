@@ -18,10 +18,15 @@
         <h1>{{ project.name }}</h1>
         {% if project.description %}<p>{{ project.description }}</p>{% endif %}
     </div>
-    {% if can_invite_clients %}
-    <a class="btn btn-primary" href="{% url 'projects:invite_client' project.pk %}">
-        <i class="bi bi-person-plus"></i> Invite customer
-    </a>
+    {% if can_manage_project %}
+    <div class="button-row">
+        <a class="btn btn-outline-secondary" href="{% url 'projects:edit' project.pk %}">
+            <i class="bi bi-pencil"></i> Edit project
+        </a>
+        <a class="btn btn-primary" href="{% url 'projects:people' project.pk %}">
+            <i class="bi bi-people"></i> People &amp; access
+        </a>
+    </div>
     {% endif %}
 </section>
 
@@ -69,4 +74,20 @@
     </article>
     {% endif %}
 </section>
+
+{% if activity_events %}
+<section class="activity-panel">
+    <div class="section-heading">
+        <div><p class="eyebrow">Audit trail</p><h2>Recent activity</h2></div>
+    </div>
+    <ol class="activity-list">
+        {% for event in activity_events %}
+        <li>
+            <span class="activity-list__marker" aria-hidden="true"></span>
+            <div><strong>{{ event.summary }}</strong><span>{{ event.created_at|date:"M j, Y g:i A" }}</span></div>
+        </li>
+        {% endfor %}
+    </ol>
+</section>
+{% endif %}
 {% endblock %}

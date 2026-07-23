@@ -75,11 +75,12 @@ class ProjectInvitationTests(TestCase):
         response = self.client.post(
             self.invite_url(),
             {'email': 'CUSTOMER@EXAMPLE.COM'},
+            follow=True,
         )
 
         self.assertRedirects(
             response,
-            reverse('projects:detail', args=(self.project.pk,)),
+            reverse('projects:people', args=(self.project.pk,)),
         )
         invitation = ProjectInvitation.objects.get()
         self.assertEqual(invitation.email, 'customer@example.com')
@@ -87,6 +88,7 @@ class ProjectInvitationTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn(str(invitation.token), mail.outbox[0].body)
         self.assertIn(self.project.name, mail.outbox[0].subject)
+        self.assertContains(response, 'Invitation sent to customer@example.com.')
 
     def test_staff_can_send_client_invitation(self):
         self.client.force_login(self.staff_user)

@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% block title %}Accept team invitation | Construction Manager{% endblock %}
+{% block content %}<div class="auth-shell"><section class="auth-card auth-card--wide"><p class="eyebrow">{{ invitation.organization.name }}</p><h1>Join the company team</h1><p>You were invited as <strong>{{ invitation.get_role_display }}</strong>.</p>
+{% if authenticated_match %}<p>You are logged in as <strong>{{ user.email }}</strong>.</p><form method="post">{% csrf_token %}<button class="btn btn-primary w-100" type="submit">Accept team invitation</button></form>
+{% elif existing_user %}<p>An account already exists for <strong>{{ invitation.email }}</strong>.</p><a class="btn btn-primary w-100" href="{% url 'login' %}?next={% url 'projects:accept_team_invitation' invitation.token %}">Log in and continue</a>
+{% else %}<p>Create a password for <strong>{{ invitation.email }}</strong>.</p><form method="post" class="stacked-form">{% csrf_token %}{{ form.non_field_errors }}{% for field in form %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<div class="help-text">{{ field.help_text|safe }}</div>{% endif %}{{ field.errors }}</div>{% endfor %}<button class="btn btn-primary w-100" type="submit">Create account and join team</button></form>{% endif %}
+</section></div>{% endblock %}

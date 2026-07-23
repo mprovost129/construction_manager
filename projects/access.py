@@ -1,6 +1,15 @@
 from django.db.models import Q
 
-from .models import OrganizationMembership, Project
+from .models import (
+    Organization,
+    OrganizationMembership,
+    Project,
+)
+
+MANAGEMENT_ROLES = (
+    OrganizationMembership.Role.ADMIN,
+    OrganizationMembership.Role.STAFF,
+)
 
 
 def projects_for_user(user):
@@ -28,8 +37,34 @@ def organization_membership_for(user, organization):
     ).first()
 
 
-def can_invite_clients(user, project):
+def internal_organizations_for_user(user, *, management_only=False):
+    if not user.is_authenticated:
+        return Organization.objects.none()
+    if user.is_superuser:
+        return Organization.objects.all()
+    roles = MANAGEMENT_ROLES if management_only else OrganizationMembership.INTERNAL_ROLES
+    return Organization.objects.filter(
+        memberships__user=user,
+        memberships__is_active=True,
+        memberships__role__in=roles,
+    ).distinct()
+
+
+def can_manage_organization(user, organization):
+    if user.is_superuser:
+        return True
+    membership = organization_membership_for(user, organization)
+    return bool(
+        membership and membership.role == OrganizationMembership.Role.ADMIN
+    )
+
+
+def can_manage_project(user, project):
     if user.is_superuser:
         return True
     membership = organization_membership_for(user, project.organization)
-    return bool(membership and membership.can_invite_clients)
+    return bool(membership and membership.role in MANAGEMENT_ROLES)
+
+
+def can_invite_clients(user, project):
+    return can_manage_project(user, project)

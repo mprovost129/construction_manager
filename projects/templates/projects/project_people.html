@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+
+{% block title %}People & access | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb">
+    <a href="{% url 'core:home' %}">Projects</a><i class="bi bi-chevron-right"></i>
+    <a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i>
+    <span>People &amp; access</span>
+</nav>
+
+<section class="page-heading">
+    <div><p class="eyebrow">Project administration</p><h1>People &amp; access</h1><p class="text-secondary mb-0">Manage customer access and project invitations.</p></div>
+    <a class="btn btn-primary" href="{% url 'projects:invite_client' project.pk %}"><i class="bi bi-person-plus"></i> Invite customer</a>
+</section>
+
+<section class="admin-panel">
+    <div class="section-heading"><div><p class="eyebrow">Current access</p><h2>Customers</h2></div></div>
+    {% if project_memberships %}
+    <div class="table-responsive">
+        <table class="admin-table">
+            <thead><tr><th>Email</th><th>Role</th><th>Status</th><th class="text-end">Action</th></tr></thead>
+            <tbody>
+            {% for membership in project_memberships %}
+            <tr>
+                <td>{{ membership.user.email }}</td>
+                <td>{{ membership.get_role_display }}</td>
+                <td><span class="status-pill {% if membership.is_active %}status-pill--active{% endif %}">{% if membership.is_active %}Active{% else %}Revoked{% endif %}</span></td>
+                <td class="text-end">
+                    <form method="post" action="{% url 'projects:project_member_access' project.pk membership.pk membership.is_active|yesno:'revoke,restore' %}" class="inline-form">
+                        {% csrf_token %}<button class="btn btn-sm btn-outline-secondary" type="submit">{% if membership.is_active %}Revoke access{% else %}Restore access{% endif %}</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}<p class="empty-copy">No customers currently have access.</p>{% endif %}
+</section>
+
+<section class="admin-panel">
+    <div class="section-heading"><div><p class="eyebrow">Invitation history</p><h2>Customer invitations</h2></div></div>
+    {% if invitations %}
+    <div class="table-responsive">
+        <table class="admin-table">
+            <thead><tr><th>Email</th><th>Sent</th><th>Status</th><th class="text-end">Actions</th></tr></thead>
+            <tbody>
+            {% for invitation in invitations %}
+            <tr>
+                <td>{{ invitation.email }}</td><td>{{ invitation.created_at|date:"M j, Y" }}</td>
+                <td>{% if invitation.accepted_at %}<span class="status-pill status-pill--active">Accepted</span>{% elif invitation.revoked_at %}<span class="status-pill">Revoked</span>{% elif invitation.is_valid %}<span class="status-pill status-pill--active">Pending</span>{% else %}<span class="status-pill status-pill--on_hold">Expired</span>{% endif %}</td>
+                <td class="text-end">
+                    {% if not invitation.accepted_at %}
+                    <form method="post" action="{% url 'projects:resend_client_invitation' project.pk invitation.pk %}" class="inline-form">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" type="submit">Resend</button></form>
+                    {% if not invitation.revoked_at %}<form method="post" action="{% url 'projects:revoke_client_invitation' project.pk invitation.pk %}" class="inline-form">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit">Revoke</button></form>{% endif %}
+                    {% else %}<span class="text-secondary">Completed</span>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}<p class="empty-copy">No customer invitations have been sent.</p>{% endif %}
+</section>
+{% endblock %}

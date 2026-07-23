@@ -11,6 +11,11 @@
         <h1>Your projects</h1>
         <p class="text-secondary mb-0">Open a project to view its portal and activity.</p>
     </div>
+    {% if can_create_projects %}
+    <a class="btn btn-primary" href="{% url 'projects:create' %}">
+        <i class="bi bi-plus-lg"></i> New project
+    </a>
+    {% endif %}
 </section>
 
 {% if projects %}

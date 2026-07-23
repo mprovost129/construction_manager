@@ -2,7 +2,97 @@ from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import UserCreationForm
 
-from .models import ProjectInvitation
+from .models import (
+    OrganizationInvitation,
+    OrganizationMembership,
+    Project,
+    ProjectInvitation,
+)
+
+
+class ProjectForm(forms.ModelForm):
+    class Meta:
+        model = Project
+        fields = (
+            'organization',
+            'name',
+            'code',
+            'description',
+            'status',
+            'start_date',
+            'target_completion_date',
+        )
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 4}),
+            'start_date': forms.DateInput(attrs={'type': 'date'}),
+            'target_completion_date': forms.DateInput(attrs={'type': 'date'}),
+        }
+
+    def __init__(self, *args, organizations, lock_organization=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['organization'].queryset = organizations
+        self.fields['organization'].disabled = lock_organization
+
+
+class TeamInvitationForm(forms.ModelForm):
+    class Meta:
+        model = OrganizationInvitation
+        fields = ('email', 'role')
+        widgets = {
+            'email': forms.EmailInput(
+                attrs={'autocomplete': 'email', 'placeholder': 'team@example.com'}
+            ),
+        }
+
+    def __init__(self, *args, organization, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.organization = organization
+        self.expired_invitation = None
+
+    def clean_email(self):
+        email = self.cleaned_data['email'].strip().lower()
+        user = get_user_model().objects.filter(email__iexact=email).first()
+        if user and self.organization.memberships.filter(
+            user=user,
+            role__in=OrganizationMembership.INTERNAL_ROLES,
+            is_active=True,
+        ).exists():
+            raise forms.ValidationError('This person is already an active team member.')
+        pending = self.organization.team_invitations.filter(
+            email__iexact=email,
+            accepted_at__isnull=True,
+            revoked_at__isnull=True,
+        ).first()
+        if pending:
+            if pending.is_valid:
+                raise forms.ValidationError(
+                    'A pending team invitation already exists for this email.'
+                )
+            self.expired_invitation = pending
+        return email
+
+
+class TeamMembershipForm(forms.ModelForm):
+    role = forms.ChoiceField(
+        choices=(
+            (
+                OrganizationMembership.Role.ADMIN,
+                OrganizationMembership.Role.ADMIN.label,
+            ),
+            (
+                OrganizationMembership.Role.STAFF,
+                OrganizationMembership.Role.STAFF.label,
+            ),
+            (
+                OrganizationMembership.Role.ACCOUNTANT,
+                OrganizationMembership.Role.ACCOUNTANT.label,
+            ),
+        )
+    )
+
+    class Meta:
+        model = OrganizationMembership
+        fields = ('role', 'is_active')
 
 
 class ClientInvitationForm(forms.ModelForm):

@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if project %}Edit {{ project.name }}{% else %}New project{% endif %} | Construction Manager{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb">
+    <a href="{% url 'core:home' %}">Projects</a>
+    <i class="bi bi-chevron-right"></i>
+    <span>{% if project %}Edit {{ project.name }}{% else %}New project{% endif %}</span>
+</nav>
+
+<div class="form-shell form-shell--top">
+    <section class="form-card form-card--wide">
+        <p class="eyebrow">Project administration</p>
+        <h1>{% if project %}Edit project{% else %}Create a project{% endif %}</h1>
+        <form method="post" class="stacked-form">
+            {% csrf_token %}
+            {{ form.non_field_errors }}
+            <div class="form-grid">
+                {% for field in form %}
+                <div class="form-field{% if field.name == 'description' %} form-field--wide{% endif %}">
+                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.help_text %}<div class="help-text">{{ field.help_text }}</div>{% endif %}
+                    {{ field.errors }}
+                </div>
+                {% endfor %}
+            </div>
+            <div class="form-actions">
+                <a class="btn btn-outline-secondary" href="{% if project %}{% url 'projects:detail' project.pk %}{% else %}{% url 'core:home' %}{% endif %}">Cancel</a>
+                <button type="submit" class="btn btn-primary">{% if project %}Save changes{% else %}Create project{% endif %}</button>
+            </div>
+        </form>
+    </section>
+</div>
+{% endblock %}

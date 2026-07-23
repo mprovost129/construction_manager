@@ -1,0 +1,21 @@
+<header class="app-header">
+    <nav class="app-nav" aria-label="Primary navigation">
+        <a class="app-brand" href="{% url 'core:home' %}">
+            <span class="app-brand__mark" aria-hidden="true"><i class="bi bi-buildings"></i></span>
+            <span>Construction Manager</span>
+        </a>
+        <a class="app-nav__link" href="{% url 'core:home' %}">Projects</a>
+        {% if has_internal_access %}
+            <a class="app-nav__link" href="{% url 'projects:company_list' %}">Company</a>
+        {% endif %}
+        {% if user.is_authenticated %}
+            <span class="app-nav__identity">{{ user.email }}</span>
+            <form method="post" action="{% url 'logout' %}" class="app-nav__logout">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-light">Log out</button>
+            </form>
+        {% else %}
+            <a class="btn btn-sm btn-light" href="{% url 'login' %}">Log in</a>
+        {% endif %}
+    </nav>
+</header>

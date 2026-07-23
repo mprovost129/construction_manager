@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block title %}Invite team member | {{ organization.name }}{% endblock %}
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:company_team' organization.slug %}">{{ organization.name }}</a><i class="bi bi-chevron-right"></i><span>Invite team member</span></nav>
+<div class="form-shell"><section class="form-card"><p class="eyebrow">Company access</p><h1>Invite a team member</h1><p class="text-secondary">Choose the internal role they should receive after accepting.</p><form method="post" class="stacked-form">{% csrf_token %}{{ form.non_field_errors }}{% for field in form %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}<div class="form-actions"><a class="btn btn-outline-secondary" href="{% url 'projects:company_team' organization.slug %}">Cancel</a><button class="btn btn-primary" type="submit">Send invitation</button></div></form></section></div>
+{% endblock %}

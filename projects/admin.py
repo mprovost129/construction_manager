@@ -1,7 +1,9 @@
 from django.contrib import admin
 
 from .models import (
+    ActivityEvent,
     Organization,
+    OrganizationInvitation,
     OrganizationMembership,
     Project,
     ProjectInvitation,
@@ -55,3 +57,36 @@ class ProjectInvitationAdmin(admin.ModelAdmin):
     list_filter = ('role', 'project__organization', 'accepted_at', 'revoked_at')
     search_fields = ('email', 'project__name')
     readonly_fields = ('token', 'created_at', 'accepted_at')
+
+
+@admin.register(OrganizationInvitation)
+class OrganizationInvitationAdmin(admin.ModelAdmin):
+    list_display = ('email', 'organization', 'role', 'created_at', 'accepted_at')
+    list_filter = ('role', 'organization', 'accepted_at', 'revoked_at')
+    search_fields = ('email', 'organization__name')
+    readonly_fields = ('token', 'created_at', 'accepted_at')
+
+
+@admin.register(ActivityEvent)
+class ActivityEventAdmin(admin.ModelAdmin):
+    list_display = ('created_at', 'organization', 'project', 'event_type', 'actor')
+    list_filter = ('event_type', 'organization')
+    search_fields = ('summary', 'actor__email', 'project__name')
+    readonly_fields = (
+        'organization',
+        'project',
+        'actor',
+        'event_type',
+        'summary',
+        'metadata',
+        'created_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

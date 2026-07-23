@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Company | Construction Manager{% endblock %}
+{% block content %}
+<section class="page-heading"><div><p class="eyebrow">Administration</p><h1>Company</h1><p class="text-secondary mb-0">Manage team access and company activity.</p></div></section>
+<div class="project-grid">
+{% for organization in organizations %}
+<a class="project-card" href="{% url 'projects:company_team' organization.slug %}">
+    <div class="project-card__topline"><span>Company workspace</span></div>
+    <h2>{{ organization.name }}</h2>
+    <span class="project-card__action">Manage team <i class="bi bi-arrow-right"></i></span>
+</a>
+{% empty %}<div class="empty-state"><h2>No company access</h2><p>You do not have an internal company role.</p></div>{% endfor %}
+</div>
+{% endblock %}
