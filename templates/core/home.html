@@ -149,6 +149,43 @@
     {% endif %}
 </div>
 {% endif %}
+
+{% if show_portfolio_activity %}
+<section class="activity-panel portfolio-activity" aria-labelledby="portfolio-activity-heading">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Audit trail</p>
+            <h2 id="portfolio-activity-heading">Recent project activity</h2>
+        </div>
+        <span class="muted-label">Last 12 events</span>
+    </div>
+    {% if recent_activity_events %}
+    <ol class="activity-list">
+        {% for event in recent_activity_events %}
+        <li>
+            <span class="activity-list__marker" aria-hidden="true"></span>
+            <a class="activity-list__link" href="{% url 'projects:detail' event.project.pk %}">
+                <span class="activity-list__context">
+                    <strong>{{ event.project.name }}</strong>
+                    <span>{{ event.get_event_type_display }}</span>
+                </span>
+                <strong>{{ event.summary }}</strong>
+                <span>{{ event.created_at|date:"M j, Y g:i A" }}</span>
+            </a>
+        </li>
+        {% endfor %}
+    </ol>
+    {% else %}
+    <div class="action-clear action-clear--compact">
+        <i class="bi bi-clock-history" aria-hidden="true"></i>
+        <div>
+            <h3>No project activity yet</h3>
+            <p>Project changes and client decisions will appear here as they happen.</p>
+        </div>
+    </div>
+    {% endif %}
+</section>
+{% endif %}
 {% else %}
 <section class="landing-hero">
     <p class="eyebrow">Built for clear project decisions</p>

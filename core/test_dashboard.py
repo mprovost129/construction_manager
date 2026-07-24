@@ -9,6 +9,7 @@ from django.utils import timezone
 from projects.access import projects_for_user
 from projects.action_center import build_portfolio_action_center
 from projects.models import (
+    ActivityEvent,
     ChangeOrder,
     ConversationThread,
     FinishSelection,
@@ -244,7 +245,9 @@ class PortfolioDashboardTests(TestCase):
             response = self.client.get(reverse('core:home'))
             self.assertEqual(response.status_code, 200)
             self.assertNotIn('portfolio_action_center', response.context)
+            self.assertNotIn('recent_activity_events', response.context)
             self.assertNotContains(response, 'Action overview')
+            self.assertNotContains(response, 'Recent project activity')
             self.assertContains(response, 'Oak Street')
 
         self.client.force_login(self.subcontractor)
@@ -260,6 +263,88 @@ class PortfolioDashboardTests(TestCase):
         self.assertEqual(portfolio['conversation_count'], 0)
         self.assertContains(response, 'Everything is caught up')
         self.assertContains(response, 'Caught up')
+
+    def test_clients_cannot_see_portfolio_activity(self):
+        ActivityEvent.objects.create(
+            organization=self.organization,
+            project=self.priority_project,
+            actor=self.staff_user,
+            event_type=ActivityEvent.Type.PROJECT_UPDATED,
+            summary='Internal project activity.',
+        )
+        self.client.force_login(self.client_user)
+        response = self.client.get(reverse('core:home'))
+
+        self.assertNotIn('recent_activity_events', response.context)
+        self.assertNotContains(response, 'Recent project activity')
+        self.assertNotContains(response, 'Internal project activity.')
+
+    def test_staff_activity_feed_is_ordered_scoped_and_linked(self):
+        older_event = ActivityEvent.objects.create(
+            organization=self.organization,
+            project=self.priority_project,
+            actor=self.staff_user,
+            event_type=ActivityEvent.Type.PROJECT_CREATED,
+            summary='Oak Street was created.',
+        )
+        newer_event = ActivityEvent.objects.create(
+            organization=self.organization,
+            project=self.clear_project,
+            actor=self.staff_user,
+            event_type=ActivityEvent.Type.PROJECT_UPDATED,
+            summary='Pine Street was updated.',
+        )
+        ActivityEvent.objects.create(
+            organization=self.hidden_project.organization,
+            project=self.hidden_project,
+            actor=self.staff_user,
+            event_type=ActivityEvent.Type.PROJECT_UPDATED,
+            summary='Hidden activity must not appear.',
+        )
+        ActivityEvent.objects.create(
+            organization=self.organization,
+            actor=self.staff_user,
+            event_type=ActivityEvent.Type.TEAM_ROLE_CHANGED,
+            summary='Company-only activity is not project activity.',
+        )
+
+        self.client.force_login(self.staff_user)
+        response = self.client.get(reverse('core:home'))
+
+        events = response.context['recent_activity_events']
+        self.assertEqual(events, [newer_event, older_event])
+        self.assertContains(response, 'Recent project activity')
+        self.assertContains(response, 'Pine Street was updated.')
+        self.assertContains(response, 'Oak Street was created.')
+        self.assertContains(
+            response,
+            reverse('projects:detail', args=(self.clear_project.pk,)),
+        )
+        self.assertNotContains(response, 'Hidden activity must not appear.')
+        self.assertNotContains(
+            response,
+            'Company-only activity is not project activity.',
+        )
+
+    def test_staff_activity_feed_has_empty_state_and_twelve_event_limit(self):
+        self.client.force_login(self.staff_user)
+        empty_response = self.client.get(reverse('core:home'))
+        self.assertContains(empty_response, 'No project activity yet')
+
+        for number in range(1, 16):
+            ActivityEvent.objects.create(
+                organization=self.organization,
+                project=self.priority_project,
+                actor=self.staff_user,
+                event_type=ActivityEvent.Type.PROJECT_UPDATED,
+                summary=f'Scale activity {number:02d}.',
+            )
+        response = self.client.get(reverse('core:home'))
+
+        self.assertEqual(len(response.context['recent_activity_events']), 12)
+        self.assertContains(response, 'Scale activity 15.')
+        self.assertNotContains(response, 'Scale activity 01.')
+        self.assertContains(response, 'Last 12 events')
 
     def test_project_search_filters_cards_without_changing_portfolio_totals(self):
         self.client.force_login(self.staff_user)

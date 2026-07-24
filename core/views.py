@@ -2,7 +2,7 @@ from django.views.generic import TemplateView
 
 from projects.access import projects_for_user
 from projects.action_center import build_portfolio_action_center
-from projects.models import Project
+from projects.models import ActivityEvent, Project
 
 
 class HomeView(TemplateView):
@@ -60,4 +60,19 @@ class HomeView(TemplateView):
                 context['portfolio_action_center'] = portfolio
                 for summary in portfolio['project_summaries']:
                     summary['project'].home_action_summary = summary
+                internal_project_ids = [
+                    summary['project'].pk
+                    for summary in portfolio['project_summaries']
+                    if not summary['viewer_is_client']
+                ]
+                if internal_project_ids:
+                    context['show_portfolio_activity'] = True
+                    context['recent_activity_events'] = list(
+                        ActivityEvent.objects.filter(
+                            project_id__in=internal_project_ids
+                        ).select_related(
+                            'actor',
+                            'project__organization',
+                        )[:12]
+                    )
         return context
