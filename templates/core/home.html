@@ -157,7 +157,7 @@
             <p class="eyebrow">Audit trail</p>
             <h2 id="portfolio-activity-heading">Recent project activity</h2>
         </div>
-        <span class="muted-label">Last 12 events</span>
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:activity_list' %}">View all activity</a>
     </div>
     {% if recent_activity_events %}
     <ol class="activity-list">

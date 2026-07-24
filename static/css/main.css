@@ -599,6 +599,19 @@ input:focus {
 .activity-list__context strong { font-size: 0.75rem; }
 .activity-list__context span { color: var(--color-muted); font-size: 0.7rem; }
 .portfolio-activity { margin-top: 1.5rem; }
+.activity-panel--standalone { margin-top: 0; }
+
+.pagination-bar {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 1rem;
+    color: var(--color-muted);
+    font-size: 0.8rem;
+}
+
+.pagination-bar > div { display: flex; gap: 0.5rem; }
 
 .thread-list {
     display: grid;

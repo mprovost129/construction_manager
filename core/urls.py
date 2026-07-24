@@ -6,4 +6,9 @@ app_name = 'core'
 
 urlpatterns = [
     path('', views.HomeView.as_view(), name='home'),
+    path(
+        'activity/',
+        views.ProjectActivityListView.as_view(),
+        name='activity_list',
+    ),
 ]

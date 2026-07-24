@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+
+{% block title %}Project Activity | Construction Manager{% endblock %}
+{% block meta_description %}Review recent activity across authorized construction projects.{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb">
+    <a href="{% url 'core:home' %}">Projects</a>
+    <i class="bi bi-chevron-right" aria-hidden="true"></i>
+    <span>Activity</span>
+</nav>
+
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">Audit trail</p>
+        <h1>Project activity</h1>
+        <p class="text-secondary mb-0">Review recorded changes and client decisions across the projects you manage.</p>
+    </div>
+</section>
+
+<section class="project-filter-bar" aria-label="Filter project activity">
+    <form method="get" class="project-filter-form" role="search">
+        <label class="visually-hidden" for="activity-search">Search activity</label>
+        <div class="project-filter-form__search">
+            <i class="bi bi-search" aria-hidden="true"></i>
+            <input id="activity-search" type="search" name="q" value="{{ activity_search }}" placeholder="Search activity, project, code, or email">
+        </div>
+        <label class="visually-hidden" for="activity-project">Project</label>
+        <select id="activity-project" name="project">
+            <option value="">All projects</option>
+            {% for project in projects %}
+            <option value="{{ project.pk }}"{% if activity_project == project.pk %} selected{% endif %}>{{ project.name }}</option>
+            {% endfor %}
+        </select>
+        <label class="visually-hidden" for="activity-type">Event type</label>
+        <select id="activity-type" name="type">
+            <option value="">All event types</option>
+            {% for value, label in activity_type_choices %}
+            <option value="{{ value }}"{% if activity_type == value %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-outline-secondary" type="submit">Filter</button>
+        {% if has_activity_filters %}<a class="btn btn-link" href="{% url 'core:activity_list' %}">Clear</a>{% endif %}
+    </form>
+    <p>{{ page_obj.paginator.count }} event{{ page_obj.paginator.count|pluralize }}</p>
+</section>
+
+<section class="activity-panel activity-panel--standalone" aria-labelledby="activity-results-heading">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Results</p>
+            <h2 id="activity-results-heading">Recorded project events</h2>
+        </div>
+    </div>
+    {% if activity_events %}
+    <ol class="activity-list">
+        {% for event in activity_events %}
+        <li>
+            <span class="activity-list__marker" aria-hidden="true"></span>
+            <a class="activity-list__link" href="{% url 'projects:detail' event.project.pk %}">
+                <span class="activity-list__context">
+                    <strong>{{ event.project.name }}</strong>
+                    <span>{{ event.get_event_type_display }}</span>
+                </span>
+                <strong>{{ event.summary }}</strong>
+                <span>{{ event.created_at|date:"M j, Y g:i A" }}</span>
+            </a>
+        </li>
+        {% endfor %}
+    </ol>
+    {% else %}
+    <div class="action-clear action-clear--compact">
+        <i class="bi bi-search" aria-hidden="true"></i>
+        <div>
+            <h3>{% if has_activity_filters %}No activity matches these filters{% else %}No project activity yet{% endif %}</h3>
+            <p>{% if has_activity_filters %}Try a different project, event type, or search term.{% else %}Project changes and client decisions will appear here as they happen.{% endif %}</p>
+        </div>
+    </div>
+    {% endif %}
+</section>
+
+{% if page_obj.paginator.num_pages > 1 %}
+<nav class="pagination-bar" aria-label="Activity pages">
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    <div>
+        {% if page_obj.has_previous %}
+        <a class="btn btn-sm btn-outline-secondary" href="?{% if activity_querystring %}{{ activity_querystring }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">Previous</a>
+        {% endif %}
+        {% if page_obj.has_next %}
+        <a class="btn btn-sm btn-outline-secondary" href="?{% if activity_querystring %}{{ activity_querystring }}&amp;{% endif %}page={{ page_obj.next_page_number }}">Next</a>
+        {% endif %}
+    </div>
+</nav>
+{% endif %}
+{% endblock %}

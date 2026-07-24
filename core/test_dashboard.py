@@ -344,7 +344,7 @@ class PortfolioDashboardTests(TestCase):
         self.assertEqual(len(response.context['recent_activity_events']), 12)
         self.assertContains(response, 'Scale activity 15.')
         self.assertNotContains(response, 'Scale activity 01.')
-        self.assertContains(response, 'Last 12 events')
+        self.assertContains(response, 'View all activity')
 
     def test_project_search_filters_cards_without_changing_portfolio_totals(self):
         self.client.force_login(self.staff_user)
