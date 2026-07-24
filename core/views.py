@@ -1,6 +1,13 @@
+import csv
+from datetime import date
+from urllib.parse import urlencode
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q
+from django.http import StreamingHttpResponse
+from django.utils import timezone
+from django.views import View
 from django.views.generic import ListView, TemplateView
 
 from projects.access import internal_organizations_for_user, projects_for_user
@@ -90,11 +97,7 @@ class HomeView(TemplateView):
         return context
 
 
-class ProjectActivityListView(LoginRequiredMixin, ListView):
-    template_name = 'core/activity_list.html'
-    context_object_name = 'activity_events'
-    paginate_by = 25
-
+class ProjectActivityAccessMixin(LoginRequiredMixin):
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
             return super().dispatch(request, *args, **kwargs)
@@ -114,10 +117,13 @@ class ProjectActivityListView(LoginRequiredMixin, ListView):
         self.project_ids = {project.pk for project in self.projects}
         self.activity_search = request.GET.get('q', '').strip()[:100]
         requested_project = request.GET.get('project', '').strip()
+        try:
+            requested_project_id = int(requested_project)
+        except ValueError:
+            requested_project_id = None
         self.activity_project = (
-            int(requested_project)
-            if requested_project.isdigit()
-            and int(requested_project) in self.project_ids
+            requested_project_id
+            if requested_project_id in self.project_ids
             else None
         )
         requested_type = request.GET.get('type', '').strip()
@@ -126,9 +132,22 @@ class ProjectActivityListView(LoginRequiredMixin, ListView):
             if requested_type in PROJECT_ACTIVITY_TYPE_VALUES
             else ''
         )
+        self.activity_from_date = self.parse_date(
+            request.GET.get('from', '').strip()
+        )
+        self.activity_to_date = self.parse_date(
+            request.GET.get('to', '').strip()
+        )
         return super().dispatch(request, *args, **kwargs)
 
-    def get_queryset(self):
+    @staticmethod
+    def parse_date(value):
+        try:
+            return date.fromisoformat(value) if value else None
+        except ValueError:
+            return None
+
+    def get_activity_queryset(self):
         queryset = ActivityEvent.objects.filter(
             project_id__in=self.project_ids,
             event_type__in=PROJECT_ACTIVITY_TYPE_VALUES,
@@ -147,25 +166,123 @@ class ProjectActivityListView(LoginRequiredMixin, ListView):
             queryset = queryset.filter(project_id=self.activity_project)
         if self.activity_type:
             queryset = queryset.filter(event_type=self.activity_type)
+        if self.activity_from_date:
+            queryset = queryset.filter(
+                created_at__date__gte=self.activity_from_date
+            )
+        if self.activity_to_date:
+            queryset = queryset.filter(
+                created_at__date__lte=self.activity_to_date
+            )
         return queryset
+
+    @property
+    def has_activity_filters(self):
+        return bool(
+            self.activity_search
+            or self.activity_project
+            or self.activity_type
+            or self.activity_from_date
+            or self.activity_to_date
+        )
+
+    @property
+    def activity_querystring(self):
+        parameters = []
+        if self.activity_search:
+            parameters.append(('q', self.activity_search))
+        if self.activity_project:
+            parameters.append(('project', self.activity_project))
+        if self.activity_type:
+            parameters.append(('type', self.activity_type))
+        if self.activity_from_date:
+            parameters.append(('from', self.activity_from_date.isoformat()))
+        if self.activity_to_date:
+            parameters.append(('to', self.activity_to_date.isoformat()))
+        return urlencode(parameters)
+
+    def activity_context(self):
+        return {
+            'projects': self.projects,
+            'activity_search': self.activity_search,
+            'activity_project': self.activity_project,
+            'activity_type': self.activity_type,
+            'activity_from_date': self.activity_from_date,
+            'activity_to_date': self.activity_to_date,
+            'activity_type_choices': PROJECT_ACTIVITY_TYPE_CHOICES,
+            'has_activity_filters': self.has_activity_filters,
+            'activity_querystring': self.activity_querystring,
+        }
+
+
+class ProjectActivityListView(ProjectActivityAccessMixin, ListView):
+    template_name = 'core/activity_list.html'
+    context_object_name = 'activity_events'
+    paginate_by = 25
+
+    def get_queryset(self):
+        return self.get_activity_queryset()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        query_parameters = self.request.GET.copy()
-        query_parameters.pop('page', None)
-        context.update(
-            {
-                'projects': self.projects,
-                'activity_search': self.activity_search,
-                'activity_project': self.activity_project,
-                'activity_type': self.activity_type,
-                'activity_type_choices': PROJECT_ACTIVITY_TYPE_CHOICES,
-                'has_activity_filters': bool(
-                    self.activity_search
-                    or self.activity_project
-                    or self.activity_type
-                ),
-                'activity_querystring': query_parameters.urlencode(),
-            }
-        )
+        context.update(self.activity_context())
         return context
+
+
+class CSVBuffer:
+    def write(self, value):
+        return value
+
+
+def spreadsheet_safe(value):
+    text = '' if value is None else str(value)
+    stripped = text.lstrip()
+    if stripped.startswith(('=', '+', '-', '@')) or text.startswith(
+        ('\t', '\r', '\n')
+    ):
+        return f"'{text}"
+    return text
+
+
+class ProjectActivityExportView(ProjectActivityAccessMixin, View):
+    def get(self, request, *args, **kwargs):
+        writer = csv.writer(CSVBuffer(), lineterminator='\r\n')
+
+        def rows():
+            yield writer.writerow(
+                (
+                    'Timestamp',
+                    'Company',
+                    'Project',
+                    'Project code',
+                    'Event type',
+                    'Event label',
+                    'Summary',
+                    'Actor email',
+                )
+            )
+            events = self.get_activity_queryset().iterator(chunk_size=1000)
+            for event in events:
+                yield writer.writerow(
+                    tuple(
+                        spreadsheet_safe(value)
+                        for value in (
+                            timezone.localtime(event.created_at).isoformat(),
+                            event.project.organization.name,
+                            event.project.name,
+                            event.project.code,
+                            event.event_type,
+                            event.get_event_type_display(),
+                            event.summary,
+                            event.actor.email if event.actor else '',
+                        )
+                    )
+                )
+
+        response = StreamingHttpResponse(
+            rows(),
+            content_type='text/csv; charset=utf-8',
+        )
+        filename = f'project-activity-{timezone.localdate().isoformat()}.csv'
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response

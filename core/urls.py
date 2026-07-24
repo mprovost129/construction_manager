@@ -11,4 +11,9 @@ urlpatterns = [
         views.ProjectActivityListView.as_view(),
         name='activity_list',
     ),
+    path(
+        'activity/export.csv',
+        views.ProjectActivityExportView.as_view(),
+        name='activity_export',
+    ),
 ]
