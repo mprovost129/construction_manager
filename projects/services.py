@@ -361,6 +361,39 @@ def send_selection_voided_notification(request, selection):
     )
 
 
+def send_schedule_milestone_notification(request, milestone, *, withdrawn=False):
+    recipients = document_client_recipients(milestone.project)
+    if not recipients:
+        return 0
+    schedule_url = request.build_absolute_uri(
+        reverse('projects:schedule', args=(milestone.project_id,))
+    )
+    if withdrawn:
+        subject = f'Schedule updated - {milestone.project.name}'
+        body = (
+            f'The previously shared milestone "{milestone.title}" is no longer '
+            'shown on the client schedule.\n\n'
+            f'View the current schedule: {schedule_url}'
+        )
+    else:
+        date_copy = f'Starts: {milestone.start_date:%B %d, %Y}'
+        if milestone.end_date:
+            date_copy += f'\nEnds: {milestone.end_date:%B %d, %Y}'
+        subject = f'Schedule update - {milestone.project.name}: {milestone.title}'
+        body = (
+            f'{milestone.title} was added or updated on the client schedule for '
+            f'{milestone.project.name}.\n\n'
+            f'{date_copy}\nStatus: {milestone.get_status_display()}\n\n'
+            f'View the schedule: {schedule_url}'
+        )
+    return send_mail(
+        subject=subject,
+        message=body,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=recipients,
+    )
+
+
 @transaction.atomic
 def accept_project_invitation(invitation, user):
     invitation = ProjectInvitation.objects.select_for_update().select_related(

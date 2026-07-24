@@ -368,6 +368,14 @@ class ActivityEvent(models.Model):
         SELECTION_PUBLISHED = 'selection_published', 'Selection published'
         SELECTION_CHOSEN = 'selection_chosen', 'Selection chosen'
         SELECTION_VOIDED = 'selection_voided', 'Selection voided'
+        SCHEDULE_MILESTONE_CREATED = (
+            'schedule_milestone_created',
+            'Schedule milestone created',
+        )
+        SCHEDULE_MILESTONE_UPDATED = (
+            'schedule_milestone_updated',
+            'Schedule milestone updated',
+        )
 
     organization = models.ForeignKey(
         Organization,
@@ -961,3 +969,60 @@ class SelectionOption(models.Model):
 
     def __str__(self):
         return f'{self.selection.display_number}: {self.name}'
+
+
+class ScheduleMilestone(models.Model):
+    class Status(models.TextChoices):
+        PLANNED = 'planned', 'Planned'
+        IN_PROGRESS = 'in_progress', 'In progress'
+        DELAYED = 'delayed', 'Delayed'
+        COMPLETED = 'completed', 'Completed'
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='schedule_milestones',
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    start_date = models.DateField()
+    end_date = models.DateField(blank=True, null=True)
+    status = models.CharField(
+        max_length=15,
+        choices=Status.choices,
+        default=Status.PLANNED,
+    )
+    client_visible = models.BooleanField(default=True)
+    internal_notes = models.TextField(blank=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='schedule_milestones_created',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('start_date', 'sort_order', 'pk')
+
+    @property
+    def effective_end_date(self):
+        return self.end_date or self.start_date
+
+    def clean(self):
+        super().clean()
+        self.title = self.title.strip()
+        self.description = self.description.strip()
+        self.internal_notes = self.internal_notes.strip()
+        errors = {}
+        if not self.title:
+            errors['title'] = 'Title cannot be blank.'
+        if self.end_date and self.start_date and self.end_date < self.start_date:
+            errors['end_date'] = 'End date cannot be before the start date.'
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f'{self.project}: {self.title}'

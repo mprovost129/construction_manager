@@ -61,11 +61,11 @@
         <div><h2>Selections</h2><p>Finish options, allowances, and customer choices.</p></div>
         <span>Open selections <i class="bi bi-arrow-right"></i></span>
     </a>{% endif %}
-    <article class="module-card">
+    {% if can_use_schedule %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:schedule' project.pk %}">
         <i class="bi bi-calendar3"></i>
         <div><h2>Schedule</h2><p>Milestones and customer-visible dates.</p></div>
-        <span>Coming next</span>
-    </article>
+        <span>Open schedule <i class="bi bi-arrow-right"></i></span>
+    </a>{% endif %}
     {% if can_view_project_financials %}
     <article class="module-card">
         <i class="bi bi-graph-up-arrow"></i>

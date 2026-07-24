@@ -15,6 +15,7 @@ from .models import (
     Project,
     ProjectDocument,
     ProjectInvitation,
+    ScheduleMilestone,
     SelectionOption,
 )
 
@@ -191,6 +192,41 @@ class SelectionDecisionForm(forms.Form):
     def __init__(self, *args, selection, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['option'].queryset = selection.options.all()
+
+
+class ScheduleMilestoneForm(forms.ModelForm):
+    notify_clients = forms.BooleanField(
+        required=False,
+        initial=True,
+        help_text='Send active project clients an email about this schedule update.',
+    )
+
+    class Meta:
+        model = ScheduleMilestone
+        fields = (
+            'title',
+            'description',
+            'start_date',
+            'end_date',
+            'status',
+            'client_visible',
+            'internal_notes',
+            'sort_order',
+        )
+        labels = {
+            'client_visible': 'Show in client portal',
+            'sort_order': 'Display order for the same start date',
+        }
+        help_texts = {
+            'description': 'Shown to clients when this milestone is visible.',
+            'internal_notes': 'Internal only and never shown to clients.',
+        }
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 4}),
+            'start_date': forms.DateInput(attrs={'type': 'date'}),
+            'end_date': forms.DateInput(attrs={'type': 'date'}),
+            'internal_notes': forms.Textarea(attrs={'rows': 4}),
+        }
 
 
 class ConversationThreadForm(forms.Form):

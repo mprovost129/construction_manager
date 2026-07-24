@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if milestone %}Edit {{ milestone.title }}{% else %}Add milestone{% endif %} | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:schedule' project.pk %}">Schedule</a><i class="bi bi-chevron-right"></i><span>{% if milestone %}Edit milestone{% else %}Add milestone{% endif %}</span></nav>
+<div class="form-shell form-shell--top"><section class="form-card form-card--wide"><p class="eyebrow">Project schedule</p><h1>{% if milestone %}Edit {{ milestone.title }}{% else %}Add a milestone{% endif %}</h1><p class="text-secondary">Client-visible milestones show the description, dates, and status. Internal notes remain company-only.</p><form method="post" class="stacked-form">{% csrf_token %}{{ form.non_field_errors }}<div class="form-grid">{% for field in form %}<div class="form-field{% if field.name == 'description' or field.name == 'internal_notes' %} form-field--wide{% endif %}{% if field.field.widget.input_type == 'checkbox' %} form-field--checkbox{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<div class="help-text">{{ field.help_text }}</div>{% endif %}{{ field.errors }}</div>{% endfor %}</div><div class="form-actions"><a class="btn btn-outline-secondary" href="{% url 'projects:schedule' project.pk %}">Cancel</a><button class="btn btn-primary" type="submit">Save milestone</button></div></form></section></div>
+{% endblock %}

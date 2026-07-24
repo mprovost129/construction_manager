@@ -107,3 +107,7 @@ def can_use_change_orders(user, project):
 
 def can_use_selections(user, project):
     return can_use_project_messaging(user, project)
+
+
+def can_use_schedule(user, project):
+    return can_use_project_messaging(user, project)

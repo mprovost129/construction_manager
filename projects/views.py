@@ -20,6 +20,7 @@ from .access import (
     can_use_change_orders,
     can_use_project_documents,
     can_use_project_messaging,
+    can_use_schedule,
     can_use_selections,
     internal_organizations_for_user,
     is_project_client,
@@ -38,6 +39,7 @@ from .forms import (
     ProjectDocumentCreateForm,
     ProjectDocumentVersionForm,
     ProjectForm,
+    ScheduleMilestoneForm,
     SelectionDecisionForm,
     SelectionOptionForm,
     TeamInvitationForm,
@@ -58,6 +60,7 @@ from .models import (
     ProjectDocumentVersion,
     ProjectInvitation,
     ProjectMembership,
+    ScheduleMilestone,
     SelectionOption,
 )
 from .services import (
@@ -72,6 +75,7 @@ from .services import (
     send_document_decision_notification,
     send_message_notifications,
     send_project_invitation,
+    send_schedule_milestone_notification,
     send_selection_chosen_notification,
     send_selection_review_notification,
     send_selection_voided_notification,
@@ -150,6 +154,16 @@ def visible_selection_or_404(user, project, selection_pk):
     return get_object_or_404(queryset, pk=selection_pk)
 
 
+def schedule_project_or_404(user, pk):
+    project = get_object_or_404(
+        projects_for_user(user).select_related('organization'),
+        pk=pk,
+    )
+    if not can_use_schedule(user, project):
+        raise PermissionDenied('You cannot access the project schedule.')
+    return project
+
+
 def internal_organization_or_404(user, slug):
     return get_object_or_404(internal_organizations_for_user(user), slug=slug)
 
@@ -202,6 +216,9 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
                     self.request.user, self.object
                 ),
                 'can_use_selections': can_use_selections(
+                    self.request.user, self.object
+                ),
+                'can_use_schedule': can_use_schedule(
                     self.request.user, self.object
                 ),
                 'can_view_project_financials': bool(
@@ -1488,6 +1505,141 @@ class FinishSelectionVoidView(LoginRequiredMixin, View):
         return redirect(
             'projects:selection_detail', pk=project.pk, selection_pk=selection.pk
         )
+
+
+class ProjectScheduleView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/schedule.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = schedule_project_or_404(request.user, kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        milestones = self.project.schedule_milestones.all()
+        if is_project_client(self.request.user, self.project):
+            milestones = milestones.filter(client_visible=True)
+        context.update(
+            {
+                'project': self.project,
+                'milestones': milestones,
+                'can_manage_project': can_manage_project(
+                    self.request.user, self.project
+                ),
+            }
+        )
+        return context
+
+
+class ScheduleMilestoneCreateView(LoginRequiredMixin, FormView):
+    form_class = ScheduleMilestoneForm
+    template_name = 'projects/schedule_milestone_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({'project': self.project, 'milestone': None})
+        return context
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            milestone = form.save(commit=False)
+            milestone.project = self.project
+            milestone.created_by = self.request.user
+            milestone.full_clean()
+            milestone.save()
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.SCHEDULE_MILESTONE_CREATED,
+                summary=(
+                    f'{self.request.user.email} created the schedule milestone '
+                    f'"{milestone.title}".'
+                ),
+                metadata={
+                    'milestone_id': milestone.pk,
+                    'start_date': milestone.start_date.isoformat(),
+                    'end_date': (
+                        milestone.end_date.isoformat() if milestone.end_date else None
+                    ),
+                    'status': milestone.status,
+                    'client_visible': milestone.client_visible,
+                },
+            )
+        if form.cleaned_data['notify_clients'] and milestone.client_visible:
+            send_schedule_milestone_notification(self.request, milestone)
+        messages.success(self.request, f'{milestone.title} was added to the schedule.')
+        return redirect('projects:schedule', pk=self.project.pk)
+
+
+class ScheduleMilestoneUpdateView(LoginRequiredMixin, FormView):
+    form_class = ScheduleMilestoneForm
+    template_name = 'projects/schedule_milestone_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        self.milestone = get_object_or_404(
+            ScheduleMilestone,
+            project=self.project,
+            pk=kwargs['milestone_pk'],
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['instance'] = self.milestone
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({'project': self.project, 'milestone': self.milestone})
+        return context
+
+    def form_valid(self, form):
+        editable_fields = tuple(ScheduleMilestoneForm.Meta.fields)
+        with transaction.atomic():
+            milestone = get_object_or_404(
+                ScheduleMilestone.objects.select_for_update(),
+                project=self.project,
+                pk=self.milestone.pk,
+            )
+            was_client_visible = milestone.client_visible
+            for field_name in editable_fields:
+                setattr(milestone, field_name, form.cleaned_data[field_name])
+            milestone.full_clean()
+            milestone.save(update_fields=editable_fields + ('updated_at',))
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.SCHEDULE_MILESTONE_UPDATED,
+                summary=(
+                    f'{self.request.user.email} updated the schedule milestone '
+                    f'"{milestone.title}".'
+                ),
+                metadata={
+                    'milestone_id': milestone.pk,
+                    'start_date': milestone.start_date.isoformat(),
+                    'end_date': (
+                        milestone.end_date.isoformat() if milestone.end_date else None
+                    ),
+                    'status': milestone.status,
+                    'client_visible': milestone.client_visible,
+                },
+            )
+        if form.cleaned_data['notify_clients']:
+            if milestone.client_visible:
+                send_schedule_milestone_notification(self.request, milestone)
+            elif was_client_visible:
+                send_schedule_milestone_notification(
+                    self.request, milestone, withdrawn=True
+                )
+        messages.success(self.request, f'{milestone.title} was updated.')
+        return redirect('projects:schedule', pk=self.project.pk)
 
 
 class ProjectMessageStatusView(LoginRequiredMixin, View):

@@ -153,6 +153,21 @@ urlpatterns = [
         name='selection_void',
     ),
     path(
+        'projects/<int:pk>/schedule/',
+        views.ProjectScheduleView.as_view(),
+        name='schedule',
+    ),
+    path(
+        'projects/<int:pk>/schedule/new/',
+        views.ScheduleMilestoneCreateView.as_view(),
+        name='schedule_milestone_create',
+    ),
+    path(
+        'projects/<int:pk>/schedule/<int:milestone_pk>/edit/',
+        views.ScheduleMilestoneUpdateView.as_view(),
+        name='schedule_milestone_edit',
+    ),
+    path(
         'projects/<int:pk>/invite-client/',
         views.ClientInviteView.as_view(),
         name='invite_client',

@@ -15,6 +15,7 @@ from .models import (
     ProjectDocumentVersion,
     ProjectInvitation,
     ProjectMembership,
+    ScheduleMilestone,
     SelectionOption,
 )
 
@@ -290,6 +291,44 @@ class FinishSelectionAdmin(admin.ModelAdmin):
         'updated_at',
     )
     inlines = (SelectionOptionInline,)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return bool(obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ScheduleMilestone)
+class ScheduleMilestoneAdmin(admin.ModelAdmin):
+    list_display = (
+        'title',
+        'project',
+        'start_date',
+        'end_date',
+        'status',
+        'client_visible',
+        'updated_at',
+    )
+    list_filter = ('status', 'client_visible', 'project__organization')
+    search_fields = ('title', 'project__name')
+    readonly_fields = (
+        'project',
+        'title',
+        'description',
+        'start_date',
+        'end_date',
+        'status',
+        'client_visible',
+        'internal_notes',
+        'sort_order',
+        'created_by',
+        'created_at',
+        'updated_at',
+    )
 
     def has_add_permission(self, request):
         return False
