@@ -8,6 +8,11 @@ urlpatterns = [
     path('projects/new/', views.ProjectCreateView.as_view(), name='create'),
     path('projects/<int:pk>/', views.ProjectDetailView.as_view(), name='detail'),
     path(
+        'projects/<int:pk>/actions/',
+        views.ProjectActionCenterView.as_view(),
+        name='action_center',
+    ),
+    path(
         'projects/<int:pk>/edit/',
         views.ProjectUpdateView.as_view(),
         name='edit',

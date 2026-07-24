@@ -41,6 +41,11 @@
 </div>
 
 <section class="module-grid" aria-label="Project modules">
+    {% if can_use_action_center %}<a class="module-card module-card--ready module-card--link module-card--featured" href="{% url 'projects:action_center' project.pk %}">
+        <i class="bi bi-inbox"></i>
+        <div><h2>Action center</h2><p>Decisions, drafts, delays, and active conversations.</p></div>
+        <span>{% if action_count %}{{ action_count }} item{{ action_count|pluralize }} need{% if action_count == 1 %}s{% endif %} attention{% else %}No urgent items{% endif %} <i class="bi bi-arrow-right"></i></span>
+    </a>{% endif %}
     {% if can_use_project_messaging %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:message_list' project.pk %}">
         <i class="bi bi-chat-dots"></i>
         <div><h2>Messages</h2><p>Project conversations and notifications.</p></div>

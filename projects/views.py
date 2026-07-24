@@ -17,6 +17,7 @@ from .access import (
     can_invite_clients,
     can_manage_organization,
     can_manage_project,
+    can_use_action_center,
     can_use_change_orders,
     can_use_project_documents,
     can_use_project_messaging,
@@ -27,6 +28,7 @@ from .access import (
     organization_membership_for,
     projects_for_user,
 )
+from .action_center import build_project_action_center
 from .forms import (
     ChangeOrderDecisionForm,
     ChangeOrderForm,
@@ -164,6 +166,16 @@ def schedule_project_or_404(user, pk):
     return project
 
 
+def action_center_project_or_404(user, pk):
+    project = get_object_or_404(
+        projects_for_user(user).select_related('organization'),
+        pk=pk,
+    )
+    if not can_use_action_center(user, project):
+        raise PermissionDenied('You cannot access the project action center.')
+    return project
+
+
 def internal_organization_or_404(user, slug):
     return get_object_or_404(internal_organizations_for_user(user), slug=slug)
 
@@ -196,6 +208,14 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
             self.request.user.is_superuser
             or (organization_membership and organization_membership.is_internal)
         )
+        action_center_allowed = can_use_action_center(
+            self.request.user, self.object
+        )
+        action_center = (
+            build_project_action_center(self.request.user, self.object)
+            if action_center_allowed
+            else None
+        )
         context.update(
             {
                 'organization_membership': organization_membership,
@@ -221,6 +241,10 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
                 'can_use_schedule': can_use_schedule(
                     self.request.user, self.object
                 ),
+                'can_use_action_center': action_center_allowed,
+                'action_count': (
+                    action_center['action_count'] if action_center else 0
+                ),
                 'can_view_project_financials': bool(
                     self.request.user.is_superuser
                     or (
@@ -233,6 +257,24 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
                     if is_internal
                     else ()
                 ),
+            }
+        )
+        return context
+
+
+class ProjectActionCenterView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/action_center.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = action_center_project_or_404(request.user, kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'project': self.project,
+                **build_project_action_center(self.request.user, self.project),
             }
         )
         return context
