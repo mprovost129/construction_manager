@@ -403,6 +403,16 @@ class ActivityEvent(models.Model):
 
     class Meta:
         ordering = ('-created_at', '-pk')
+        indexes = (
+            models.Index(
+                fields=('project', '-created_at'),
+                name='activity_proj_created_idx',
+            ),
+            models.Index(
+                fields=('project', 'event_type', '-created_at'),
+                name='activity_proj_type_idx',
+            ),
+        )
 
     def clean(self):
         super().clean()

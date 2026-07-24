@@ -1,5 +1,5 @@
 import csv
-from datetime import date
+from datetime import date, datetime, time
 from urllib.parse import urlencode
 
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -147,6 +147,13 @@ class ProjectActivityAccessMixin(LoginRequiredMixin):
         except ValueError:
             return None
 
+    @staticmethod
+    def date_boundary(value, boundary_time):
+        return timezone.make_aware(
+            datetime.combine(value, boundary_time),
+            timezone.get_current_timezone(),
+        )
+
     def get_activity_queryset(self):
         queryset = ActivityEvent.objects.filter(
             project_id__in=self.project_ids,
@@ -168,11 +175,17 @@ class ProjectActivityAccessMixin(LoginRequiredMixin):
             queryset = queryset.filter(event_type=self.activity_type)
         if self.activity_from_date:
             queryset = queryset.filter(
-                created_at__date__gte=self.activity_from_date
+                created_at__gte=self.date_boundary(
+                    self.activity_from_date,
+                    time.min,
+                )
             )
         if self.activity_to_date:
             queryset = queryset.filter(
-                created_at__date__lte=self.activity_to_date
+                created_at__lte=self.date_boundary(
+                    self.activity_to_date,
+                    time.max,
+                )
             )
         return queryset
 

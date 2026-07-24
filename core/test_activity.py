@@ -199,8 +199,31 @@ class ProjectActivityListTests(TestCase):
         ActivityEvent.objects.filter(pk=self.pine_event.pk).update(
             created_at=timezone.make_aware(datetime(2026, 7, 10, 12, 0))
         )
+        end_of_range_event = ActivityEvent.objects.create(
+            organization=self.organization,
+            project=self.oak_project,
+            actor=self.staff_user,
+            event_type=ActivityEvent.Type.MESSAGE_SENT,
+            summary='End-of-range event.',
+        )
+        ActivityEvent.objects.filter(pk=end_of_range_event.pk).update(
+            created_at=timezone.make_aware(
+                datetime(2026, 7, 15, 23, 59, 59, 999999)
+            )
+        )
+        after_range_event = ActivityEvent.objects.create(
+            organization=self.organization,
+            project=self.oak_project,
+            actor=self.staff_user,
+            event_type=ActivityEvent.Type.MESSAGE_SENT,
+            summary='After-range event.',
+        )
+        ActivityEvent.objects.filter(pk=after_range_event.pk).update(
+            created_at=timezone.make_aware(datetime(2026, 7, 16, 0, 0))
+        )
         self.oak_event.refresh_from_db()
         self.pine_event.refresh_from_db()
+        end_of_range_event.refresh_from_db()
         self.client.force_login(self.staff_user)
 
         response = self.client.get(
@@ -210,7 +233,7 @@ class ProjectActivityListTests(TestCase):
 
         self.assertEqual(
             list(response.context['activity_events']),
-            [self.pine_event],
+            [end_of_range_event, self.pine_event],
         )
         self.assertEqual(response.context['activity_from_date'], date(2026, 7, 5))
         self.assertEqual(response.context['activity_to_date'], date(2026, 7, 15))
@@ -228,7 +251,7 @@ class ProjectActivityListTests(TestCase):
         self.assertIsNone(invalid_response.context['activity_from_date'])
         self.assertIsNone(invalid_response.context['activity_to_date'])
         self.assertFalse(invalid_response.context['has_activity_filters'])
-        self.assertEqual(invalid_response.context['page_obj'].paginator.count, 2)
+        self.assertEqual(invalid_response.context['page_obj'].paginator.count, 4)
 
     def test_activity_list_paginates_and_retains_filters(self):
         for number in range(1, 27):
