@@ -1,7 +1,19 @@
+from collections import defaultdict
+
+from django.db.models import Count, Prefetch
 from django.utils import timezone
 
-from .access import can_use_action_center, is_project_client
-from .models import ChangeOrder, DocumentDecision, FinishSelection, ScheduleMilestone
+from .access import is_project_client
+from .models import (
+    ChangeOrder,
+    ConversationThread,
+    DocumentDecision,
+    FinishSelection,
+    OrganizationMembership,
+    ProjectDocument,
+    ProjectDocumentVersion,
+    ScheduleMilestone,
+)
 
 
 def build_project_action_center(user, project):
@@ -112,24 +124,155 @@ def build_project_action_center(user, project):
 
 
 def build_portfolio_action_center(user, projects):
-    project_summaries = []
+    projects = list(projects)
+    project_ids = [project.pk for project in projects]
+    if not project_ids:
+        return _portfolio_result([])
 
-    for project in projects:
-        if not can_use_action_center(user, project):
+    if user.is_superuser:
+        internal_project_ids = set(project_ids)
+        client_project_ids = set()
+    else:
+        management_organization_ids = set(
+            user.organization_memberships.filter(
+                is_active=True,
+                role__in=(
+                    OrganizationMembership.Role.ADMIN,
+                    OrganizationMembership.Role.STAFF,
+                ),
+            ).values_list('organization_id', flat=True)
+        )
+        internal_project_ids = {
+            project.pk
+            for project in projects
+            if project.organization_id in management_organization_ids
+        }
+        client_project_ids = set(
+            user.project_memberships.filter(
+                project_id__in=project_ids,
+                is_active=True,
+                role=OrganizationMembership.Role.CLIENT,
+            ).values_list('project_id', flat=True)
+        )
+
+    allowed_project_ids = internal_project_ids | client_project_ids
+    if not allowed_project_ids:
+        return _portfolio_result([])
+
+    counts = defaultdict(
+        lambda: {
+            'decision_count': 0,
+            'draft_count': 0,
+            'schedule_count': 0,
+            'conversation_count': 0,
+        }
+    )
+
+    change_order_counts = (
+        ChangeOrder.objects.filter(
+            project_id__in=allowed_project_ids,
+            status__in=(ChangeOrder.Status.DRAFT, ChangeOrder.Status.PENDING),
+        )
+        .values('project_id', 'status')
+        .annotate(total=Count('pk'))
+    )
+    for row in change_order_counts:
+        if row['status'] == ChangeOrder.Status.PENDING:
+            counts[row['project_id']]['decision_count'] += row['total']
+        elif row['project_id'] in internal_project_ids:
+            counts[row['project_id']]['draft_count'] += row['total']
+
+    selection_counts = (
+        FinishSelection.objects.filter(
+            project_id__in=allowed_project_ids,
+            status__in=(FinishSelection.Status.DRAFT, FinishSelection.Status.OPEN),
+        )
+        .values('project_id', 'status')
+        .annotate(total=Count('pk'))
+    )
+    for row in selection_counts:
+        if row['status'] == FinishSelection.Status.OPEN:
+            counts[row['project_id']]['decision_count'] += row['total']
+        elif row['project_id'] in internal_project_ids:
+            counts[row['project_id']]['draft_count'] += row['total']
+
+    documents = ProjectDocument.objects.filter(
+        project_id__in=allowed_project_ids,
+        requires_client_approval=True,
+    ).prefetch_related(
+        Prefetch(
+            'versions',
+            queryset=ProjectDocumentVersion.objects.prefetch_related('decisions'),
+        )
+    )
+    for document in documents:
+        viewer_is_client = document.project_id in client_project_ids
+        if viewer_is_client and not document.client_visible:
             continue
-        action_center = build_project_action_center(user, project)
+        versions = list(document.versions.all())
+        if not versions:
+            continue
+        decisions = list(versions[0].decisions.all())
+        if viewer_is_client:
+            requires_action = not any(
+                decision.decided_by_id == user.pk for decision in decisions
+            )
+        else:
+            decision_values = {decision.decision for decision in decisions}
+            requires_action = (
+                DocumentDecision.Decision.DECLINED in decision_values
+                or not decisions
+            )
+        if requires_action:
+            counts[document.project_id]['decision_count'] += 1
+
+    milestone_counts = (
+        ScheduleMilestone.objects.filter(
+            project_id__in=allowed_project_ids,
+            status=ScheduleMilestone.Status.DELAYED,
+        )
+        .values('project_id', 'client_visible')
+        .annotate(total=Count('pk'))
+    )
+    for row in milestone_counts:
+        if row['project_id'] in client_project_ids and not row['client_visible']:
+            continue
+        counts[row['project_id']]['schedule_count'] += row['total']
+
+    conversation_counts = (
+        ConversationThread.objects.filter(
+            project_id__in=allowed_project_ids,
+            status=ConversationThread.Status.OPEN,
+        )
+        .values('project_id')
+        .annotate(total=Count('pk'))
+    )
+    for row in conversation_counts:
+        counts[row['project_id']]['conversation_count'] = row['total']
+
+    project_summaries = []
+    for project in projects:
+        if project.pk not in allowed_project_ids:
+            continue
+        project_counts = counts[project.pk]
+        action_count = (
+            project_counts['decision_count']
+            + project_counts['draft_count']
+            + project_counts['schedule_count']
+        )
         project_summaries.append(
             {
                 'project': project,
-                'viewer_is_client': action_center['viewer_is_client'],
-                'decision_count': action_center['decision_count'],
-                'draft_count': action_center['draft_count'],
-                'schedule_count': action_center['schedule_count'],
-                'conversation_count': action_center['conversation_count'],
-                'action_count': action_center['action_count'],
+                'viewer_is_client': project.pk in client_project_ids,
+                **project_counts,
+                'action_count': action_count,
             }
         )
 
+    return _portfolio_result(project_summaries)
+
+
+def _portfolio_result(project_summaries):
     priority_projects = sorted(
         (
             summary

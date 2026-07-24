@@ -6,6 +6,8 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from projects.access import projects_for_user
+from projects.action_center import build_portfolio_action_center
 from projects.models import (
     ChangeOrder,
     ConversationThread,
@@ -258,3 +260,84 @@ class PortfolioDashboardTests(TestCase):
         self.assertEqual(portfolio['conversation_count'], 0)
         self.assertContains(response, 'Everything is caught up')
         self.assertContains(response, 'Caught up')
+
+    def test_project_search_filters_cards_without_changing_portfolio_totals(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(reverse('core:home'), {'q': 'oak'})
+
+        self.assertEqual(
+            [project.name for project in response.context['projects']],
+            ['Oak Street'],
+        )
+        self.assertEqual(response.context['project_search'], 'oak')
+        self.assertEqual(response.context['project_result_count'], 1)
+        self.assertEqual(response.context['all_project_count'], 2)
+        self.assertTrue(response.context['has_project_filters'])
+        self.assertEqual(
+            response.context['portfolio_action_center']['project_count'],
+            2,
+        )
+        self.assertEqual(
+            response.context['portfolio_action_center']['action_count'],
+            6,
+        )
+        self.assertContains(response, 'Showing 1 of 2 projects')
+
+    def test_project_status_filter_and_no_match_state(self):
+        self.client.force_login(self.staff_user)
+        planning_response = self.client.get(
+            reverse('core:home'),
+            {'status': Project.Status.PLANNING},
+        )
+
+        self.assertEqual(
+            [project.name for project in planning_response.context['projects']],
+            ['Pine Street'],
+        )
+        self.assertEqual(
+            planning_response.context['project_status'],
+            Project.Status.PLANNING,
+        )
+
+        no_match_response = self.client.get(
+            reverse('core:home'),
+            {'q': 'does-not-exist'},
+        )
+        self.assertEqual(no_match_response.context['projects'], [])
+        self.assertContains(no_match_response, 'No projects match these filters')
+        self.assertContains(no_match_response, 'Clear filters')
+        self.assertNotContains(no_match_response, 'No projects yet')
+
+    def test_invalid_project_status_is_ignored(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(
+            reverse('core:home'),
+            {'status': 'not-a-status'},
+        )
+
+        self.assertEqual(response.context['project_status'], '')
+        self.assertFalse(response.context['has_project_filters'])
+        self.assertEqual(response.context['project_result_count'], 2)
+
+    def test_portfolio_rollup_uses_a_fixed_number_of_queries(self):
+        Project.objects.bulk_create(
+            [
+                Project(
+                    organization=self.organization,
+                    name=f'Scale Project {number}',
+                )
+                for number in range(1, 13)
+            ]
+        )
+        projects = list(
+            projects_for_user(self.staff_user).select_related('organization')
+        )
+
+        with self.assertNumQueries(9):
+            portfolio = build_portfolio_action_center(
+                self.staff_user,
+                projects,
+            )
+
+        self.assertEqual(portfolio['project_count'], 14)
+        self.assertEqual(portfolio['action_count'], 6)

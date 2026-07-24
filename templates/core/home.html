@@ -89,6 +89,28 @@
 </section>
 {% endif %}
 
+{% if all_project_count %}
+<section class="project-filter-bar" aria-label="Filter projects">
+    <form method="get" class="project-filter-form" role="search">
+        <label class="visually-hidden" for="project-search">Search projects</label>
+        <div class="project-filter-form__search">
+            <i class="bi bi-search" aria-hidden="true"></i>
+            <input id="project-search" type="search" name="q" value="{{ project_search }}" placeholder="Search by project, code, or company">
+        </div>
+        <label class="visually-hidden" for="project-status">Project status</label>
+        <select id="project-status" name="status">
+            <option value="">All statuses</option>
+            {% for value, label in project_status_choices %}
+            <option value="{{ value }}"{% if project_status == value %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-outline-secondary" type="submit">Filter</button>
+        {% if has_project_filters %}<a class="btn btn-link" href="{% url 'core:home' %}">Clear</a>{% endif %}
+    </form>
+    <p>Showing {{ project_result_count }} of {{ all_project_count }} project{{ all_project_count|pluralize }}</p>
+</section>
+{% endif %}
+
 {% if projects %}
 <div class="project-grid">
     {% for project in projects %}
@@ -117,8 +139,14 @@
 {% else %}
 <div class="empty-state">
     <i class="bi bi-folder2-open" aria-hidden="true"></i>
+    {% if has_project_filters %}
+    <h2>No projects match these filters</h2>
+    <p>Try a different project name, code, company, or status.</p>
+    <a class="btn btn-outline-secondary" href="{% url 'core:home' %}">Clear filters</a>
+    {% else %}
     <h2>No projects yet</h2>
     <p>Your assigned projects will appear here.</p>
+    {% endif %}
 </div>
 {% endif %}
 {% else %}
