@@ -18,6 +18,77 @@
     {% endif %}
 </section>
 
+{% if portfolio_action_center %}
+<section class="portfolio-overview" aria-labelledby="portfolio-heading">
+    <div class="portfolio-overview__heading">
+        <div>
+            <p class="eyebrow">Action overview</p>
+            <h2 id="portfolio-heading">
+                {% if portfolio_action_center.viewer_has_internal_scope %}Project priorities{% else %}Your decisions{% endif %}
+            </h2>
+            <p>
+                {% if portfolio_action_center.viewer_has_internal_scope %}
+                Current operational items across the projects you can manage.
+                {% else %}
+                Decisions and client-visible updates across your projects.
+                {% endif %}
+            </p>
+        </div>
+        <span class="portfolio-overview__total">
+            <strong>{{ portfolio_action_center.action_count }}</strong>
+            item{{ portfolio_action_center.action_count|pluralize }} needing attention
+        </span>
+    </div>
+
+    <div class="action-summary">
+        <article>
+            <i class="bi bi-check2-square" aria-hidden="true"></i>
+            <div><strong>{{ portfolio_action_center.decision_count }}</strong><span>Decisions</span></div>
+        </article>
+        {% if portfolio_action_center.viewer_has_internal_scope %}
+        <article>
+            <i class="bi bi-pencil-square" aria-hidden="true"></i>
+            <div><strong>{{ portfolio_action_center.draft_count }}</strong><span>Drafts to finish</span></div>
+        </article>
+        {% endif %}
+        <article>
+            <i class="bi bi-calendar-x" aria-hidden="true"></i>
+            <div><strong>{{ portfolio_action_center.schedule_count }}</strong><span>Schedule issues</span></div>
+        </article>
+        <article>
+            <i class="bi bi-chat-left-text" aria-hidden="true"></i>
+            <div><strong>{{ portfolio_action_center.conversation_count }}</strong><span>Open conversations</span></div>
+        </article>
+    </div>
+
+    {% if portfolio_action_center.priority_projects %}
+    <div class="portfolio-priority-list">
+        {% for summary in portfolio_action_center.priority_projects %}
+        <a class="portfolio-project-row" href="{% url 'projects:action_center' summary.project.pk %}">
+            <div>
+                <span>{{ summary.project.organization.name }}</span>
+                <h3>{{ summary.project.name }}</h3>
+            </div>
+            <div class="portfolio-project-row__counts">
+                {% if summary.action_count %}<span><strong>{{ summary.action_count }}</strong> action{{ summary.action_count|pluralize }}</span>{% endif %}
+                {% if summary.conversation_count %}<span><strong>{{ summary.conversation_count }}</strong> conversation{{ summary.conversation_count|pluralize }}</span>{% endif %}
+            </div>
+            <i class="bi bi-chevron-right" aria-hidden="true"></i>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="action-clear action-clear--compact">
+        <i class="bi bi-check-circle" aria-hidden="true"></i>
+        <div>
+            <h3>Everything is caught up</h3>
+            <p>No current decisions, drafts, delays, or open conversations need attention.</p>
+        </div>
+    </div>
+    {% endif %}
+</section>
+{% endif %}
+
 {% if projects %}
 <div class="project-grid">
     {% for project in projects %}
@@ -28,6 +99,17 @@
         </div>
         <h2>{{ project.name }}</h2>
         {% if project.code %}<p class="project-code">{{ project.code }}</p>{% endif %}
+        {% if project.home_action_summary %}
+        <div class="project-card__attention">
+            {% if project.home_action_summary.action_count %}
+            <span class="status-pill status-pill--on_hold">{{ project.home_action_summary.action_count }} action{{ project.home_action_summary.action_count|pluralize }}</span>
+            {% elif project.home_action_summary.conversation_count %}
+            <span class="status-pill">{{ project.home_action_summary.conversation_count }} open conversation{{ project.home_action_summary.conversation_count|pluralize }}</span>
+            {% else %}
+            <span class="status-pill status-pill--active"><i class="bi bi-check2" aria-hidden="true"></i> Caught up</span>
+            {% endif %}
+        </div>
+        {% endif %}
         <span class="project-card__action">Open project <i class="bi bi-arrow-right"></i></span>
     </a>
     {% endfor %}

@@ -1,6 +1,6 @@
 from django.utils import timezone
 
-from .access import is_project_client
+from .access import can_use_action_center, is_project_client
 from .models import ChangeOrder, DocumentDecision, FinishSelection, ScheduleMilestone
 
 
@@ -108,4 +108,63 @@ def build_project_action_center(user, project):
         'schedule_count': schedule_count,
         'conversation_count': len(open_conversations),
         'action_count': decision_count + draft_count + schedule_count,
+    }
+
+
+def build_portfolio_action_center(user, projects):
+    project_summaries = []
+
+    for project in projects:
+        if not can_use_action_center(user, project):
+            continue
+        action_center = build_project_action_center(user, project)
+        project_summaries.append(
+            {
+                'project': project,
+                'viewer_is_client': action_center['viewer_is_client'],
+                'decision_count': action_center['decision_count'],
+                'draft_count': action_center['draft_count'],
+                'schedule_count': action_center['schedule_count'],
+                'conversation_count': action_center['conversation_count'],
+                'action_count': action_center['action_count'],
+            }
+        )
+
+    priority_projects = sorted(
+        (
+            summary
+            for summary in project_summaries
+            if summary['action_count'] or summary['conversation_count']
+        ),
+        key=lambda summary: (
+            -summary['action_count'],
+            -summary['conversation_count'],
+            summary['project'].organization.name.lower(),
+            summary['project'].name.lower(),
+        ),
+    )
+
+    return {
+        'project_summaries': project_summaries,
+        'priority_projects': priority_projects,
+        'project_count': len(project_summaries),
+        'projects_with_attention_count': len(priority_projects),
+        'decision_count': sum(
+            summary['decision_count'] for summary in project_summaries
+        ),
+        'draft_count': sum(
+            summary['draft_count'] for summary in project_summaries
+        ),
+        'schedule_count': sum(
+            summary['schedule_count'] for summary in project_summaries
+        ),
+        'conversation_count': sum(
+            summary['conversation_count'] for summary in project_summaries
+        ),
+        'action_count': sum(
+            summary['action_count'] for summary in project_summaries
+        ),
+        'viewer_has_internal_scope': any(
+            not summary['viewer_is_client'] for summary in project_summaries
+        ),
     }
