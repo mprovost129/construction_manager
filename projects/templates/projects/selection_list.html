@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block title %}Selections | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'core:home' %}">Projects</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><span>Selections</span></nav>
+
+<section class="page-heading">
+    <div><p class="eyebrow">Finishes and allowances</p><h1>Selections</h1><p class="text-secondary mb-0">Compare finish options, allowance impact, due dates, and authenticated client choices.</p></div>
+    {% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:selection_create' project.pk %}"><i class="bi bi-plus-lg"></i> New selection</a>{% endif %}
+</section>
+
+{% if selections %}
+<section class="document-list">
+    {% for selection in selections %}<a class="document-row" href="{% url 'projects:selection_detail' project.pk selection.pk %}"><div class="document-row__icon"><i class="bi bi-palette"></i></div><div class="document-row__body"><h2>{{ selection.display_number }} · {{ selection.title }}</h2><p>{% if selection.location %}{{ selection.location }} · {% endif %}Allowance: ${{ selection.allowance_amount|floatformat:2 }}{% if selection.due_date %} · Due {{ selection.due_date|date:"M j, Y" }}{% endif %}{% if selection.chosen_option %} · Chosen: {{ selection.chosen_option.name }}{% endif %}</p></div><div class="document-row__meta"><span class="status-pill {% if selection.status == 'selected' %}status-pill--active{% elif selection.status == 'open' %}status-pill--on_hold{% endif %}">{{ selection.get_status_display }}</span><i class="bi bi-chevron-right"></i></div></a>{% endfor %}
+</section>
+{% else %}
+<div class="empty-state"><i class="bi bi-palette"></i><h2>No selections yet</h2><p>{% if can_manage_project %}Create a selection package and add finish options for the client.{% else %}There are no finish selections ready for you yet.{% endif %}</p>{% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:selection_create' project.pk %}">New selection</a>{% endif %}</div>
+{% endif %}
+{% endblock %}

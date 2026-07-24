@@ -103,6 +103,56 @@ urlpatterns = [
         name='change_order_void',
     ),
     path(
+        'projects/<int:pk>/selections/',
+        views.FinishSelectionListView.as_view(),
+        name='selection_list',
+    ),
+    path(
+        'projects/<int:pk>/selections/new/',
+        views.FinishSelectionCreateView.as_view(),
+        name='selection_create',
+    ),
+    path(
+        'projects/<int:pk>/selections/<int:selection_pk>/',
+        views.FinishSelectionDetailView.as_view(),
+        name='selection_detail',
+    ),
+    path(
+        'projects/<int:pk>/selections/<int:selection_pk>/edit/',
+        views.FinishSelectionUpdateView.as_view(),
+        name='selection_edit',
+    ),
+    path(
+        'projects/<int:pk>/selections/<int:selection_pk>/options/new/',
+        views.SelectionOptionCreateView.as_view(),
+        name='selection_option_create',
+    ),
+    path(
+        'projects/<int:pk>/selections/<int:selection_pk>/options/<int:option_pk>/edit/',
+        views.SelectionOptionUpdateView.as_view(),
+        name='selection_option_edit',
+    ),
+    path(
+        'projects/<int:pk>/selections/<int:selection_pk>/options/<int:option_pk>/delete/',
+        views.SelectionOptionDeleteView.as_view(),
+        name='selection_option_delete',
+    ),
+    path(
+        'projects/<int:pk>/selections/<int:selection_pk>/publish/',
+        views.FinishSelectionPublishView.as_view(),
+        name='selection_publish',
+    ),
+    path(
+        'projects/<int:pk>/selections/<int:selection_pk>/choose/',
+        views.FinishSelectionChooseView.as_view(),
+        name='selection_choose',
+    ),
+    path(
+        'projects/<int:pk>/selections/<int:selection_pk>/void/',
+        views.FinishSelectionVoidView.as_view(),
+        name='selection_void',
+    ),
+    path(
         'projects/<int:pk>/invite-client/',
         views.ClientInviteView.as_view(),
         name='invite_client',

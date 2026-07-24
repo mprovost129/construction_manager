@@ -56,11 +56,11 @@
         <div><h2>Change orders</h2><p>Pricing, customer decisions, and approval history.</p></div>
         <span>Open change orders <i class="bi bi-arrow-right"></i></span>
     </a>{% endif %}
-    <article class="module-card module-card--ready">
+    {% if can_use_selections %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:selection_list' project.pk %}">
         <i class="bi bi-palette"></i>
         <div><h2>Selections</h2><p>Finish options, allowances, and customer choices.</p></div>
-        <span>Shell ready</span>
-    </article>
+        <span>Open selections <i class="bi bi-arrow-right"></i></span>
+    </a>{% endif %}
     <article class="module-card">
         <i class="bi bi-calendar3"></i>
         <div><h2>Schedule</h2><p>Milestones and customer-visible dates.</p></div>

@@ -733,6 +733,72 @@ input:focus {
 .change-order-scope h2 { margin: 0 0 0.75rem; font-size: 1.2rem; }
 .change-order-scope p:last-child { margin-bottom: 0; }
 
+.selection-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.selection-option {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    min-height: 260px;
+    padding: 1.2rem;
+    border: 1px solid var(--color-border);
+    border-radius: 14px;
+    background: white;
+}
+
+.selection-option:has(.selection-option__radio:checked) {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(23, 79, 58, 0.12);
+}
+
+.selection-option--chosen {
+    border-color: #86ad98;
+    background: #f1f8f4;
+}
+
+.selection-option header {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    justify-content: space-between;
+}
+
+.selection-option header h2 { margin: 0 0 0.45rem; font-size: 1.1rem; }
+.selection-option header > strong { color: var(--color-ink); font-size: 1.25rem; }
+.selection-option__description { color: var(--color-muted); font-size: 0.9rem; }
+.selection-option__description p:last-child { margin-bottom: 0; }
+
+.selection-option__variance {
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    color: #38516f;
+    background: #e7eef6;
+    font-size: 0.84rem;
+    font-weight: 700;
+}
+
+.selection-option__variance--over { color: #72520d; background: #fff0c2; }
+.selection-option__variance--under { color: #0f5132; background: #d7ecdf; }
+
+.selection-option__internal {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    color: var(--color-muted);
+    font-size: 0.78rem;
+}
+
+.selection-option footer { display: flex; gap: 0.5rem; margin-top: auto; }
+.selection-option__radio { position: relative; z-index: 2; width: 1.1rem; height: 1.1rem; }
+.selection-option__click-target { position: absolute; z-index: 1; inset: 0; cursor: pointer; }
+.selection-option__chosen { margin-top: auto; color: var(--color-primary); font-size: 0.85rem; font-weight: 700; }
+
 @media (max-width: 720px) {
     .app-nav { padding: 0 1rem; }
     .app-brand span:last-child, .app-nav__identity { display: none; }

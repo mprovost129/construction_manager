@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if selection %}Edit {{ selection.display_number }}{% else %}New selection{% endif %} | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:selection_list' project.pk %}">Selections</a><i class="bi bi-chevron-right"></i><span>{% if selection %}Edit {{ selection.display_number }}{% else %}New{% endif %}</span></nav>
+<div class="form-shell form-shell--top"><section class="form-card form-card--wide"><p class="eyebrow">Selection package</p><h1>{% if selection %}Edit {{ selection.display_number }}{% else %}Create a finish selection{% endif %}</h1><p class="text-secondary">Set the client allowance and due date here, then add one or more priced options.</p><form method="post" class="stacked-form">{% csrf_token %}{{ form.non_field_errors }}<div class="form-grid">{% for field in form %}<div class="form-field{% if field.name == 'description' %} form-field--wide{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<div class="help-text">{{ field.help_text }}</div>{% endif %}{{ field.errors }}</div>{% endfor %}</div><div class="form-actions"><a class="btn btn-outline-secondary" href="{% if selection %}{% url 'projects:selection_detail' project.pk selection.pk %}{% else %}{% url 'projects:selection_list' project.pk %}{% endif %}">Cancel</a><button class="btn btn-primary" type="submit">Save draft</button></div></form></section></div>
+{% endblock %}

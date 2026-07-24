@@ -20,6 +20,7 @@ from .access import (
     can_use_change_orders,
     can_use_project_documents,
     can_use_project_messaging,
+    can_use_selections,
     internal_organizations_for_user,
     is_project_client,
     organization_membership_for,
@@ -32,10 +33,13 @@ from .forms import (
     ConversationReplyForm,
     ConversationThreadForm,
     DocumentDecisionForm,
+    FinishSelectionForm,
     InvitationSignupForm,
     ProjectDocumentCreateForm,
     ProjectDocumentVersionForm,
     ProjectForm,
+    SelectionDecisionForm,
+    SelectionOptionForm,
     TeamInvitationForm,
     TeamMembershipForm,
 )
@@ -45,6 +49,7 @@ from .models import (
     ConversationMessage,
     ConversationThread,
     DocumentDecision,
+    FinishSelection,
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
@@ -53,6 +58,7 @@ from .models import (
     ProjectDocumentVersion,
     ProjectInvitation,
     ProjectMembership,
+    SelectionOption,
 )
 from .services import (
     accept_organization_invitation,
@@ -66,6 +72,9 @@ from .services import (
     send_document_decision_notification,
     send_message_notifications,
     send_project_invitation,
+    send_selection_chosen_notification,
+    send_selection_review_notification,
+    send_selection_voided_notification,
     send_team_invitation,
 )
 
@@ -124,6 +133,23 @@ def visible_change_order_or_404(user, project, change_order_pk):
     return get_object_or_404(queryset, pk=change_order_pk)
 
 
+def selections_project_or_404(user, pk):
+    project = get_object_or_404(
+        projects_for_user(user).select_related('organization'),
+        pk=pk,
+    )
+    if not can_use_selections(user, project):
+        raise PermissionDenied('You cannot access project selections.')
+    return project
+
+
+def visible_selection_or_404(user, project, selection_pk):
+    queryset = FinishSelection.objects.filter(project=project)
+    if is_project_client(user, project):
+        queryset = queryset.exclude(status=FinishSelection.Status.DRAFT)
+    return get_object_or_404(queryset, pk=selection_pk)
+
+
 def internal_organization_or_404(user, slug):
     return get_object_or_404(internal_organizations_for_user(user), slug=slug)
 
@@ -173,6 +199,9 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
                     self.request.user, self.object
                 ),
                 'can_use_change_orders': can_use_change_orders(
+                    self.request.user, self.object
+                ),
+                'can_use_selections': can_use_selections(
                     self.request.user, self.object
                 ),
                 'can_view_project_financials': bool(
@@ -930,6 +959,534 @@ class ChangeOrderVoidView(LoginRequiredMixin, View):
             'projects:change_order_detail',
             pk=project.pk,
             change_order_pk=change_order.pk,
+        )
+
+
+class FinishSelectionListView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/selection_list.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = selections_project_or_404(request.user, kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        selections = self.project.finish_selections.select_related(
+            'chosen_option', 'selected_by'
+        )
+        if is_project_client(self.request.user, self.project):
+            selections = selections.exclude(status=FinishSelection.Status.DRAFT)
+        context.update(
+            {
+                'project': self.project,
+                'selections': selections,
+                'can_manage_project': can_manage_project(
+                    self.request.user, self.project
+                ),
+            }
+        )
+        return context
+
+
+class FinishSelectionCreateView(LoginRequiredMixin, FormView):
+    form_class = FinishSelectionForm
+    template_name = 'projects/selection_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({'project': self.project, 'selection': None})
+        return context
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            Project.objects.select_for_update().get(pk=self.project.pk)
+            current_number = self.project.finish_selections.aggregate(
+                maximum=Max('number')
+            )['maximum']
+            selection = form.save(commit=False)
+            selection.project = self.project
+            selection.number = (current_number or 0) + 1
+            selection.created_by = self.request.user
+            selection.full_clean()
+            selection.save()
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.SELECTION_CREATED,
+                summary=(
+                    f'{self.request.user.email} created '
+                    f'{selection.display_number} - "{selection.title}".'
+                ),
+                metadata={
+                    'selection_id': selection.pk,
+                    'number': selection.number,
+                    'allowance_amount': str(selection.allowance_amount),
+                },
+            )
+        messages.success(
+            self.request,
+            f'{selection.display_number} was created. Add options before publishing.',
+        )
+        return redirect(
+            'projects:selection_detail',
+            pk=self.project.pk,
+            selection_pk=selection.pk,
+        )
+
+
+class FinishSelectionUpdateView(LoginRequiredMixin, FormView):
+    form_class = FinishSelectionForm
+    template_name = 'projects/selection_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        self.selection = get_object_or_404(
+            FinishSelection,
+            project=self.project,
+            pk=kwargs['selection_pk'],
+        )
+        if self.selection.status != FinishSelection.Status.DRAFT:
+            raise PermissionDenied('Only draft selections can be edited.')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['instance'] = self.selection
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({'project': self.project, 'selection': self.selection})
+        return context
+
+    def form_valid(self, form):
+        editable_fields = tuple(FinishSelectionForm.Meta.fields)
+        with transaction.atomic():
+            selection = get_object_or_404(
+                FinishSelection.objects.select_for_update(),
+                project=self.project,
+                pk=self.selection.pk,
+            )
+            if selection.status != FinishSelection.Status.DRAFT:
+                raise PermissionDenied('Only draft selections can be edited.')
+            for field_name in editable_fields:
+                setattr(selection, field_name, form.cleaned_data[field_name])
+            selection.full_clean()
+            selection.save(update_fields=editable_fields + ('updated_at',))
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.SELECTION_UPDATED,
+                summary=(
+                    f'{self.request.user.email} updated '
+                    f'{selection.display_number} - "{selection.title}".'
+                ),
+                metadata={
+                    'selection_id': selection.pk,
+                    'number': selection.number,
+                    'allowance_amount': str(selection.allowance_amount),
+                },
+            )
+        messages.success(self.request, f'{selection.display_number} was updated.')
+        return redirect(
+            'projects:selection_detail',
+            pk=self.project.pk,
+            selection_pk=selection.pk,
+        )
+
+
+class FinishSelectionDetailView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/selection_detail.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = selections_project_or_404(request.user, kwargs['pk'])
+        self.selection = visible_selection_or_404(
+            request.user, self.project, kwargs['selection_pk']
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        viewer_is_client = is_project_client(self.request.user, self.project)
+        context.update(
+            {
+                'project': self.project,
+                'selection': self.selection,
+                'selection_options': self.selection.options.all(),
+                'can_manage_project': can_manage_project(
+                    self.request.user, self.project
+                ),
+                'can_choose': bool(
+                    viewer_is_client
+                    and self.selection.status == FinishSelection.Status.OPEN
+                ),
+                'decision_form': SelectionDecisionForm(selection=self.selection),
+            }
+        )
+        return context
+
+
+class SelectionOptionCreateView(LoginRequiredMixin, FormView):
+    form_class = SelectionOptionForm
+    template_name = 'projects/selection_option_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        self.selection = get_object_or_404(
+            FinishSelection,
+            project=self.project,
+            pk=kwargs['selection_pk'],
+        )
+        if self.selection.status != FinishSelection.Status.DRAFT:
+            raise PermissionDenied('Options can only be added to draft selections.')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {'project': self.project, 'selection': self.selection, 'option': None}
+        )
+        return context
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['instance'] = SelectionOption(selection=self.selection)
+        return kwargs
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            selection = get_object_or_404(
+                FinishSelection.objects.select_for_update(),
+                project=self.project,
+                pk=self.selection.pk,
+            )
+            if selection.status != FinishSelection.Status.DRAFT:
+                raise PermissionDenied('Options can only be added to draft selections.')
+            option = form.save(commit=False)
+            option.selection = selection
+            option.full_clean()
+            option.save()
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.SELECTION_OPTION_ADDED,
+                summary=(
+                    f'{self.request.user.email} added option "{option.name}" to '
+                    f'{selection.display_number}.'
+                ),
+                metadata={
+                    'selection_id': selection.pk,
+                    'option_id': option.pk,
+                    'price': str(option.price),
+                    'cost': str(option.cost),
+                },
+            )
+        messages.success(self.request, f'{option.name} was added.')
+        return redirect(
+            'projects:selection_detail',
+            pk=self.project.pk,
+            selection_pk=self.selection.pk,
+        )
+
+
+class SelectionOptionUpdateView(LoginRequiredMixin, FormView):
+    form_class = SelectionOptionForm
+    template_name = 'projects/selection_option_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        self.selection = get_object_or_404(
+            FinishSelection,
+            project=self.project,
+            pk=kwargs['selection_pk'],
+        )
+        self.option = get_object_or_404(
+            SelectionOption,
+            selection=self.selection,
+            pk=kwargs['option_pk'],
+        )
+        if self.selection.status != FinishSelection.Status.DRAFT:
+            raise PermissionDenied('Options can only be edited in draft selections.')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['instance'] = self.option
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'project': self.project,
+                'selection': self.selection,
+                'option': self.option,
+            }
+        )
+        return context
+
+    def form_valid(self, form):
+        editable_fields = tuple(SelectionOptionForm.Meta.fields)
+        with transaction.atomic():
+            selection = get_object_or_404(
+                FinishSelection.objects.select_for_update(),
+                project=self.project,
+                pk=self.selection.pk,
+            )
+            if selection.status != FinishSelection.Status.DRAFT:
+                raise PermissionDenied('Options can only be edited in draft selections.')
+            option = get_object_or_404(
+                SelectionOption.objects.select_for_update(),
+                selection=selection,
+                pk=self.option.pk,
+            )
+            for field_name in editable_fields:
+                setattr(option, field_name, form.cleaned_data[field_name])
+            option.full_clean()
+            option.save(update_fields=editable_fields + ('updated_at',))
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.SELECTION_OPTION_UPDATED,
+                summary=(
+                    f'{self.request.user.email} updated option "{option.name}" in '
+                    f'{selection.display_number}.'
+                ),
+                metadata={
+                    'selection_id': selection.pk,
+                    'option_id': option.pk,
+                    'price': str(option.price),
+                    'cost': str(option.cost),
+                },
+            )
+        messages.success(self.request, f'{option.name} was updated.')
+        return redirect(
+            'projects:selection_detail',
+            pk=self.project.pk,
+            selection_pk=self.selection.pk,
+        )
+
+
+class SelectionOptionDeleteView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, selection_pk, option_pk):
+        project = managed_project_or_404(request.user, pk)
+        with transaction.atomic():
+            selection = get_object_or_404(
+                FinishSelection.objects.select_for_update(),
+                project=project,
+                pk=selection_pk,
+            )
+            if selection.status != FinishSelection.Status.DRAFT:
+                raise PermissionDenied('Options can only be removed from drafts.')
+            option = get_object_or_404(
+                SelectionOption, selection=selection, pk=option_pk
+            )
+            option_name = option.name
+            option_id = option.pk
+            option.delete()
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.SELECTION_OPTION_REMOVED,
+                summary=(
+                    f'{request.user.email} removed option "{option_name}" from '
+                    f'{selection.display_number}.'
+                ),
+                metadata={
+                    'selection_id': selection.pk,
+                    'option_id': option_id,
+                },
+            )
+        messages.success(request, f'{option_name} was removed.')
+        return redirect(
+            'projects:selection_detail', pk=project.pk, selection_pk=selection.pk
+        )
+
+
+class FinishSelectionPublishView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, selection_pk):
+        project = managed_project_or_404(request.user, pk)
+        if not document_client_recipients(project):
+            messages.error(
+                request,
+                'Assign an active client to the project before publishing.',
+            )
+            return redirect(
+                'projects:selection_detail',
+                pk=project.pk,
+                selection_pk=selection_pk,
+            )
+        with transaction.atomic():
+            selection = get_object_or_404(
+                FinishSelection.objects.select_for_update(),
+                project=project,
+                pk=selection_pk,
+            )
+            if selection.status != FinishSelection.Status.DRAFT:
+                raise PermissionDenied('Only draft selections can be published.')
+            if not selection.options.exists():
+                messages.error(request, 'Add at least one option before publishing.')
+                return redirect(
+                    'projects:selection_detail',
+                    pk=project.pk,
+                    selection_pk=selection.pk,
+                )
+            selection.status = FinishSelection.Status.OPEN
+            selection.opened_by = request.user
+            selection.opened_at = timezone.now()
+            selection.full_clean()
+            selection.save(
+                update_fields=('status', 'opened_by', 'opened_at', 'updated_at')
+            )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.SELECTION_PUBLISHED,
+                summary=(
+                    f'{request.user.email} published {selection.display_number} '
+                    'for a client selection.'
+                ),
+                metadata={
+                    'selection_id': selection.pk,
+                    'number': selection.number,
+                    'option_count': selection.options.count(),
+                },
+            )
+        send_selection_review_notification(request, selection)
+        messages.success(request, 'The selection was published to the client.')
+        return redirect(
+            'projects:selection_detail', pk=project.pk, selection_pk=selection.pk
+        )
+
+
+class FinishSelectionChooseView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, selection_pk):
+        project = selections_project_or_404(request.user, pk)
+        if not is_project_client(request.user, project):
+            raise PermissionDenied('Only assigned clients can choose an option.')
+        selection = visible_selection_or_404(
+            request.user,
+            project,
+            selection_pk,
+        )
+        form = SelectionDecisionForm(request.POST, selection=selection)
+        if not form.is_valid():
+            messages.error(request, 'Choose an option before submitting.')
+            return redirect(
+                'projects:selection_detail',
+                pk=project.pk,
+                selection_pk=selection.pk,
+            )
+        with transaction.atomic():
+            selection = get_object_or_404(
+                FinishSelection.objects.select_for_update(),
+                project=project,
+                pk=selection_pk,
+            )
+            if selection.status != FinishSelection.Status.OPEN:
+                messages.info(request, 'This selection is no longer awaiting a choice.')
+                return redirect(
+                    'projects:selection_detail',
+                    pk=project.pk,
+                    selection_pk=selection.pk,
+                )
+            option = get_object_or_404(
+                SelectionOption,
+                selection=selection,
+                pk=form.cleaned_data['option'].pk,
+            )
+            selection.status = FinishSelection.Status.SELECTED
+            selection.chosen_option = option
+            selection.selected_by = request.user
+            selection.selected_at = timezone.now()
+            selection.client_comment = form.cleaned_data['comment']
+            selection.full_clean()
+            selection.save(
+                update_fields=(
+                    'status',
+                    'chosen_option',
+                    'selected_by',
+                    'selected_at',
+                    'client_comment',
+                    'updated_at',
+                )
+            )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.SELECTION_CHOSEN,
+                summary=(
+                    f'{request.user.email} selected "{option.name}" for '
+                    f'{selection.display_number} - "{selection.title}".'
+                ),
+                metadata={
+                    'selection_id': selection.pk,
+                    'option_id': option.pk,
+                    'price': str(option.price),
+                    'allowance_variance': str(option.allowance_variance),
+                },
+            )
+        send_selection_chosen_notification(request, selection)
+        messages.success(request, 'Your finish selection was recorded.')
+        return redirect(
+            'projects:selection_detail', pk=project.pk, selection_pk=selection.pk
+        )
+
+
+class FinishSelectionVoidView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, selection_pk):
+        project = managed_project_or_404(request.user, pk)
+        with transaction.atomic():
+            selection = get_object_or_404(
+                FinishSelection.objects.select_for_update(),
+                project=project,
+                pk=selection_pk,
+            )
+            if selection.status != FinishSelection.Status.OPEN:
+                raise PermissionDenied(
+                    'Only selections awaiting a client choice can be voided.'
+                )
+            selection.status = FinishSelection.Status.VOIDED
+            selection.voided_by = request.user
+            selection.voided_at = timezone.now()
+            selection.full_clean()
+            selection.save(
+                update_fields=('status', 'voided_by', 'voided_at', 'updated_at')
+            )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.SELECTION_VOIDED,
+                summary=(
+                    f'{request.user.email} voided {selection.display_number} '
+                    f'- "{selection.title}".'
+                ),
+                metadata={'selection_id': selection.pk, 'number': selection.number},
+            )
+        send_selection_voided_notification(request, selection)
+        messages.success(request, 'The selection request was voided.')
+        return redirect(
+            'projects:selection_detail', pk=project.pk, selection_pk=selection.pk
         )
 
 

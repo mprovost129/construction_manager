@@ -6,6 +6,7 @@ from .models import (
     ConversationMessage,
     ConversationThread,
     DocumentDecision,
+    FinishSelection,
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
@@ -14,6 +15,7 @@ from .models import (
     ProjectDocumentVersion,
     ProjectInvitation,
     ProjectMembership,
+    SelectionOption,
 )
 
 
@@ -222,6 +224,72 @@ class ChangeOrderAdmin(admin.ModelAdmin):
         'created_at',
         'updated_at',
     )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return bool(obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class SelectionOptionInline(admin.TabularInline):
+    model = SelectionOption
+    extra = 0
+    fields = (
+        'name',
+        'description',
+        'price',
+        'cost',
+        'is_recommended',
+        'sort_order',
+        'created_at',
+        'updated_at',
+    )
+    readonly_fields = fields
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(FinishSelection)
+class FinishSelectionAdmin(admin.ModelAdmin):
+    list_display = (
+        'display_number',
+        'title',
+        'project',
+        'status',
+        'allowance_amount',
+        'due_date',
+        'updated_at',
+    )
+    list_filter = ('status', 'project__organization')
+    search_fields = ('title', 'location', 'project__name')
+    readonly_fields = (
+        'project',
+        'number',
+        'title',
+        'description',
+        'location',
+        'allowance_amount',
+        'due_date',
+        'status',
+        'created_by',
+        'opened_by',
+        'opened_at',
+        'chosen_option',
+        'selected_by',
+        'selected_at',
+        'client_comment',
+        'voided_by',
+        'voided_at',
+        'created_at',
+        'updated_at',
+    )
+    inlines = (SelectionOptionInline,)
 
     def has_add_permission(self, request):
         return False

@@ -266,6 +266,101 @@ def send_change_order_voided_notification(request, change_order):
     )
 
 
+def format_allowance_variance(option):
+    variance = option.allowance_variance
+    if variance > 0:
+        return f'${variance:,.2f} over allowance'
+    if variance < 0:
+        return f'${abs(variance):,.2f} under allowance'
+    return 'Within allowance'
+
+
+def send_selection_review_notification(request, selection):
+    recipients = document_client_recipients(selection.project)
+    if not recipients:
+        return 0
+    detail_url = request.build_absolute_uri(
+        reverse(
+            'projects:selection_detail',
+            args=(selection.project_id, selection.pk),
+        )
+    )
+    due_copy = (
+        f'Decision due: {selection.due_date:%B %d, %Y}\n'
+        if selection.due_date
+        else ''
+    )
+    return send_mail(
+        subject=(
+            f'Finish selection requested - {selection.project.name}: '
+            f'{selection.display_number}'
+        ),
+        message=(
+            f'{selection.display_number} - {selection.title} is ready for your '
+            f'selection for {selection.project.name}.\n\n'
+            f'Allowance: ${selection.allowance_amount:,.2f}\n'
+            f'{due_copy}\nReview options and choose: {detail_url}'
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=recipients,
+    )
+
+
+def send_selection_chosen_notification(request, selection):
+    recipients = document_internal_recipients(
+        selection.project, exclude_user=selection.selected_by
+    )
+    if not recipients:
+        return 0
+    detail_url = request.build_absolute_uri(
+        reverse(
+            'projects:selection_detail',
+            args=(selection.project_id, selection.pk),
+        )
+    )
+    return send_mail(
+        subject=(
+            f'Finish selected - {selection.project.name}: '
+            f'{selection.display_number}'
+        ),
+        message=(
+            f'{selection.selected_by.email} selected '
+            f'{selection.chosen_option.name} for {selection.display_number} - '
+            f'{selection.title}.\n\n'
+            f'Price: ${selection.chosen_option.price:,.2f} '
+            f'({format_allowance_variance(selection.chosen_option)})\n'
+            f'Comment: {selection.client_comment or "No comment provided."}\n\n'
+            f'View selection: {detail_url}'
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=recipients,
+    )
+
+
+def send_selection_voided_notification(request, selection):
+    recipients = document_client_recipients(selection.project)
+    if not recipients:
+        return 0
+    detail_url = request.build_absolute_uri(
+        reverse(
+            'projects:selection_detail',
+            args=(selection.project_id, selection.pk),
+        )
+    )
+    return send_mail(
+        subject=(
+            f'Selection withdrawn - {selection.project.name}: '
+            f'{selection.display_number}'
+        ),
+        message=(
+            f'{selection.display_number} - {selection.title} has been withdrawn '
+            f'and no selection is required.\n\nView: {detail_url}'
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=recipients,
+    )
+
+
 @transaction.atomic
 def accept_project_invitation(invitation, user):
     invitation = ProjectInvitation.objects.select_for_update().select_related(

@@ -9,11 +9,13 @@ from .models import (
     ChangeOrder,
     ConversationMessage,
     DocumentDecision,
+    FinishSelection,
     OrganizationInvitation,
     OrganizationMembership,
     Project,
     ProjectDocument,
     ProjectInvitation,
+    SelectionOption,
 )
 
 ALLOWED_DOCUMENT_EXTENSIONS = {
@@ -123,6 +125,72 @@ class ChangeOrderDecisionForm(forms.Form):
         required=False,
         widget=forms.Textarea(attrs={'rows': 4}),
     )
+
+
+class FinishSelectionForm(forms.ModelForm):
+    class Meta:
+        model = FinishSelection
+        fields = (
+            'title',
+            'description',
+            'location',
+            'allowance_amount',
+            'due_date',
+        )
+        labels = {'allowance_amount': 'Client allowance'}
+        help_texts = {
+            'allowance_amount': (
+                'Clients will see each option as over, under, or within this allowance.'
+            )
+        }
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 4}),
+            'allowance_amount': forms.NumberInput(attrs={'step': '0.01'}),
+            'due_date': forms.DateInput(attrs={'type': 'date'}),
+        }
+
+
+class SelectionOptionForm(forms.ModelForm):
+    class Meta:
+        model = SelectionOption
+        fields = (
+            'name',
+            'description',
+            'price',
+            'cost',
+            'is_recommended',
+            'sort_order',
+        )
+        labels = {
+            'price': 'Client option price',
+            'cost': 'Estimated project cost',
+            'sort_order': 'Display order',
+        }
+        help_texts = {
+            'cost': 'Internal only and never shown to clients.',
+            'sort_order': 'Lower numbers appear first.',
+        }
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 4}),
+            'price': forms.NumberInput(attrs={'step': '0.01'}),
+            'cost': forms.NumberInput(attrs={'step': '0.01'}),
+        }
+
+
+class SelectionDecisionForm(forms.Form):
+    option = forms.ModelChoiceField(
+        queryset=SelectionOption.objects.none(),
+        empty_label=None,
+        widget=forms.RadioSelect,
+    )
+    comment = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'rows': 4}),
+    )
+
+    def __init__(self, *args, selection, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['option'].queryset = selection.options.all()
 
 
 class ConversationThreadForm(forms.Form):

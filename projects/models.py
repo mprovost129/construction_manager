@@ -354,6 +354,20 @@ class ActivityEvent(models.Model):
         CHANGE_ORDER_SUBMITTED = 'change_order_submitted', 'Change order submitted'
         CHANGE_ORDER_DECIDED = 'change_order_decided', 'Change order decided'
         CHANGE_ORDER_VOIDED = 'change_order_voided', 'Change order voided'
+        SELECTION_CREATED = 'selection_created', 'Selection created'
+        SELECTION_UPDATED = 'selection_updated', 'Selection updated'
+        SELECTION_OPTION_ADDED = 'selection_option_added', 'Selection option added'
+        SELECTION_OPTION_UPDATED = (
+            'selection_option_updated',
+            'Selection option updated',
+        )
+        SELECTION_OPTION_REMOVED = (
+            'selection_option_removed',
+            'Selection option removed',
+        )
+        SELECTION_PUBLISHED = 'selection_published', 'Selection published'
+        SELECTION_CHOSEN = 'selection_chosen', 'Selection chosen'
+        SELECTION_VOIDED = 'selection_voided', 'Selection voided'
 
     organization = models.ForeignKey(
         Organization,
@@ -727,3 +741,223 @@ class ChangeOrder(models.Model):
 
     def __str__(self):
         return f'{self.project}: {self.display_number} {self.title}'
+
+
+class FinishSelection(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = 'draft', 'Draft'
+        OPEN = 'open', 'Awaiting client'
+        SELECTED = 'selected', 'Selected'
+        VOIDED = 'voided', 'Voided'
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='finish_selections',
+    )
+    number = models.PositiveIntegerField()
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    location = models.CharField(max_length=200, blank=True)
+    allowance_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+    )
+    due_date = models.DateField(blank=True, null=True)
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='finish_selections_created',
+    )
+    opened_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='finish_selections_opened',
+    )
+    opened_at = models.DateTimeField(blank=True, null=True)
+    chosen_option = models.ForeignKey(
+        'SelectionOption',
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='chosen_for_selections',
+    )
+    selected_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='finish_selections_made',
+    )
+    selected_at = models.DateTimeField(blank=True, null=True)
+    client_comment = models.TextField(blank=True)
+    voided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='finish_selections_voided',
+    )
+    voided_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-number', '-pk')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('project', 'number'),
+                name='projects_unique_selection_number_per_project',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        status='draft',
+                        opened_by__isnull=True,
+                        opened_at__isnull=True,
+                    )
+                    | models.Q(
+                        status__in=('open', 'selected', 'voided'),
+                        opened_by__isnull=False,
+                        opened_at__isnull=False,
+                    )
+                ),
+                name='projects_selection_open_matches_status',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        status='selected',
+                        chosen_option__isnull=False,
+                        selected_by__isnull=False,
+                        selected_at__isnull=False,
+                    )
+                    | models.Q(
+                        status__in=('draft', 'open', 'voided'),
+                        chosen_option__isnull=True,
+                        selected_by__isnull=True,
+                        selected_at__isnull=True,
+                    )
+                ),
+                name='projects_selection_choice_matches_status',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        status='voided',
+                        voided_by__isnull=False,
+                        voided_at__isnull=False,
+                    )
+                    | models.Q(
+                        status__in=('draft', 'open', 'selected'),
+                        voided_by__isnull=True,
+                        voided_at__isnull=True,
+                    )
+                ),
+                name='projects_selection_void_matches_status',
+            ),
+        ]
+
+    @property
+    def display_number(self):
+        return f'SEL-{self.number:03d}'
+
+    @property
+    def selected_variance(self):
+        if not self.chosen_option_id:
+            return None
+        return self.chosen_option.price - self.allowance_amount
+
+    def clean(self):
+        super().clean()
+        self.title = self.title.strip()
+        self.description = self.description.strip()
+        self.location = self.location.strip()
+        self.client_comment = self.client_comment.strip()
+        errors = {}
+        if not self.title:
+            errors['title'] = 'Title cannot be blank.'
+        if self.allowance_amount < 0:
+            errors['allowance_amount'] = 'Allowance cannot be negative.'
+        if self.status == self.Status.DRAFT:
+            if self.opened_by_id or self.opened_at:
+                errors['status'] = 'Draft selections cannot have publication details.'
+        elif not self.opened_by_id or not self.opened_at:
+            errors['status'] = 'Published selections require an authenticated sender.'
+        if self.status == self.Status.SELECTED:
+            if not self.chosen_option_id or not self.selected_by_id or not self.selected_at:
+                errors['status'] = 'A completed selection requires an option and client.'
+            elif self.pk and self.chosen_option.selection_id != self.pk:
+                errors['chosen_option'] = 'The chosen option must belong to this selection.'
+        elif self.chosen_option_id or self.selected_by_id or self.selected_at:
+            errors['status'] = 'Only completed selections can have a client choice.'
+        if self.status == self.Status.VOIDED:
+            if not self.voided_by_id or not self.voided_at:
+                errors['status'] = 'Voided selections require an authenticated actor.'
+        elif self.voided_by_id or self.voided_at:
+            errors['status'] = 'Only voided selections can have void details.'
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f'{self.project}: {self.display_number} {self.title}'
+
+
+class SelectionOption(models.Model):
+    selection = models.ForeignKey(
+        FinishSelection,
+        on_delete=models.CASCADE,
+        related_name='options',
+    )
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    is_recommended = models.BooleanField(default=False)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('sort_order', 'pk')
+        constraints = [
+            models.UniqueConstraint(
+                Lower('name'),
+                'selection',
+                name='projects_unique_selection_option_name',
+            ),
+        ]
+
+    @property
+    def allowance_variance(self):
+        return self.price - self.selection.allowance_amount
+
+    @property
+    def allowance_variance_magnitude(self):
+        return abs(self.allowance_variance)
+
+    @property
+    def margin(self):
+        return self.price - self.cost
+
+    def clean(self):
+        super().clean()
+        self.name = self.name.strip()
+        self.description = self.description.strip()
+        if not self.name:
+            raise ValidationError({'name': 'Option name cannot be blank.'})
+        if self.price < 0:
+            raise ValidationError({'price': 'Option price cannot be negative.'})
+        if self.cost < 0:
+            raise ValidationError({'cost': 'Option cost cannot be negative.'})
+
+    def __str__(self):
+        return f'{self.selection.display_number}: {self.name}'
