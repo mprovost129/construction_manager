@@ -95,3 +95,11 @@ def is_project_client(user, project):
         is_active=True,
         role=OrganizationMembership.Role.CLIENT,
     ).exists()
+
+
+def can_use_project_documents(user, project):
+    return can_use_project_messaging(user, project)
+
+
+def can_use_change_orders(user, project):
+    return can_use_project_messaging(user, project)

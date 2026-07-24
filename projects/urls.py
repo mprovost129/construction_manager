@@ -38,6 +38,71 @@ urlpatterns = [
         name='message_status',
     ),
     path(
+        'projects/<int:pk>/documents/',
+        views.ProjectDocumentListView.as_view(),
+        name='document_list',
+    ),
+    path(
+        'projects/<int:pk>/documents/new/',
+        views.ProjectDocumentCreateView.as_view(),
+        name='document_create',
+    ),
+    path(
+        'projects/<int:pk>/documents/<int:document_pk>/',
+        views.ProjectDocumentDetailView.as_view(),
+        name='document_detail',
+    ),
+    path(
+        'projects/<int:pk>/documents/<int:document_pk>/versions/new/',
+        views.ProjectDocumentVersionCreateView.as_view(),
+        name='document_version_create',
+    ),
+    path(
+        'projects/<int:pk>/documents/<int:document_pk>/versions/<int:version_pk>/download/',
+        views.ProjectDocumentDownloadView.as_view(),
+        name='document_download',
+    ),
+    path(
+        'projects/<int:pk>/documents/<int:document_pk>/decision/',
+        views.ProjectDocumentDecisionView.as_view(),
+        name='document_decision',
+    ),
+    path(
+        'projects/<int:pk>/change-orders/',
+        views.ChangeOrderListView.as_view(),
+        name='change_order_list',
+    ),
+    path(
+        'projects/<int:pk>/change-orders/new/',
+        views.ChangeOrderCreateView.as_view(),
+        name='change_order_create',
+    ),
+    path(
+        'projects/<int:pk>/change-orders/<int:change_order_pk>/',
+        views.ChangeOrderDetailView.as_view(),
+        name='change_order_detail',
+    ),
+    path(
+        'projects/<int:pk>/change-orders/<int:change_order_pk>/edit/',
+        views.ChangeOrderUpdateView.as_view(),
+        name='change_order_edit',
+    ),
+    path(
+        'projects/<int:pk>/change-orders/<int:change_order_pk>/submit/',
+        views.ChangeOrderSubmitView.as_view(),
+        name='change_order_submit',
+    ),
+    path(
+        'projects/<int:pk>/change-orders/<int:change_order_pk>/decision/',
+        views.ChangeOrderDecisionView.as_view(),
+        name='change_order_decision',
+    ),
+    path(
+        'projects/<int:pk>/change-orders/<int:change_order_pk>/void/',
+        views.ChangeOrderVoidView.as_view(),
+        name='change_order_void',
+    ),
+    path(
         'projects/<int:pk>/invite-client/',
         views.ClientInviteView.as_view(),
         name='invite_client',

@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ change_order.display_number }} | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:change_order_list' project.pk %}">Change orders</a><i class="bi bi-chevron-right"></i><span>{{ change_order.display_number }}</span></nav>
+
+<section class="page-heading">
+    <div><p class="eyebrow">{{ change_order.display_number }}</p><h1>{{ change_order.title }}</h1><span class="status-pill {% if change_order.status == 'approved' %}status-pill--active{% elif change_order.status == 'pending' %}status-pill--on_hold{% elif change_order.status == 'declined' %}status-pill--declined{% endif %}">{{ change_order.get_status_display }}</span></div>
+    {% if can_manage_project %}<div class="button-row">{% if change_order.status == 'draft' %}<a class="btn btn-outline-secondary" href="{% url 'projects:change_order_edit' project.pk change_order.pk %}"><i class="bi bi-pencil"></i> Edit draft</a><form class="inline-form" method="post" action="{% url 'projects:change_order_submit' project.pk change_order.pk %}">{% csrf_token %}<button class="btn btn-primary" type="submit"><i class="bi bi-send"></i> Send to client</button></form>{% elif change_order.status == 'pending' %}<form class="inline-form" method="post" action="{% url 'projects:change_order_void' project.pk change_order.pk %}">{% csrf_token %}<button class="btn btn-outline-danger" type="submit">Void request</button></form>{% endif %}</div>{% endif %}
+</section>
+
+<section class="change-order-summary">
+    <article><span>Client price change</span><strong>${{ change_order.price_delta|floatformat:2 }}</strong></article>
+    <article><span>Schedule change</span><strong>{{ change_order.schedule_delta_days }} day{{ change_order.schedule_delta_days|pluralize }}</strong></article>
+    {% if can_manage_project %}<article class="change-order-summary__internal"><span>Estimated project cost</span><strong>${{ change_order.cost_delta|floatformat:2 }}</strong><small>Internal</small></article><article class="change-order-summary__internal"><span>Estimated margin impact</span><strong>${{ change_order.margin_delta|floatformat:2 }}</strong><small>Internal</small></article>{% endif %}
+</section>
+
+<section class="admin-panel change-order-scope"><div><p class="eyebrow">Scope of work</p><h2>What is changing</h2><div>{{ change_order.description|linebreaks }}</div></div>{% if change_order.reason %}<div><p class="eyebrow">Reason</p><h2>Why this is needed</h2><div>{{ change_order.reason|linebreaks }}</div></div>{% endif %}</section>
+
+{% if can_decide %}<section class="decision-panel"><div><p class="eyebrow">Authenticated decision</p><h2>Approve or decline {{ change_order.display_number }}</h2><p>Your identity, decision, comment, and decision time will be permanently recorded. Approving authorizes the client price and schedule changes shown above.</p></div><form method="post" action="{% url 'projects:change_order_decision' project.pk change_order.pk %}" class="stacked-form">{% csrf_token %}{% for field in decision_form %}<div class="form-field"><label>{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}<button class="btn btn-primary" type="submit">Record decision</button></form></section>{% endif %}
+
+{% if change_order.decided_by %}<section class="decision-panel decision-panel--recorded"><i class="bi bi-shield-check"></i><div><p class="eyebrow">Client decision</p><h2>{{ change_order.get_status_display }}</h2><p>{{ change_order.decided_by.email }} · {{ change_order.decided_at|date:"M j, Y g:i A" }}{% if change_order.client_comment %} · {{ change_order.client_comment }}{% endif %}</p></div></section>{% endif %}
+
+{% if change_order.status == 'voided' %}<div class="role-banner"><i class="bi bi-slash-circle"></i><span>Voided by {{ change_order.voided_by.email }} on {{ change_order.voided_at|date:"M j, Y g:i A" }}. No client decision is required.</span></div>{% endif %}
+
+{% if can_manage_project %}<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Accounting handoff</p><h2>QuickBooks Online</h2></div><span class="status-pill {% if change_order.status == 'approved' %}status-pill--on_hold{% endif %}">{{ change_order.quickbooks_handoff_label }}</span></div><p class="empty-copy">QuickBooks remains the accounting source of truth. No accounting entry or sync is performed by this workflow yet.</p></section>{% endif %}
+{% endblock %}

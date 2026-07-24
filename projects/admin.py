@@ -2,12 +2,16 @@ from django.contrib import admin
 
 from .models import (
     ActivityEvent,
+    ChangeOrder,
     ConversationMessage,
     ConversationThread,
+    DocumentDecision,
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
     Project,
+    ProjectDocument,
+    ProjectDocumentVersion,
     ProjectInvitation,
     ProjectMembership,
 )
@@ -104,6 +108,23 @@ class ConversationMessageInline(admin.TabularInline):
         return False
 
 
+class ProjectDocumentVersionInline(admin.TabularInline):
+    model = ProjectDocumentVersion
+    extra = 0
+    fields = (
+        'version_number',
+        'original_filename',
+        'notes',
+        'uploaded_by',
+        'created_at',
+    )
+    readonly_fields = fields
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(ConversationThread)
 class ConversationThreadAdmin(admin.ModelAdmin):
     list_display = ('subject', 'project', 'status', 'created_by', 'updated_at')
@@ -114,6 +135,99 @@ class ConversationThreadAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ProjectDocument)
+class ProjectDocumentAdmin(admin.ModelAdmin):
+    list_display = (
+        'title',
+        'project',
+        'category',
+        'client_visible',
+        'requires_client_approval',
+        'updated_at',
+    )
+    list_filter = (
+        'category',
+        'client_visible',
+        'requires_client_approval',
+        'project__organization',
+    )
+    search_fields = ('title', 'project__name')
+    readonly_fields = ('project', 'created_by', 'created_at', 'updated_at')
+    inlines = (ProjectDocumentVersionInline,)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(DocumentDecision)
+class DocumentDecisionAdmin(admin.ModelAdmin):
+    list_display = ('version', 'decided_by', 'decision', 'decided_at')
+    list_filter = ('decision', 'version__document__project__organization')
+    search_fields = (
+        'version__document__title',
+        'version__document__project__name',
+        'decided_by__email',
+    )
+    readonly_fields = ('version', 'decided_by', 'decision', 'comment', 'decided_at')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ChangeOrder)
+class ChangeOrderAdmin(admin.ModelAdmin):
+    list_display = (
+        'display_number',
+        'title',
+        'project',
+        'status',
+        'price_delta',
+        'cost_delta',
+        'updated_at',
+    )
+    list_filter = ('status', 'project__organization')
+    search_fields = ('title', 'project__name')
+    readonly_fields = (
+        'project',
+        'number',
+        'title',
+        'description',
+        'reason',
+        'price_delta',
+        'cost_delta',
+        'schedule_delta_days',
+        'status',
+        'created_by',
+        'submitted_by',
+        'submitted_at',
+        'decided_by',
+        'decided_at',
+        'client_comment',
+        'voided_by',
+        'voided_at',
+        'created_at',
+        'updated_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return bool(obj)
 
     def has_delete_permission(self, request, obj=None):
         return False

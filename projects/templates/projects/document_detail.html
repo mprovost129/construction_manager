@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ document.title }} | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:document_list' project.pk %}">Documents</a><i class="bi bi-chevron-right"></i><span>{{ document.title }}</span></nav>
+
+<section class="page-heading">
+    <div><p class="eyebrow">{{ document.get_category_display }}</p><h1>{{ document.title }}</h1>{% if document.description %}<p class="text-secondary mb-0">{{ document.description }}</p>{% endif %}</div>
+    <div class="button-row">{% if current_version %}<a class="btn btn-primary" href="{% url 'projects:document_download' project.pk document.pk current_version.pk %}"><i class="bi bi-download"></i> Download version {{ current_version.version_number }}</a>{% endif %}{% if can_manage_project %}<a class="btn btn-outline-secondary" href="{% url 'projects:document_version_create' project.pk document.pk %}"><i class="bi bi-upload"></i> New version</a>{% endif %}</div>
+</section>
+
+{% if can_manage_project %}<div class="role-banner"><i class="bi bi-eye"></i><span>{% if document.client_visible %}Visible to assigned clients{% else %}Internal company document{% endif %}{% if document.requires_client_approval %} · Client approval required{% endif %}</span></div>{% endif %}
+
+{% if can_decide %}
+<section class="decision-panel">
+    <div><p class="eyebrow">Your decision</p><h2>Review version {{ current_version.version_number }}</h2><p>Your identity and the time of this decision will be permanently recorded.</p></div>
+    <form method="post" action="{% url 'projects:document_decision' project.pk document.pk %}" class="stacked-form">{% csrf_token %}{{ decision_form.non_field_errors }}{% for field in decision_form %}<div class="form-field"><label>{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}<button class="btn btn-primary" type="submit">Record decision</button></form>
+</section>
+{% elif viewer_decision %}
+<section class="decision-panel decision-panel--recorded"><i class="bi bi-shield-check"></i><div><p class="eyebrow">Decision recorded</p><h2>{{ viewer_decision.get_decision_display }}</h2><p>{{ viewer_decision.decided_at|date:"M j, Y g:i A" }}{% if viewer_decision.comment %} · {{ viewer_decision.comment }}{% endif %}</p></div></section>
+{% endif %}
+
+<section class="admin-panel">
+    <div class="section-heading"><div><p class="eyebrow">Permanent record</p><h2>Version history</h2></div></div>
+    <div class="version-list">
+        {% for version in versions %}
+        <article class="version-row">
+            <div><h3>Version {{ version.version_number }}{% if version == current_version %} <span class="status-pill status-pill--active">Current</span>{% endif %}</h3><p>{{ version.original_filename }} · Uploaded by {{ version.uploaded_by.email }} on {{ version.created_at|date:"M j, Y g:i A" }}</p>{% if version.notes %}<p>{{ version.notes }}</p>{% endif %}</div>
+            <a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:document_download' project.pk document.pk version.pk %}"><i class="bi bi-download"></i> Download</a>
+            {% if document.requires_client_approval %}<div class="version-decisions">{% for decision in version.decisions.all %}<span class="status-pill {% if decision.decision == 'approved' %}status-pill--active{% else %}status-pill--declined{% endif %}">{{ decision.get_decision_display }} by {{ decision.decided_by.email }} · {{ decision.decided_at|date:"M j, Y" }}</span>{% empty %}<span class="status-pill status-pill--on_hold">Awaiting decision</span>{% endfor %}</div>{% endif %}
+        </article>
+        {% empty %}<p>No versions have been uploaded.</p>{% endfor %}
+    </div>
+</section>
+{% endblock %}

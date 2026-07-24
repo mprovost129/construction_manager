@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+
+{% block title %}Documents | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb">
+    <a href="{% url 'core:home' %}">Projects</a><i class="bi bi-chevron-right"></i>
+    <a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i>
+    <span>Documents</span>
+</nav>
+
+<section class="page-heading">
+    <div><p class="eyebrow">Project files</p><h1>Documents</h1><p class="text-secondary mb-0">Review current files and keep every version and client decision together.</p></div>
+    {% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:document_create' project.pk %}"><i class="bi bi-upload"></i> Upload document</a>{% endif %}
+</section>
+
+{% if documents %}
+<section class="document-list">
+    {% for document in documents %}
+    <a class="document-row" href="{% url 'projects:document_detail' project.pk document.pk %}">
+        <div class="document-row__icon"><i class="bi bi-file-earmark-text"></i></div>
+        <div class="document-row__body">
+            <h2>{{ document.title }}</h2>
+            <p>{{ document.get_category_display }}{% if document.current_version %} · Version {{ document.current_version.version_number }} · {{ document.current_version.original_filename }}{% endif %}</p>
+        </div>
+        <div class="document-row__meta">
+            {% if can_manage_project %}<span>{% if document.client_visible %}Client visible{% else %}Internal only{% endif %}</span>{% endif %}
+            <span class="status-pill {{ document.approval_status_class }}">{{ document.approval_status }}</span>
+            <i class="bi bi-chevron-right" aria-hidden="true"></i>
+        </div>
+    </a>
+    {% endfor %}
+</section>
+{% else %}
+<div class="empty-state"><i class="bi bi-files"></i><h2>No documents yet</h2><p>{% if can_manage_project %}Upload the first file for this project.{% else %}The company has not shared any documents yet.{% endif %}</p>{% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:document_create' project.pk %}">Upload document</a>{% endif %}</div>
+{% endif %}
+{% endblock %}

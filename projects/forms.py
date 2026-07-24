@@ -1,14 +1,128 @@
+from pathlib import Path
+
 from django import forms
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import UserCreationForm
 
 from .models import (
+    ChangeOrder,
     ConversationMessage,
+    DocumentDecision,
     OrganizationInvitation,
     OrganizationMembership,
     Project,
+    ProjectDocument,
     ProjectInvitation,
 )
+
+ALLOWED_DOCUMENT_EXTENSIONS = {
+    '.doc',
+    '.docx',
+    '.jpeg',
+    '.jpg',
+    '.pdf',
+    '.png',
+    '.xls',
+    '.xlsx',
+}
+
+
+def validate_document_file(uploaded_file):
+    extension = Path(uploaded_file.name).suffix.lower()
+    if extension not in ALLOWED_DOCUMENT_EXTENSIONS:
+        allowed = ', '.join(sorted(ALLOWED_DOCUMENT_EXTENSIONS))
+        raise forms.ValidationError(f'Unsupported file type. Allowed types: {allowed}.')
+    if uploaded_file.size > settings.DOCUMENT_MAX_UPLOAD_SIZE:
+        maximum_mb = settings.DOCUMENT_MAX_UPLOAD_SIZE // (1024 * 1024)
+        raise forms.ValidationError(f'File must be {maximum_mb} MB or smaller.')
+    return uploaded_file
+
+
+class ProjectDocumentCreateForm(forms.ModelForm):
+    file = forms.FileField()
+    version_notes = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'rows': 3}),
+    )
+
+    class Meta:
+        model = ProjectDocument
+        fields = (
+            'title',
+            'description',
+            'category',
+            'client_visible',
+            'requires_client_approval',
+        )
+        widgets = {'description': forms.Textarea(attrs={'rows': 4})}
+
+    def clean_file(self):
+        return validate_document_file(self.cleaned_data['file'])
+
+
+class ProjectDocumentVersionForm(forms.Form):
+    file = forms.FileField()
+    notes = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'rows': 4}),
+    )
+
+    def clean_file(self):
+        return validate_document_file(self.cleaned_data['file'])
+
+
+class DocumentDecisionForm(forms.ModelForm):
+    class Meta:
+        model = DocumentDecision
+        fields = ('decision', 'comment')
+        widgets = {
+            'decision': forms.RadioSelect,
+            'comment': forms.Textarea(attrs={'rows': 4}),
+        }
+
+
+class ChangeOrderForm(forms.ModelForm):
+    class Meta:
+        model = ChangeOrder
+        fields = (
+            'title',
+            'description',
+            'reason',
+            'price_delta',
+            'cost_delta',
+            'schedule_delta_days',
+        )
+        labels = {
+            'price_delta': 'Client price change',
+            'cost_delta': 'Estimated project cost change',
+            'schedule_delta_days': 'Schedule change (days)',
+        }
+        help_texts = {
+            'price_delta': 'Use a negative amount for a client credit.',
+            'cost_delta': 'Internal only. Use a negative amount for a cost reduction.',
+            'schedule_delta_days': 'Use a negative number if the change saves time.',
+        }
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 5}),
+            'reason': forms.Textarea(attrs={'rows': 3}),
+            'price_delta': forms.NumberInput(attrs={'step': '0.01'}),
+            'cost_delta': forms.NumberInput(attrs={'step': '0.01'}),
+        }
+
+
+class ChangeOrderDecisionForm(forms.Form):
+    decision = forms.ChoiceField(
+        choices=(
+            (ChangeOrder.Status.APPROVED, 'Approve'),
+            (ChangeOrder.Status.DECLINED, 'Decline'),
+        ),
+        widget=forms.RadioSelect,
+    )
+    comment = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'rows': 4}),
+    )
 
 
 class ConversationThreadForm(forms.Form):

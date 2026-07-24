@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+
+{% block title %}New version | {{ document.title }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:document_list' project.pk %}">Documents</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:document_detail' project.pk document.pk %}">{{ document.title }}</a><i class="bi bi-chevron-right"></i><span>New version</span></nav>
+<div class="form-shell form-shell--top">
+    <section class="form-card form-card--wide">
+        <p class="eyebrow">Version history</p><h1>Upload a new version</h1>
+        <p class="text-secondary">Earlier files and decisions remain in the audit history. A client decision will be required again for this version.</p>
+        <form method="post" enctype="multipart/form-data" class="stacked-form">{% csrf_token %}{{ form.non_field_errors }}{% for field in form %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}<div class="form-actions"><a class="btn btn-outline-secondary" href="{% url 'projects:document_detail' project.pk document.pk %}">Cancel</a><button class="btn btn-primary" type="submit">Upload version</button></div></form>
+    </section>
+</div>
+{% endblock %}

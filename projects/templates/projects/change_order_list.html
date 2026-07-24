@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+
+{% block title %}Change orders | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'core:home' %}">Projects</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><span>Change orders</span></nav>
+
+<section class="page-heading">
+    <div><p class="eyebrow">Scope and pricing</p><h1>Change orders</h1><p class="text-secondary mb-0">Track proposed work, client-facing price changes, schedule impact, and authenticated decisions.</p></div>
+    {% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:change_order_create' project.pk %}"><i class="bi bi-plus-lg"></i> New change order</a>{% endif %}
+</section>
+
+{% if change_orders %}
+<section class="document-list">
+    {% for change_order in change_orders %}
+    <a class="document-row" href="{% url 'projects:change_order_detail' project.pk change_order.pk %}">
+        <div class="document-row__icon"><i class="bi bi-arrow-left-right"></i></div>
+        <div class="document-row__body"><h2>{{ change_order.display_number }} · {{ change_order.title }}</h2><p>Client price change: ${{ change_order.price_delta|floatformat:2 }} · Schedule: {{ change_order.schedule_delta_days }} day{{ change_order.schedule_delta_days|pluralize }}</p></div>
+        <div class="document-row__meta"><span class="status-pill {% if change_order.status == 'approved' %}status-pill--active{% elif change_order.status == 'pending' %}status-pill--on_hold{% elif change_order.status == 'declined' %}status-pill--declined{% endif %}">{{ change_order.get_status_display }}</span><i class="bi bi-chevron-right"></i></div>
+    </a>
+    {% endfor %}
+</section>
+{% else %}
+<div class="empty-state"><i class="bi bi-arrow-left-right"></i><h2>No change orders yet</h2><p>{% if can_manage_project %}Create a draft when project scope, price, or schedule changes.{% else %}There are no change orders ready for your review.{% endif %}</p>{% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:change_order_create' project.pk %}">New change order</a>{% endif %}</div>
+{% endif %}
+{% endblock %}

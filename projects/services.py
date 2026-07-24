@@ -114,6 +114,158 @@ def send_message_notifications(request, message, *, new_thread=False):
     )
 
 
+def document_client_recipients(project):
+    emails = get_user_model().objects.filter(
+        project_memberships__project=project,
+        project_memberships__role=OrganizationMembership.Role.CLIENT,
+        project_memberships__is_active=True,
+        is_active=True,
+    ).values_list('email', flat=True)
+    return sorted(set(emails))
+
+
+def document_internal_recipients(project, *, exclude_user=None):
+    memberships = project.organization.memberships.filter(
+        role__in=(
+            OrganizationMembership.Role.ADMIN,
+            OrganizationMembership.Role.STAFF,
+        ),
+        is_active=True,
+        user__is_active=True,
+    )
+    if exclude_user:
+        memberships = memberships.exclude(user=exclude_user)
+    return sorted(set(memberships.values_list('user__email', flat=True)))
+
+
+def send_document_available_notification(request, version):
+    document = version.document
+    if not document.client_visible:
+        return 0
+    recipients = document_client_recipients(document.project)
+    if not recipients:
+        return 0
+    document_url = request.build_absolute_uri(
+        reverse('projects:document_detail', args=(document.project_id, document.pk))
+    )
+    action = 'Review requested' if document.requires_client_approval else 'New document'
+    return send_mail(
+        subject=f'{action} - {document.project.name}: {document.title}',
+        message=(
+            f'{document.title} version {version.version_number} is available for '
+            f'{document.project.name}.\n\nView document: {document_url}'
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=recipients,
+    )
+
+
+def send_document_decision_notification(request, decision):
+    document = decision.version.document
+    recipients = document_internal_recipients(
+        document.project, exclude_user=decision.decided_by
+    )
+    if not recipients:
+        return 0
+    document_url = request.build_absolute_uri(
+        reverse('projects:document_detail', args=(document.project_id, document.pk))
+    )
+    return send_mail(
+        subject=(
+            f'Document {decision.get_decision_display().lower()} - '
+            f'{document.project.name}: {document.title}'
+        ),
+        message=(
+            f'{decision.decided_by.email} {decision.get_decision_display().lower()} '
+            f'{document.title} version {decision.version.version_number}.\n\n'
+            f'Comment: {decision.comment or "No comment provided."}\n\n'
+            f'View document: {document_url}'
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=recipients,
+    )
+
+
+def send_change_order_review_notification(request, change_order):
+    recipients = document_client_recipients(change_order.project)
+    if not recipients:
+        return 0
+    detail_url = request.build_absolute_uri(
+        reverse(
+            'projects:change_order_detail',
+            args=(change_order.project_id, change_order.pk),
+        )
+    )
+    return send_mail(
+        subject=(
+            f'Change order review requested - {change_order.project.name}: '
+            f'{change_order.display_number}'
+        ),
+        message=(
+            f'{change_order.display_number} - {change_order.title} is ready for '
+            f'your review for {change_order.project.name}.\n\n'
+            f'Client price change: ${change_order.price_delta:,.2f}\n'
+            f'Schedule change: {change_order.schedule_delta_days} day(s)\n\n'
+            f'Review and decide: {detail_url}'
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=recipients,
+    )
+
+
+def send_change_order_decision_notification(request, change_order):
+    recipients = document_internal_recipients(
+        change_order.project, exclude_user=change_order.decided_by
+    )
+    if not recipients:
+        return 0
+    detail_url = request.build_absolute_uri(
+        reverse(
+            'projects:change_order_detail',
+            args=(change_order.project_id, change_order.pk),
+        )
+    )
+    return send_mail(
+        subject=(
+            f'Change order {change_order.get_status_display().lower()} - '
+            f'{change_order.project.name}: {change_order.display_number}'
+        ),
+        message=(
+            f'{change_order.decided_by.email} '
+            f'{change_order.get_status_display().lower()} '
+            f'{change_order.display_number} - {change_order.title}.\n\n'
+            f'Comment: {change_order.client_comment or "No comment provided."}\n\n'
+            f'View change order: {detail_url}'
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=recipients,
+    )
+
+
+def send_change_order_voided_notification(request, change_order):
+    recipients = document_client_recipients(change_order.project)
+    if not recipients:
+        return 0
+    detail_url = request.build_absolute_uri(
+        reverse(
+            'projects:change_order_detail',
+            args=(change_order.project_id, change_order.pk),
+        )
+    )
+    return send_mail(
+        subject=(
+            f'Change order withdrawn - {change_order.project.name}: '
+            f'{change_order.display_number}'
+        ),
+        message=(
+            f'{change_order.display_number} - {change_order.title} has been '
+            f'withdrawn and no decision is required.\n\nView: {detail_url}'
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=recipients,
+    )
+
+
 @transaction.atomic
 def accept_project_invitation(invitation, user):
     invitation = ProjectInvitation.objects.select_for_update().select_related(

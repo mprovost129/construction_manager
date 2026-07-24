@@ -46,16 +46,16 @@
         <div><h2>Messages</h2><p>Project conversations and notifications.</p></div>
         <span>Open messages <i class="bi bi-arrow-right"></i></span>
     </a>{% endif %}
-    <article class="module-card module-card--ready">
+    {% if can_use_project_documents %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:document_list' project.pk %}">
         <i class="bi bi-file-earmark-check"></i>
         <div><h2>Documents</h2><p>Review, approve, or decline project documents.</p></div>
-        <span>Shell ready</span>
-    </article>
-    <article class="module-card module-card--ready">
+        <span>Open documents <i class="bi bi-arrow-right"></i></span>
+    </a>{% endif %}
+    {% if can_use_change_orders %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:change_order_list' project.pk %}">
         <i class="bi bi-arrow-left-right"></i>
         <div><h2>Change orders</h2><p>Pricing, customer decisions, and approval history.</p></div>
-        <span>Shell ready</span>
-    </article>
+        <span>Open change orders <i class="bi bi-arrow-right"></i></span>
+    </a>{% endif %}
     <article class="module-card module-card--ready">
         <i class="bi bi-palette"></i>
         <div><h2>Selections</h2><p>Finish options, allowances, and customer choices.</p></div>

@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if change_order %}Edit {{ change_order.display_number }}{% else %}New change order{% endif %} | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:change_order_list' project.pk %}">Change orders</a><i class="bi bi-chevron-right"></i><span>{% if change_order %}Edit {{ change_order.display_number }}{% else %}New{% endif %}</span></nav>
+<div class="form-shell form-shell--top">
+    <section class="form-card form-card--wide">
+        <p class="eyebrow">Draft change order</p><h1>{% if change_order %}Edit {{ change_order.display_number }}{% else %}Create a change order{% endif %}</h1>
+        <p class="text-secondary">The client will see the scope, reason, price change, and schedule impact. Estimated project cost and margin remain internal.</p>
+        <form method="post" class="stacked-form">{% csrf_token %}{{ form.non_field_errors }}<div class="form-grid">{% for field in form %}<div class="form-field{% if field.name == 'description' or field.name == 'reason' %} form-field--wide{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<div class="help-text">{{ field.help_text }}</div>{% endif %}{{ field.errors }}</div>{% endfor %}</div><div class="form-actions"><a class="btn btn-outline-secondary" href="{% if change_order %}{% url 'projects:change_order_detail' project.pk change_order.pk %}{% else %}{% url 'projects:change_order_list' project.pk %}{% endif %}">Cancel</a><button class="btn btn-primary" type="submit">Save draft</button></div></form>
+    </section>
+</div>
+{% endblock %}
