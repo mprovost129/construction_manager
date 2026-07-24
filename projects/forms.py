@@ -3,11 +3,34 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import UserCreationForm
 
 from .models import (
+    ConversationMessage,
     OrganizationInvitation,
     OrganizationMembership,
     Project,
     ProjectInvitation,
 )
+
+
+class ConversationThreadForm(forms.Form):
+    subject = forms.CharField(max_length=200)
+    body = forms.CharField(
+        label='Message',
+        widget=forms.Textarea(attrs={'rows': 6}),
+    )
+
+
+class ConversationReplyForm(forms.ModelForm):
+    class Meta:
+        model = ConversationMessage
+        fields = ('body',)
+        labels = {'body': 'Reply'}
+        widgets = {'body': forms.Textarea(attrs={'rows': 5})}
+
+    def clean_body(self):
+        body = self.cleaned_data['body'].strip()
+        if not body:
+            raise forms.ValidationError('Reply cannot be blank.')
+        return body
 
 
 class ProjectForm(forms.ModelForm):

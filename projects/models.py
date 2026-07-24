@@ -324,6 +324,12 @@ class ActivityEvent(models.Model):
         TEAM_JOINED = 'team_joined', 'Team member joined'
         TEAM_ROLE_CHANGED = 'team_role_changed', 'Team role changed'
         TEAM_ACCESS_CHANGED = 'team_access_changed', 'Team access changed'
+        MESSAGE_THREAD_CREATED = 'message_thread_created', 'Message thread created'
+        MESSAGE_SENT = 'message_sent', 'Message sent'
+        MESSAGE_THREAD_STATUS_CHANGED = (
+            'message_thread_status_changed',
+            'Message thread status changed',
+        )
 
     organization = models.ForeignKey(
         Organization,
@@ -359,3 +365,61 @@ class ActivityEvent(models.Model):
 
     def __str__(self):
         return self.summary
+
+
+class ConversationThread(models.Model):
+    class Status(models.TextChoices):
+        OPEN = 'open', 'Open'
+        CLOSED = 'closed', 'Closed'
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='conversation_threads',
+    )
+    subject = models.CharField(max_length=200)
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.OPEN,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='conversation_threads_created',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-updated_at', '-pk')
+
+    def __str__(self):
+        return f'{self.project}: {self.subject}'
+
+
+class ConversationMessage(models.Model):
+    thread = models.ForeignKey(
+        ConversationThread,
+        on_delete=models.CASCADE,
+        related_name='messages',
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='conversation_messages',
+    )
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('created_at', 'pk')
+
+    def clean(self):
+        super().clean()
+        self.body = self.body.strip()
+        if not self.body:
+            raise ValidationError({'body': 'Message cannot be blank.'})
+
+    def __str__(self):
+        return f'{self.author.email} on {self.thread.subject}'

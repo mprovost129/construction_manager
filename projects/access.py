@@ -68,3 +68,30 @@ def can_manage_project(user, project):
 
 def can_invite_clients(user, project):
     return can_manage_project(user, project)
+
+
+def can_use_project_messaging(user, project):
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    organization_membership = organization_membership_for(
+        user, project.organization
+    )
+    if organization_membership and organization_membership.role in MANAGEMENT_ROLES:
+        return True
+    return project.project_memberships.filter(
+        user=user,
+        is_active=True,
+        role=OrganizationMembership.Role.CLIENT,
+    ).exists()
+
+
+def is_project_client(user, project):
+    if not user.is_authenticated:
+        return False
+    return project.project_memberships.filter(
+        user=user,
+        is_active=True,
+        role=OrganizationMembership.Role.CLIENT,
+    ).exists()

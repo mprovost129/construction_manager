@@ -18,6 +18,26 @@ urlpatterns = [
         name='people',
     ),
     path(
+        'projects/<int:pk>/messages/',
+        views.ProjectMessageListView.as_view(),
+        name='message_list',
+    ),
+    path(
+        'projects/<int:pk>/messages/new/',
+        views.ProjectMessageCreateView.as_view(),
+        name='message_create',
+    ),
+    path(
+        'projects/<int:pk>/messages/<int:thread_pk>/',
+        views.ProjectMessageThreadView.as_view(),
+        name='message_thread',
+    ),
+    path(
+        'projects/<int:pk>/messages/<int:thread_pk>/<str:action>/',
+        views.ProjectMessageStatusView.as_view(),
+        name='message_status',
+    ),
+    path(
         'projects/<int:pk>/invite-client/',
         views.ClientInviteView.as_view(),
         name='invite_client',

@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model, login
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.db.models import Count
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -13,12 +14,16 @@ from .access import (
     can_invite_clients,
     can_manage_organization,
     can_manage_project,
+    can_use_project_messaging,
     internal_organizations_for_user,
+    is_project_client,
     organization_membership_for,
     projects_for_user,
 )
 from .forms import (
     ClientInvitationForm,
+    ConversationReplyForm,
+    ConversationThreadForm,
     InvitationSignupForm,
     ProjectForm,
     TeamInvitationForm,
@@ -26,6 +31,8 @@ from .forms import (
 )
 from .models import (
     ActivityEvent,
+    ConversationMessage,
+    ConversationThread,
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
@@ -37,6 +44,7 @@ from .services import (
     accept_organization_invitation,
     accept_project_invitation,
     record_activity,
+    send_message_notifications,
     send_project_invitation,
     send_team_invitation,
 )
@@ -49,6 +57,16 @@ def managed_project_or_404(user, pk):
     )
     if not can_manage_project(user, project):
         raise PermissionDenied('You cannot manage this project.')
+    return project
+
+
+def messaging_project_or_404(user, pk):
+    project = get_object_or_404(
+        projects_for_user(user).select_related('organization'),
+        pk=pk,
+    )
+    if not can_use_project_messaging(user, project):
+        raise PermissionDenied('You cannot access project messaging.')
     return project
 
 
@@ -94,6 +112,9 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
                 'can_invite_clients': can_invite_clients(
                     self.request.user, self.object
                 ),
+                'can_use_project_messaging': can_use_project_messaging(
+                    self.request.user, self.object
+                ),
                 'can_view_project_financials': bool(
                     self.request.user.is_superuser
                     or (
@@ -109,6 +130,172 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
             }
         )
         return context
+
+
+class ProjectMessageListView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/message_list.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = messaging_project_or_404(request.user, kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'project': self.project,
+                'threads': self.project.conversation_threads.select_related(
+                    'created_by'
+                ).annotate(message_count=Count('messages')),
+                'can_manage_project': can_manage_project(
+                    self.request.user, self.project
+                ),
+            }
+        )
+        return context
+
+
+class ProjectMessageCreateView(LoginRequiredMixin, FormView):
+    form_class = ConversationThreadForm
+    template_name = 'projects/message_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = messaging_project_or_404(request.user, kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['project'] = self.project
+        return context
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            thread = ConversationThread.objects.create(
+                project=self.project,
+                subject=form.cleaned_data['subject'].strip(),
+                created_by=self.request.user,
+            )
+            message = ConversationMessage(
+                thread=thread,
+                author=self.request.user,
+                body=form.cleaned_data['body'],
+            )
+            message.full_clean()
+            message.save()
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.MESSAGE_THREAD_CREATED,
+                summary=(
+                    f'{self.request.user.email} started the conversation '
+                    f'"{thread.subject}".'
+                ),
+                metadata={'thread_id': thread.pk, 'subject': thread.subject},
+            )
+        send_message_notifications(self.request, message, new_thread=True)
+        messages.success(self.request, 'Conversation started.')
+        return redirect(
+            'projects:message_thread', pk=self.project.pk, thread_pk=thread.pk
+        )
+
+
+class ProjectMessageThreadView(LoginRequiredMixin, View):
+    template_name = 'projects/message_thread.html'
+
+    def get_objects(self, request, pk, thread_pk):
+        project = messaging_project_or_404(request.user, pk)
+        thread = get_object_or_404(
+            ConversationThread.objects.select_related('created_by'),
+            pk=thread_pk,
+            project=project,
+        )
+        return project, thread
+
+    def render_thread(self, request, project, thread, form=None):
+        return render(
+            request,
+            self.template_name,
+            {
+                'project': project,
+                'thread': thread,
+                'thread_messages': thread.messages.select_related('author'),
+                'form': form or ConversationReplyForm(),
+                'can_manage_project': can_manage_project(request.user, project),
+                'viewer_is_client': is_project_client(request.user, project),
+            },
+        )
+
+    def get(self, request, pk, thread_pk):
+        project, thread = self.get_objects(request, pk, thread_pk)
+        return self.render_thread(request, project, thread)
+
+    def post(self, request, pk, thread_pk):
+        project, thread = self.get_objects(request, pk, thread_pk)
+        if thread.status == ConversationThread.Status.CLOSED:
+            messages.error(request, 'This conversation is closed. It must be reopened before replying.')
+            return redirect(
+                'projects:message_thread', pk=project.pk, thread_pk=thread.pk
+            )
+        form = ConversationReplyForm(request.POST)
+        if not form.is_valid():
+            return self.render_thread(request, project, thread, form=form)
+        with transaction.atomic():
+            message = form.save(commit=False)
+            message.thread = thread
+            message.author = request.user
+            message.full_clean()
+            message.save()
+            ConversationThread.objects.filter(pk=thread.pk).update(
+                updated_at=timezone.now()
+            )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.MESSAGE_SENT,
+                summary=f'{request.user.email} replied to "{thread.subject}".',
+                metadata={'thread_id': thread.pk, 'subject': thread.subject},
+            )
+        send_message_notifications(request, message)
+        messages.success(request, 'Reply sent.')
+        return redirect(
+            'projects:message_thread', pk=project.pk, thread_pk=thread.pk
+        )
+
+
+class ProjectMessageStatusView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, thread_pk, action):
+        project = managed_project_or_404(request.user, pk)
+        thread = get_object_or_404(
+            ConversationThread, pk=thread_pk, project=project
+        )
+        if action not in ('close', 'reopen'):
+            raise PermissionDenied('Unknown conversation action.')
+        thread.status = (
+            ConversationThread.Status.CLOSED
+            if action == 'close'
+            else ConversationThread.Status.OPEN
+        )
+        thread.save(update_fields=('status', 'updated_at'))
+        record_activity(
+            organization=project.organization,
+            project=project,
+            actor=request.user,
+            event_type=ActivityEvent.Type.MESSAGE_THREAD_STATUS_CHANGED,
+            summary=f'{request.user.email} {action}d "{thread.subject}".',
+            metadata={
+                'thread_id': thread.pk,
+                'subject': thread.subject,
+                'status': thread.status,
+            },
+        )
+        messages.success(request, f'Conversation {action}d.')
+        return redirect(
+            'projects:message_thread', pk=project.pk, thread_pk=thread.pk
+        )
 
 
 class ProjectCreateView(LoginRequiredMixin, FormView):

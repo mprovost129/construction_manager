@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+
+{% block title %}Messages | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb">
+    <a href="{% url 'core:home' %}">Projects</a><i class="bi bi-chevron-right"></i>
+    <a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i>
+    <span>Messages</span>
+</nav>
+
+<section class="page-heading">
+    <div><p class="eyebrow">Project communication</p><h1>Messages</h1><p class="text-secondary mb-0">Keep customer questions and decisions connected to the project.</p></div>
+    <a class="btn btn-primary" href="{% url 'projects:message_create' project.pk %}"><i class="bi bi-plus-lg"></i> New conversation</a>
+</section>
+
+{% if threads %}
+<section class="thread-list">
+    {% for thread in threads %}
+    <a class="thread-row" href="{% url 'projects:message_thread' project.pk thread.pk %}">
+        <div class="thread-row__icon"><i class="bi bi-chat-left-text"></i></div>
+        <div class="thread-row__body"><h2>{{ thread.subject }}</h2><p>Started by {{ thread.created_by.email }}</p></div>
+        <div class="thread-row__meta"><span class="status-pill {% if thread.status == 'open' %}status-pill--active{% endif %}">{{ thread.get_status_display }}</span><span>{{ thread.message_count }} message{{ thread.message_count|pluralize }}</span><time>{{ thread.updated_at|date:"M j, Y" }}</time></div>
+    </a>
+    {% endfor %}
+</section>
+{% else %}
+<div class="empty-state"><i class="bi bi-chat-square-text"></i><h2>No conversations yet</h2><p>Start the first project conversation.</p><a class="btn btn-primary" href="{% url 'projects:message_create' project.pk %}">New conversation</a></div>
+{% endif %}
+{% endblock %}

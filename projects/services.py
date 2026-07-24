@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.mail import send_mail
 from django.db import transaction
@@ -58,6 +59,58 @@ def send_team_invitation(request, invitation):
         ),
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[invitation.email],
+    )
+
+
+def message_notification_recipients(project, author):
+    client_user_ids = project.project_memberships.filter(
+        role=OrganizationMembership.Role.CLIENT,
+        is_active=True,
+        user__is_active=True,
+    ).values_list('user_id', flat=True)
+    author_is_client = project.project_memberships.filter(
+        role=OrganizationMembership.Role.CLIENT,
+        is_active=True,
+        user=author,
+    ).exists()
+    if author_is_client:
+        emails = project.organization.memberships.filter(
+            role__in=(
+                OrganizationMembership.Role.ADMIN,
+                OrganizationMembership.Role.STAFF,
+            ),
+            is_active=True,
+            user__is_active=True,
+        ).exclude(user=author).values_list('user__email', flat=True)
+    else:
+        emails = get_user_model().objects.filter(
+            pk__in=client_user_ids,
+            is_active=True,
+        ).exclude(pk=author.pk).values_list('email', flat=True)
+    return sorted(set(emails))
+
+
+def send_message_notifications(request, message, *, new_thread=False):
+    thread = message.thread
+    recipients = message_notification_recipients(thread.project, message.author)
+    if not recipients:
+        return 0
+    thread_url = request.build_absolute_uri(
+        reverse(
+            'projects:message_thread',
+            args=(thread.project_id, thread.pk),
+        )
+    )
+    action = 'New conversation' if new_thread else 'New reply'
+    return send_mail(
+        subject=f'{action} - {thread.project.name}: {thread.subject}',
+        message=(
+            f'{message.author.email} posted in "{thread.subject}" for '
+            f'{thread.project.name}.\n\n{message.body}\n\n'
+            f'View and reply: {thread_url}'
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=recipients,
     )
 
 

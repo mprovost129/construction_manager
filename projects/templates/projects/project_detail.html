@@ -41,11 +41,11 @@
 </div>
 
 <section class="module-grid" aria-label="Project modules">
-    <article class="module-card module-card--ready">
+    {% if can_use_project_messaging %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:message_list' project.pk %}">
         <i class="bi bi-chat-dots"></i>
         <div><h2>Messages</h2><p>Project conversations and notifications.</p></div>
-        <span>Shell ready</span>
-    </article>
+        <span>Open messages <i class="bi bi-arrow-right"></i></span>
+    </a>{% endif %}
     <article class="module-card module-card--ready">
         <i class="bi bi-file-earmark-check"></i>
         <div><h2>Documents</h2><p>Review, approve, or decline project documents.</p></div>

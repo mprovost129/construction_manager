@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block title %}{{ thread.subject }} | {{ project.name }}{% endblock %}
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:message_list' project.pk %}">Messages</a><i class="bi bi-chevron-right"></i><span>{{ thread.subject }}</span></nav>
+<section class="conversation-heading">
+    <div><p class="eyebrow">Project conversation</p><h1>{{ thread.subject }}</h1><p>Started by {{ thread.created_by.email }} on {{ thread.created_at|date:"M j, Y" }}</p></div>
+    <div class="button-row"><span class="status-pill {% if thread.status == 'open' %}status-pill--active{% endif %}">{{ thread.get_status_display }}</span>{% if can_manage_project %}{% if thread.status == 'open' %}<form method="post" action="{% url 'projects:message_status' project.pk thread.pk 'close' %}" class="inline-form">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" type="submit">Close conversation</button></form>{% else %}<form method="post" action="{% url 'projects:message_status' project.pk thread.pk 'reopen' %}" class="inline-form">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" type="submit">Reopen conversation</button></form>{% endif %}{% endif %}</div>
+</section>
+
+<section class="conversation" aria-label="Conversation messages">
+{% for message in thread_messages %}
+<article class="message-bubble{% if message.author == user %} message-bubble--own{% endif %}">
+    <header><strong>{% if message.author == user %}You{% else %}{{ message.author.get_full_name|default:message.author.email }}{% endif %}</strong><span>{{ message.author.email }}</span><time>{{ message.created_at|date:"M j, Y g:i A" }}</time></header>
+    <div>{{ message.body|linebreaksbr }}</div>
+</article>
+{% endfor %}
+</section>
+
+{% if thread.status == 'open' %}<section class="reply-panel"><h2>Reply</h2><form method="post" class="stacked-form">{% csrf_token %}{{ form.non_field_errors }}<div class="form-field"><label for="{{ form.body.id_for_label }}">{{ form.body.label }}</label>{{ form.body }}{{ form.body.errors }}</div><div class="form-actions"><button class="btn btn-primary" type="submit">Send reply</button></div></form></section>{% else %}<div class="role-banner"><i class="bi bi-lock"></i><span>This conversation is closed. A company admin or staff member can reopen it.</span></div>{% endif %}
+{% endblock %}

@@ -2,6 +2,8 @@ from django.contrib import admin
 
 from .models import (
     ActivityEvent,
+    ConversationMessage,
+    ConversationThread,
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
@@ -86,6 +88,31 @@ class ActivityEventAdmin(admin.ModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class ConversationMessageInline(admin.TabularInline):
+    model = ConversationMessage
+    extra = 0
+    readonly_fields = ('author', 'body', 'created_at')
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ConversationThread)
+class ConversationThreadAdmin(admin.ModelAdmin):
+    list_display = ('subject', 'project', 'status', 'created_by', 'updated_at')
+    list_filter = ('status', 'project__organization')
+    search_fields = ('subject', 'project__name', 'created_by__email')
+    readonly_fields = ('project', 'subject', 'created_by', 'created_at', 'updated_at')
+    inlines = (ConversationMessageInline,)
+
+    def has_add_permission(self, request):
         return False
 
     def has_delete_permission(self, request, obj=None):
