@@ -7,6 +7,14 @@
 
 This checklist intentionally leaves out decisions that have already been confirmed. Start with Sections 1-4; those answers affect the next development work most directly.
 
+## Product Guardrails
+
+- Build for Heritage Realty & Custom Homes and its confirmed workflows first.
+- Use Buildertrend as the benchmark for professional presentation, reliability, security, auditability, and ease of use—not as a feature-parity target.
+- Add only capabilities supported by the requirements matrix or confirmed client answers.
+- Prefer a smaller, complete workflow over a broad module with unfinished behavior.
+- Preserve clean boundaries that could support a future SaaS product, but do not let hypothetical multi-company needs expand the pilot scope.
+
 ## 1. QuickBooks Online Integration
 
 1. Which records must the app exchange with QuickBooks Online?

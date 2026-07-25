@@ -1,4 +1,5 @@
-from datetime import date
+from datetime import date, timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core import mail
@@ -13,6 +14,7 @@ from projects.models import (
     ProjectMembership,
     ScheduleMilestone,
 )
+from projects.schedule_calendar import shift_month
 
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
@@ -150,6 +152,78 @@ class ProjectScheduleTests(TestCase):
         self.assertContains(response, visible.title)
         self.assertNotContains(response, hidden.title)
         self.assertNotContains(response, hidden.internal_notes)
+        calendar_milestones = {
+            event['milestone']
+            for week in response.context['calendar_weeks']
+            for day in week
+            for event in day['events']
+        }
+        self.assertEqual(calendar_milestones, {visible})
+
+    def test_schedule_calendar_renders_requested_month_and_full_date_range(self):
+        milestone = self.create_milestone()
+        self.client.force_login(self.staff_user)
+        response = self.client.get(
+            reverse('projects:schedule', args=(self.project.pk,)),
+            {'month': '2026-08'},
+        )
+
+        event_dates = [
+            day['date']
+            for week in response.context['calendar_weeks']
+            for day in week
+            if any(
+                event['milestone'] == milestone for event in day['events']
+            )
+        ]
+        expected_dates = [
+            milestone.start_date + timedelta(days=offset)
+            for offset in range(12)
+        ]
+
+        self.assertEqual(response.context['calendar_month'], date(2026, 8, 1))
+        self.assertEqual(response.context['previous_month'], date(2026, 7, 1))
+        self.assertEqual(response.context['next_month'], date(2026, 9, 1))
+        self.assertEqual(event_dates, expected_dates)
+        self.assertContains(response, 'August 2026')
+        self.assertContains(response, '?month=2026-07')
+        self.assertContains(response, '?month=2026-09')
+        self.assertContains(response, 'Starts')
+        self.assertContains(response, 'Ends')
+
+    @patch('projects.views.timezone.localdate', return_value=date(2026, 7, 1))
+    def test_schedule_calendar_defaults_to_next_relevant_month(self, _localdate):
+        self.create_milestone()
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(
+            reverse('projects:schedule', args=(self.project.pk,)),
+        )
+
+        self.assertEqual(response.context['calendar_month'], date(2026, 8, 1))
+
+    def test_invalid_calendar_month_is_ignored(self):
+        self.create_milestone()
+        self.client.force_login(self.staff_user)
+
+        with patch(
+            'projects.views.timezone.localdate',
+            return_value=date(2026, 8, 5),
+        ):
+            response = self.client.get(
+                reverse('projects:schedule', args=(self.project.pk,)),
+                {'month': '2026-99'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['calendar_month'], date(2026, 8, 1))
+
+    def test_calendar_navigation_is_safe_at_date_boundaries(self):
+        self.assertEqual(shift_month(date.min, -1), date.min)
+        self.assertEqual(
+            shift_month(date.max.replace(day=1), 1),
+            date.max.replace(day=1),
+        )
 
     def test_client_never_sees_internal_notes_on_visible_milestone(self):
         milestone = self.create_milestone()

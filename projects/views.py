@@ -65,6 +65,11 @@ from .models import (
     ScheduleMilestone,
     SelectionOption,
 )
+from .schedule_calendar import (
+    build_month_calendar,
+    choose_calendar_month,
+    shift_month,
+)
 from .services import (
     accept_organization_invitation,
     accept_project_invitation,
@@ -1612,10 +1617,25 @@ class ProjectScheduleView(LoginRequiredMixin, TemplateView):
         milestones = self.project.schedule_milestones.all()
         if is_project_client(self.request.user, self.project):
             milestones = milestones.filter(client_visible=True)
+        milestones = list(milestones)
+        today = timezone.localdate()
+        calendar_month = choose_calendar_month(
+            milestones,
+            self.request.GET.get('month', ''),
+            today=today,
+        )
         context.update(
             {
                 'project': self.project,
                 'milestones': milestones,
+                'calendar_month': calendar_month,
+                'calendar_weeks': build_month_calendar(
+                    milestones,
+                    calendar_month,
+                    today=today,
+                ),
+                'previous_month': shift_month(calendar_month, -1),
+                'next_month': shift_month(calendar_month, 1),
                 'can_manage_project': can_manage_project(
                     self.request.user, self.project
                 ),
