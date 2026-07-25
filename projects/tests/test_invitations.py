@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core import mail
@@ -89,6 +90,31 @@ class ProjectInvitationTests(TestCase):
         self.assertIn(str(invitation.token), mail.outbox[0].body)
         self.assertIn(self.project.name, mail.outbox[0].subject)
         self.assertContains(response, 'Invitation sent to customer@example.com.')
+
+    @patch('projects.services.send_mail', side_effect=RuntimeError('SMTP offline'))
+    def test_email_failure_preserves_invitation_and_offers_resend(self, _send_mail):
+        self.client.force_login(self.admin_user)
+
+        with self.assertLogs('projects.services', level='ERROR'):
+            response = self.client.post(
+                self.invite_url(),
+                {'email': 'customer@example.com'},
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            ProjectInvitation.objects.filter(email='customer@example.com').exists()
+        )
+        self.assertContains(
+            response,
+            'The invitation for customer@example.com was saved, but the email '
+            'could not be sent. Use Resend to try again.',
+        )
+        self.assertNotContains(
+            response,
+            'Invitation sent to customer@example.com.',
+        )
 
     def test_staff_can_send_client_invitation(self):
         self.client.force_login(self.staff_user)

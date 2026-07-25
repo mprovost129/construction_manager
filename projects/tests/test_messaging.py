@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.test import TestCase, override_settings
@@ -109,6 +111,34 @@ class ProjectMessagingTests(TestCase):
                 event_type=ActivityEvent.Type.MESSAGE_THREAD_CREATED,
                 project=self.project,
             ).exists()
+        )
+
+    @patch('projects.services.send_mail', side_effect=RuntimeError('SMTP offline'))
+    def test_email_failure_does_not_lose_new_conversation(self, _send_mail):
+        self.client.force_login(self.admin_user)
+
+        with self.assertLogs('projects.services', level='ERROR'):
+            response = self.client.post(
+                reverse('projects:message_create', args=(self.project.pk,)),
+                {
+                    'subject': 'Delivery timing',
+                    'body': 'When will the cabinets arrive?',
+                },
+                follow=True,
+            )
+
+        thread = ConversationThread.objects.get(subject='Delivery timing')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(thread.messages.count(), 1)
+        self.assertTrue(
+            ActivityEvent.objects.filter(
+                event_type=ActivityEvent.Type.MESSAGE_THREAD_CREATED,
+                project=self.project,
+            ).exists()
+        )
+        self.assertContains(
+            response,
+            'Your update was saved, but the notification email could not be sent.',
         )
 
     def test_client_reply_notifies_admin_and_staff_but_not_accountant(self):

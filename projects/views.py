@@ -187,6 +187,27 @@ def managed_organization_or_404(user, slug):
     return organization
 
 
+def warn_if_notification_failed(request, delivery_result):
+    if delivery_result is None:
+        messages.warning(
+            request,
+            'Your update was saved, but the notification email could not be sent. '
+            'Please try again later.',
+        )
+
+
+def add_invitation_delivery_message(request, delivery_result, email, *, resent=False):
+    if delivery_result is None:
+        messages.warning(
+            request,
+            f'The invitation for {email} was saved, but the email could not be '
+            'sent. Use Resend to try again.',
+        )
+        return
+    action = 'resent' if resent else 'sent'
+    messages.success(request, f'Invitation {action} to {email}.')
+
+
 class ProjectDetailView(LoginRequiredMixin, DetailView):
     model = Project
     template_name = 'projects/project_detail.html'
@@ -341,7 +362,12 @@ class ProjectMessageCreateView(LoginRequiredMixin, FormView):
                 ),
                 metadata={'thread_id': thread.pk, 'subject': thread.subject},
             )
-        send_message_notifications(self.request, message, new_thread=True)
+        delivery_result = send_message_notifications(
+            self.request,
+            message,
+            new_thread=True,
+        )
+        warn_if_notification_failed(self.request, delivery_result)
         messages.success(self.request, 'Conversation started.')
         return redirect(
             'projects:message_thread', pk=self.project.pk, thread_pk=thread.pk
@@ -405,7 +431,8 @@ class ProjectMessageThreadView(LoginRequiredMixin, View):
                 summary=f'{request.user.email} replied to "{thread.subject}".',
                 metadata={'thread_id': thread.pk, 'subject': thread.subject},
             )
-        send_message_notifications(request, message)
+        delivery_result = send_message_notifications(request, message)
+        warn_if_notification_failed(request, delivery_result)
         messages.success(request, 'Reply sent.')
         return redirect(
             'projects:message_thread', pk=project.pk, thread_pk=thread.pk
@@ -496,7 +523,11 @@ class ProjectDocumentCreateView(LoginRequiredMixin, FormView):
                     'version_number': version.version_number,
                 },
             )
-        send_document_available_notification(self.request, version)
+        delivery_result = send_document_available_notification(
+            self.request,
+            version,
+        )
+        warn_if_notification_failed(self.request, delivery_result)
         messages.success(self.request, f'{document.title} was uploaded.')
         return redirect(
             'projects:document_detail',
@@ -595,7 +626,11 @@ class ProjectDocumentVersionCreateView(LoginRequiredMixin, FormView):
                     'version_number': version.version_number,
                 },
             )
-        send_document_available_notification(self.request, version)
+        delivery_result = send_document_available_notification(
+            self.request,
+            version,
+        )
+        warn_if_notification_failed(self.request, delivery_result)
         messages.success(self.request, f'Version {version.version_number} uploaded.')
         return redirect(
             'projects:document_detail',
@@ -670,7 +705,8 @@ class ProjectDocumentDecisionView(LoginRequiredMixin, View):
                     'decision': decision.decision,
                 },
             )
-        send_document_decision_notification(request, decision)
+        delivery_result = send_document_decision_notification(request, decision)
+        warn_if_notification_failed(request, delivery_result)
         messages.success(request, 'Your document decision was recorded.')
         return redirect(
             'projects:document_detail', pk=project.pk, document_pk=document.pk
@@ -896,7 +932,11 @@ class ChangeOrderSubmitView(LoginRequiredMixin, View):
                     'number': change_order.number,
                 },
             )
-        send_change_order_review_notification(request, change_order)
+        delivery_result = send_change_order_review_notification(
+            request,
+            change_order,
+        )
+        warn_if_notification_failed(request, delivery_result)
         messages.success(request, 'The change order was sent to the client.')
         return redirect(
             'projects:change_order_detail',
@@ -962,7 +1002,11 @@ class ChangeOrderDecisionView(LoginRequiredMixin, View):
                     'decision': change_order.status,
                 },
             )
-        send_change_order_decision_notification(request, change_order)
+        delivery_result = send_change_order_decision_notification(
+            request,
+            change_order,
+        )
+        warn_if_notification_failed(request, delivery_result)
         messages.success(request, 'Your change order decision was recorded.')
         return redirect(
             'projects:change_order_detail',
@@ -1012,7 +1056,11 @@ class ChangeOrderVoidView(LoginRequiredMixin, View):
                     'number': change_order.number,
                 },
             )
-        send_change_order_voided_notification(request, change_order)
+        delivery_result = send_change_order_voided_notification(
+            request,
+            change_order,
+        )
+        warn_if_notification_failed(request, delivery_result)
         messages.success(request, 'The change order was voided.')
         return redirect(
             'projects:change_order_detail',
@@ -1425,7 +1473,8 @@ class FinishSelectionPublishView(LoginRequiredMixin, View):
                     'option_count': selection.options.count(),
                 },
             )
-        send_selection_review_notification(request, selection)
+        delivery_result = send_selection_review_notification(request, selection)
+        warn_if_notification_failed(request, delivery_result)
         messages.success(request, 'The selection was published to the client.')
         return redirect(
             'projects:selection_detail', pk=project.pk, selection_pk=selection.pk
@@ -1502,7 +1551,8 @@ class FinishSelectionChooseView(LoginRequiredMixin, View):
                     'allowance_variance': str(option.allowance_variance),
                 },
             )
-        send_selection_chosen_notification(request, selection)
+        delivery_result = send_selection_chosen_notification(request, selection)
+        warn_if_notification_failed(request, delivery_result)
         messages.success(request, 'Your finish selection was recorded.')
         return redirect(
             'projects:selection_detail', pk=project.pk, selection_pk=selection.pk
@@ -1542,7 +1592,8 @@ class FinishSelectionVoidView(LoginRequiredMixin, View):
                 ),
                 metadata={'selection_id': selection.pk, 'number': selection.number},
             )
-        send_selection_voided_notification(request, selection)
+        delivery_result = send_selection_voided_notification(request, selection)
+        warn_if_notification_failed(request, delivery_result)
         messages.success(request, 'The selection request was voided.')
         return redirect(
             'projects:selection_detail', pk=project.pk, selection_pk=selection.pk
@@ -1613,7 +1664,11 @@ class ScheduleMilestoneCreateView(LoginRequiredMixin, FormView):
                 },
             )
         if form.cleaned_data['notify_clients'] and milestone.client_visible:
-            send_schedule_milestone_notification(self.request, milestone)
+            delivery_result = send_schedule_milestone_notification(
+                self.request,
+                milestone,
+            )
+            warn_if_notification_failed(self.request, delivery_result)
         messages.success(self.request, f'{milestone.title} was added to the schedule.')
         return redirect('projects:schedule', pk=self.project.pk)
 
@@ -1675,11 +1730,16 @@ class ScheduleMilestoneUpdateView(LoginRequiredMixin, FormView):
             )
         if form.cleaned_data['notify_clients']:
             if milestone.client_visible:
-                send_schedule_milestone_notification(self.request, milestone)
+                delivery_result = send_schedule_milestone_notification(
+                    self.request,
+                    milestone,
+                )
+                warn_if_notification_failed(self.request, delivery_result)
             elif was_client_visible:
-                send_schedule_milestone_notification(
+                delivery_result = send_schedule_milestone_notification(
                     self.request, milestone, withdrawn=True
                 )
+                warn_if_notification_failed(self.request, delivery_result)
         messages.success(self.request, f'{milestone.title} was updated.')
         return redirect('projects:schedule', pk=self.project.pk)
 
@@ -1863,8 +1923,12 @@ class ClientInviteView(LoginRequiredMixin, FormView):
                 summary=f'{self.request.user.email} invited {invitation.email}.',
                 metadata={'email': invitation.email},
             )
-        send_project_invitation(self.request, invitation)
-        messages.success(self.request, f'Invitation sent to {invitation.email}.')
+        delivery_result = send_project_invitation(self.request, invitation)
+        add_invitation_delivery_message(
+            self.request,
+            delivery_result,
+            invitation.email,
+        )
         return redirect('projects:people', pk=self.project.pk)
 
 
@@ -1896,8 +1960,13 @@ class ProjectInvitationResendView(LoginRequiredMixin, View):
                 summary=f'{request.user.email} resent the invitation to {invitation.email}.',
                 metadata={'email': invitation.email},
             )
-        send_project_invitation(request, invitation)
-        messages.success(request, f'Invitation resent to {invitation.email}.')
+        delivery_result = send_project_invitation(request, invitation)
+        add_invitation_delivery_message(
+            request,
+            delivery_result,
+            invitation.email,
+            resent=True,
+        )
         return redirect('projects:people', pk=project.pk)
 
 
@@ -2041,8 +2110,12 @@ class TeamInviteView(LoginRequiredMixin, FormView):
                 ),
                 metadata={'email': invitation.email, 'role': invitation.role},
             )
-        send_team_invitation(self.request, invitation)
-        messages.success(self.request, f'Invitation sent to {invitation.email}.')
+        delivery_result = send_team_invitation(self.request, invitation)
+        add_invitation_delivery_message(
+            self.request,
+            delivery_result,
+            invitation.email,
+        )
         return redirect('projects:company_team', slug=self.organization.slug)
 
 
@@ -2075,8 +2148,13 @@ class TeamInvitationResendView(LoginRequiredMixin, View):
                 summary=f'{request.user.email} resent the invitation to {invitation.email}.',
                 metadata={'email': invitation.email, 'role': invitation.role},
             )
-        send_team_invitation(request, invitation)
-        messages.success(request, f'Invitation resent to {invitation.email}.')
+        delivery_result = send_team_invitation(request, invitation)
+        add_invitation_delivery_message(
+            request,
+            delivery_result,
+            invitation.email,
+            resent=True,
+        )
         return redirect('projects:company_team', slug=organization.slug)
 
 

@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -13,6 +15,25 @@ from .models import (
     ProjectInvitation,
     ProjectMembership,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def send_notification_email(*, subject, message, recipient_list):
+    try:
+        sent_count = send_mail(
+            subject=subject,
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=recipient_list,
+        )
+    except Exception:
+        logger.exception('Notification email delivery failed.')
+        return None
+    if not sent_count:
+        logger.error('Notification email backend reported no delivered messages.')
+        return None
+    return sent_count
 
 
 def record_activity(
@@ -32,7 +53,7 @@ def send_project_invitation(request, invitation):
     accept_url = request.build_absolute_uri(
         reverse('projects:accept_invitation', args=(invitation.token,))
     )
-    send_mail(
+    return send_notification_email(
         subject=f'You are invited to {invitation.project.name}',
         message=(
             f'You have been invited to access {invitation.project.name} in the '
@@ -40,7 +61,6 @@ def send_project_invitation(request, invitation):
             f'Accept your invitation: {accept_url}\n\n'
             'This invitation expires in 7 days.'
         ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[invitation.email],
     )
 
@@ -49,7 +69,7 @@ def send_team_invitation(request, invitation):
     accept_url = request.build_absolute_uri(
         reverse('projects:accept_team_invitation', args=(invitation.token,))
     )
-    send_mail(
+    return send_notification_email(
         subject=f'Join {invitation.organization.name}',
         message=(
             f'You have been invited to join {invitation.organization.name} as '
@@ -57,7 +77,6 @@ def send_team_invitation(request, invitation):
             f'Accept your invitation: {accept_url}\n\n'
             'This invitation expires in 7 days.'
         ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[invitation.email],
     )
 
@@ -102,14 +121,13 @@ def send_message_notifications(request, message, *, new_thread=False):
         )
     )
     action = 'New conversation' if new_thread else 'New reply'
-    return send_mail(
+    return send_notification_email(
         subject=f'{action} - {thread.project.name}: {thread.subject}',
         message=(
             f'{message.author.email} posted in "{thread.subject}" for '
             f'{thread.project.name}.\n\n{message.body}\n\n'
             f'View and reply: {thread_url}'
         ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=recipients,
     )
 
@@ -149,13 +167,12 @@ def send_document_available_notification(request, version):
         reverse('projects:document_detail', args=(document.project_id, document.pk))
     )
     action = 'Review requested' if document.requires_client_approval else 'New document'
-    return send_mail(
+    return send_notification_email(
         subject=f'{action} - {document.project.name}: {document.title}',
         message=(
             f'{document.title} version {version.version_number} is available for '
             f'{document.project.name}.\n\nView document: {document_url}'
         ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=recipients,
     )
 
@@ -170,7 +187,7 @@ def send_document_decision_notification(request, decision):
     document_url = request.build_absolute_uri(
         reverse('projects:document_detail', args=(document.project_id, document.pk))
     )
-    return send_mail(
+    return send_notification_email(
         subject=(
             f'Document {decision.get_decision_display().lower()} - '
             f'{document.project.name}: {document.title}'
@@ -181,7 +198,6 @@ def send_document_decision_notification(request, decision):
             f'Comment: {decision.comment or "No comment provided."}\n\n'
             f'View document: {document_url}'
         ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=recipients,
     )
 
@@ -196,7 +212,7 @@ def send_change_order_review_notification(request, change_order):
             args=(change_order.project_id, change_order.pk),
         )
     )
-    return send_mail(
+    return send_notification_email(
         subject=(
             f'Change order review requested - {change_order.project.name}: '
             f'{change_order.display_number}'
@@ -208,7 +224,6 @@ def send_change_order_review_notification(request, change_order):
             f'Schedule change: {change_order.schedule_delta_days} day(s)\n\n'
             f'Review and decide: {detail_url}'
         ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=recipients,
     )
 
@@ -225,7 +240,7 @@ def send_change_order_decision_notification(request, change_order):
             args=(change_order.project_id, change_order.pk),
         )
     )
-    return send_mail(
+    return send_notification_email(
         subject=(
             f'Change order {change_order.get_status_display().lower()} - '
             f'{change_order.project.name}: {change_order.display_number}'
@@ -237,7 +252,6 @@ def send_change_order_decision_notification(request, change_order):
             f'Comment: {change_order.client_comment or "No comment provided."}\n\n'
             f'View change order: {detail_url}'
         ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=recipients,
     )
 
@@ -252,7 +266,7 @@ def send_change_order_voided_notification(request, change_order):
             args=(change_order.project_id, change_order.pk),
         )
     )
-    return send_mail(
+    return send_notification_email(
         subject=(
             f'Change order withdrawn - {change_order.project.name}: '
             f'{change_order.display_number}'
@@ -261,7 +275,6 @@ def send_change_order_voided_notification(request, change_order):
             f'{change_order.display_number} - {change_order.title} has been '
             f'withdrawn and no decision is required.\n\nView: {detail_url}'
         ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=recipients,
     )
 
@@ -290,7 +303,7 @@ def send_selection_review_notification(request, selection):
         if selection.due_date
         else ''
     )
-    return send_mail(
+    return send_notification_email(
         subject=(
             f'Finish selection requested - {selection.project.name}: '
             f'{selection.display_number}'
@@ -301,7 +314,6 @@ def send_selection_review_notification(request, selection):
             f'Allowance: ${selection.allowance_amount:,.2f}\n'
             f'{due_copy}\nReview options and choose: {detail_url}'
         ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=recipients,
     )
 
@@ -318,7 +330,7 @@ def send_selection_chosen_notification(request, selection):
             args=(selection.project_id, selection.pk),
         )
     )
-    return send_mail(
+    return send_notification_email(
         subject=(
             f'Finish selected - {selection.project.name}: '
             f'{selection.display_number}'
@@ -332,7 +344,6 @@ def send_selection_chosen_notification(request, selection):
             f'Comment: {selection.client_comment or "No comment provided."}\n\n'
             f'View selection: {detail_url}'
         ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=recipients,
     )
 
@@ -347,7 +358,7 @@ def send_selection_voided_notification(request, selection):
             args=(selection.project_id, selection.pk),
         )
     )
-    return send_mail(
+    return send_notification_email(
         subject=(
             f'Selection withdrawn - {selection.project.name}: '
             f'{selection.display_number}'
@@ -356,7 +367,6 @@ def send_selection_voided_notification(request, selection):
             f'{selection.display_number} - {selection.title} has been withdrawn '
             f'and no selection is required.\n\nView: {detail_url}'
         ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=recipients,
     )
 
@@ -386,10 +396,9 @@ def send_schedule_milestone_notification(request, milestone, *, withdrawn=False)
             f'{date_copy}\nStatus: {milestone.get_status_display()}\n\n'
             f'View the schedule: {schedule_url}'
         )
-    return send_mail(
+    return send_notification_email(
         subject=subject,
         message=body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=recipients,
     )
 
