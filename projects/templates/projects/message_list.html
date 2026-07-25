@@ -14,17 +14,70 @@
     <a class="btn btn-primary" href="{% url 'projects:message_create' project.pk %}"><i class="bi bi-plus-lg"></i> New conversation</a>
 </section>
 
+<section class="project-filter-bar" aria-label="Filter conversations">
+    <form method="get" class="project-filter-form" role="search">
+        <label class="visually-hidden" for="message-search">Search conversations</label>
+        <div class="project-filter-form__search">
+            <i class="bi bi-search" aria-hidden="true"></i>
+            <input id="message-search" type="search" name="q" value="{{ message_search }}" maxlength="100" placeholder="Search subject, message, or participant">
+        </div>
+        <label class="visually-hidden" for="message-status">Conversation status</label>
+        <select id="message-status" name="status">
+            <option value="">All statuses</option>
+            {% for value, label in message_status_choices %}
+            <option value="{{ value }}"{% if message_status == value %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-outline-secondary" type="submit">Filter</button>
+        {% if has_message_filters %}<a class="btn btn-link" href="{% url 'projects:message_list' project.pk %}">Clear</a>{% endif %}
+    </form>
+    <p>{{ page_obj.paginator.count }} conversation{{ page_obj.paginator.count|pluralize }}</p>
+</section>
+
 {% if threads %}
-<section class="thread-list">
+<section class="thread-list" aria-label="Project conversations">
     {% for thread in threads %}
     <a class="thread-row" href="{% url 'projects:message_thread' project.pk thread.pk %}">
-        <div class="thread-row__icon"><i class="bi bi-chat-left-text"></i></div>
-        <div class="thread-row__body"><h2>{{ thread.subject }}</h2><p>Started by {{ thread.created_by.email }}</p></div>
-        <div class="thread-row__meta"><span class="status-pill {% if thread.status == 'open' %}status-pill--active{% endif %}">{{ thread.get_status_display }}</span><span>{{ thread.message_count }} message{{ thread.message_count|pluralize }}</span><time>{{ thread.updated_at|date:"M j, Y" }}</time></div>
+        <div class="thread-row__icon"><i class="bi bi-chat-left-text" aria-hidden="true"></i></div>
+        <div class="thread-row__body">
+            <h2>{{ thread.subject }}</h2>
+            <p class="thread-row__preview"><strong>{{ thread.latest_message_author }}</strong> {{ thread.latest_message_body|truncatechars:125 }}</p>
+            <p>Started by {{ thread.created_by.email }}</p>
+        </div>
+        <div class="thread-row__meta">
+            <span class="status-pill {% if thread.status == 'open' %}status-pill--active{% endif %}">{{ thread.get_status_display }}</span>
+            <span>{{ thread.message_count }} message{{ thread.message_count|pluralize }}</span>
+            <time datetime="{{ thread.latest_message_at|date:'c' }}">Updated {{ thread.latest_message_at|date:"M j, Y" }}</time>
+        </div>
     </a>
     {% endfor %}
 </section>
 {% else %}
-<div class="empty-state"><i class="bi bi-chat-square-text"></i><h2>No conversations yet</h2><p>Start the first project conversation.</p><a class="btn btn-primary" href="{% url 'projects:message_create' project.pk %}">New conversation</a></div>
+<div class="empty-state">
+    <i class="bi bi-chat-square-text" aria-hidden="true"></i>
+    {% if has_message_filters %}
+    <h2>No conversations match these filters</h2>
+    <p>Try a different subject, message, participant, or status.</p>
+    <a class="btn btn-outline-secondary" href="{% url 'projects:message_list' project.pk %}">Clear filters</a>
+    {% else %}
+    <h2>No conversations yet</h2>
+    <p>Start the first project conversation.</p>
+    <a class="btn btn-primary" href="{% url 'projects:message_create' project.pk %}">New conversation</a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if page_obj.paginator.num_pages > 1 %}
+<nav class="pagination-bar" aria-label="Conversation pages">
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    <div>
+        {% if page_obj.has_previous %}
+        <a class="btn btn-sm btn-outline-secondary" href="?{% if message_querystring %}{{ message_querystring }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">Previous</a>
+        {% endif %}
+        {% if page_obj.has_next %}
+        <a class="btn btn-sm btn-outline-secondary" href="?{% if message_querystring %}{{ message_querystring }}&amp;{% endif %}page={{ page_obj.next_page_number }}">Next</a>
+        {% endif %}
+    </div>
+</nav>
 {% endif %}
 {% endblock %}

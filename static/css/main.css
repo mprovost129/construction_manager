@@ -674,7 +674,12 @@ input:focus {
     text-decoration: none;
 }
 
-.thread-row:hover { border-color: #aabbb2; color: inherit; }
+.thread-row:hover,
+.thread-row:focus-visible {
+    border-color: #8da197;
+    color: inherit;
+    box-shadow: 0 6px 18px rgba(28, 59, 45, 0.08);
+}
 
 .thread-row__icon {
     display: grid;
@@ -688,6 +693,16 @@ input:focus {
 
 .thread-row__body h2 { margin: 0 0 0.2rem; font-size: 1rem; }
 .thread-row__body p { margin: 0; color: var(--color-muted); font-size: 0.82rem; }
+
+.thread-row__body .thread-row__preview {
+    overflow: hidden;
+    margin-bottom: 0.3rem;
+    color: var(--color-text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.thread-row__preview strong { margin-right: 0.25rem; font-size: 0.78rem; }
 
 .thread-row__meta {
     display: flex;

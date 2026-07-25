@@ -213,11 +213,11 @@ This checklist intentionally leaves out decisions that have already been confirm
 | CRM/leads |  |  |  |  |
 | Subcontractor portal |  |  |  |  |
 
-4. Is Duvally Residence the pilot project? What information must be loaded before the client can use it?
+4. Is Duvally Residence the pilot project? What information must be loaded before the client can use it? This was a test project.
 
-5. What result would make the pilot successful enough to continue or eventually offer the product as SaaS?
+5. What result would make the pilot successful enough to continue or eventually offer the product as SaaS? Once the customer approves the build and all systems work as needed.
 
-6. Is there a target date for the first live client use?
+6. Is there a target date for the first live client use? No, the main focus is creating a usable, professional level business application for the client.
 
 ## Confirmed Decisions - Do Not Re-Ask Unless Something Has Changed
 

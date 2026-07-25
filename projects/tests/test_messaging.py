@@ -70,20 +70,111 @@ class ProjectMessagingTests(TestCase):
             role=OrganizationMembership.Role.SUBCONTRACTOR,
         )
 
-    def create_thread(self, author=None, status=ConversationThread.Status.OPEN):
+    def create_thread(
+        self,
+        author=None,
+        status=ConversationThread.Status.OPEN,
+        subject='Cabinet selection question',
+        body='Which cabinet finish would you prefer?',
+        project=None,
+    ):
         author = author or self.admin_user
         thread = ConversationThread.objects.create(
-            project=self.project,
-            subject='Cabinet selection question',
+            project=project or self.project,
+            subject=subject,
             status=status,
             created_by=author,
         )
         ConversationMessage.objects.create(
             thread=thread,
             author=author,
-            body='Which cabinet finish would you prefer?',
+            body=body,
         )
         return thread
+
+    def test_conversation_list_searches_subject_message_and_participant(self):
+        target = self.create_thread(
+            author=self.client_user,
+            subject='Exterior color decision',
+            body='We prefer evergreen shutters.',
+        )
+        ConversationMessage.objects.create(
+            thread=target,
+            author=self.admin_user,
+            body='Evergreen has been confirmed with the supplier.',
+        )
+        self.create_thread()
+        self.client.force_login(self.staff_user)
+        url = reverse('projects:message_list', args=(self.project.pk,))
+
+        for search in ('Exterior color', 'confirmed with', 'client@example.com'):
+            with self.subTest(search=search):
+                response = self.client.get(url, {'q': search})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(list(response.context['threads']), [target])
+                self.assertEqual(response.context['threads'][0].message_count, 2)
+                self.assertContains(response, 'Evergreen has been confirmed')
+
+    def test_conversation_list_filters_status_and_ignores_unknown_status(self):
+        open_thread = self.create_thread(subject='Open question')
+        closed_thread = self.create_thread(
+            status=ConversationThread.Status.CLOSED,
+            subject='Closed question',
+        )
+        self.client.force_login(self.client_user)
+        url = reverse('projects:message_list', args=(self.project.pk,))
+
+        response = self.client.get(url, {'status': ConversationThread.Status.CLOSED})
+        self.assertEqual(list(response.context['threads']), [closed_thread])
+        self.assertTrue(response.context['has_message_filters'])
+
+        response = self.client.get(url, {'status': 'not-a-status'})
+        self.assertCountEqual(
+            response.context['threads'],
+            [open_thread, closed_thread],
+        )
+        self.assertEqual(response.context['message_status'], '')
+        self.assertFalse(response.context['has_message_filters'])
+
+    def test_conversation_search_never_leaks_another_project(self):
+        self.create_thread(
+            project=self.other_project,
+            subject='Private project matter',
+            body='The confidential phrase is blue-spruce.',
+        )
+        self.client.force_login(self.admin_user)
+        response = self.client.get(
+            reverse('projects:message_list', args=(self.project.pk,)),
+            {'q': 'blue-spruce'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(list(response.context['threads']), [])
+        self.assertContains(response, 'No conversations match these filters')
+
+    def test_conversation_list_paginates_and_keeps_filters(self):
+        for number in range(21):
+            self.create_thread(subject=f'Permit item {number:02d}')
+        self.client.force_login(self.staff_user)
+        url = reverse('projects:message_list', args=(self.project.pk,))
+
+        first_page = self.client.get(
+            url,
+            {'q': 'Permit', 'status': ConversationThread.Status.OPEN},
+        )
+        self.assertEqual(len(first_page.context['threads']), 20)
+        self.assertContains(first_page, 'Page 1 of 2')
+        self.assertContains(first_page, 'q=Permit&amp;status=open&amp;page=2')
+
+        second_page = self.client.get(
+            url,
+            {
+                'q': 'Permit',
+                'status': ConversationThread.Status.OPEN,
+                'page': 2,
+            },
+        )
+        self.assertEqual(len(second_page.context['threads']), 1)
 
     def test_admin_starts_thread_and_only_clients_are_notified(self):
         self.client.force_login(self.admin_user)

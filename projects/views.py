@@ -1,11 +1,14 @@
 import mimetypes
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Count, Max
+from django.db.models import Count, Max, OuterRef, Q, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.http import FileResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -308,6 +311,7 @@ class ProjectActionCenterView(LoginRequiredMixin, TemplateView):
 
 class ProjectMessageListView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/message_list.html'
+    paginate_by = 20
 
     def dispatch(self, request, *args, **kwargs):
         self.project = messaging_project_or_404(request.user, kwargs['pk'])
@@ -315,12 +319,60 @@ class ProjectMessageListView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        message_search = self.request.GET.get('q', '').strip()[:100]
+        requested_status = self.request.GET.get('status', '').strip()
+        message_status = (
+            requested_status
+            if requested_status in ConversationThread.Status.values
+            else ''
+        )
+        threads = self.project.conversation_threads.select_related('created_by')
+        if message_search:
+            threads = threads.filter(
+                Q(subject__icontains=message_search)
+                | Q(messages__body__icontains=message_search)
+                | Q(messages__author__email__icontains=message_search)
+                | Q(created_by__email__icontains=message_search)
+            ).distinct()
+        if message_status:
+            threads = threads.filter(status=message_status)
+
+        latest_message = ConversationMessage.objects.filter(
+            thread=OuterRef('pk')
+        ).order_by('-created_at', '-pk')
+        message_count = (
+            ConversationMessage.objects.filter(thread=OuterRef('pk'))
+            .order_by()
+            .values('thread')
+            .annotate(total=Count('pk'))
+            .values('total')
+        )
+        threads = threads.annotate(
+            message_count=Coalesce(Subquery(message_count), Value(0)),
+            latest_message_body=Subquery(latest_message.values('body')[:1]),
+            latest_message_author=Subquery(
+                latest_message.values('author__email')[:1]
+            ),
+            latest_message_at=Subquery(latest_message.values('created_at')[:1]),
+        ).order_by('-updated_at', '-pk')
+        page_obj = Paginator(threads, self.paginate_by).get_page(
+            self.request.GET.get('page')
+        )
+        query_params = {}
+        if message_search:
+            query_params['q'] = message_search
+        if message_status:
+            query_params['status'] = message_status
         context.update(
             {
                 'project': self.project,
-                'threads': self.project.conversation_threads.select_related(
-                    'created_by'
-                ).annotate(message_count=Count('messages')),
+                'threads': page_obj.object_list,
+                'page_obj': page_obj,
+                'message_search': message_search,
+                'message_status': message_status,
+                'message_status_choices': ConversationThread.Status.choices,
+                'has_message_filters': bool(message_search or message_status),
+                'message_querystring': urlencode(query_params),
                 'can_manage_project': can_manage_project(
                     self.request.user, self.project
                 ),
