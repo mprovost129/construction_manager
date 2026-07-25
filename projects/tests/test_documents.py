@@ -91,11 +91,22 @@ class ProjectDocumentTests(TestCase):
     def upload(self, name='plan.pdf', content=b'%PDF-1.4 test'):
         return SimpleUploadedFile(name, content, content_type='application/pdf')
 
-    def create_document(self, *, client_visible=True, approval=True):
+    def create_document(
+        self,
+        *,
+        client_visible=True,
+        approval=True,
+        title='Foundation plan',
+        description='',
+        category=ProjectDocument.Category.PLAN,
+        filename='plan.pdf',
+        project=None,
+    ):
         document = ProjectDocument.objects.create(
-            project=self.project,
-            title='Foundation plan',
-            category=ProjectDocument.Category.PLAN,
+            project=project or self.project,
+            title=title,
+            description=description,
+            category=category,
             client_visible=client_visible,
             requires_client_approval=approval,
             created_by=self.admin_user,
@@ -103,11 +114,99 @@ class ProjectDocumentTests(TestCase):
         version = ProjectDocumentVersion.objects.create(
             document=document,
             version_number=1,
-            file=self.upload(),
-            original_filename='plan.pdf',
+            file=self.upload(filename),
+            original_filename=filename,
             uploaded_by=self.admin_user,
         )
         return document, version
+
+    def test_document_list_searches_title_description_and_filename(self):
+        target, _ = self.create_document(
+            title='Second floor elevations',
+            description='Issued for millwork coordination.',
+            filename='elevation-set.pdf',
+        )
+        self.create_document(title='Foundation details')
+        self.client.force_login(self.staff_user)
+        url = reverse('projects:document_list', args=(self.project.pk,))
+
+        for search in ('Second floor', 'millwork coordination', 'elevation-set'):
+            with self.subTest(search=search):
+                response = self.client.get(url, {'q': search})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(list(response.context['documents']), [target])
+                self.assertContains(response, 'Issued for millwork coordination')
+
+    def test_document_list_filters_category_and_internal_visibility(self):
+        shared_plan, _ = self.create_document(title='Shared plan')
+        internal_contract, _ = self.create_document(
+            title='Internal contract',
+            category=ProjectDocument.Category.CONTRACT,
+            client_visible=False,
+            approval=False,
+        )
+        self.client.force_login(self.admin_user)
+        url = reverse('projects:document_list', args=(self.project.pk,))
+
+        category_response = self.client.get(
+            url,
+            {'category': ProjectDocument.Category.CONTRACT},
+        )
+        self.assertEqual(
+            list(category_response.context['documents']),
+            [internal_contract],
+        )
+
+        visibility_response = self.client.get(url, {'visibility': 'shared'})
+        self.assertEqual(
+            list(visibility_response.context['documents']),
+            [shared_plan],
+        )
+
+    def test_client_search_cannot_reveal_internal_document(self):
+        self.create_document(
+            title='Internal bid comparison',
+            description='Confidential vendor analysis blue-spruce.',
+            client_visible=False,
+            approval=False,
+        )
+        self.client.force_login(self.client_user)
+        response = self.client.get(
+            reverse('projects:document_list', args=(self.project.pk,)),
+            {'q': 'blue-spruce', 'visibility': 'internal'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(list(response.context['documents']), [])
+        self.assertEqual(response.context['document_visibility'], '')
+        self.assertContains(response, 'No documents match these filters')
+
+    def test_document_list_paginates_and_keeps_filters(self):
+        for number in range(21):
+            self.create_document(
+                title=f'Permit drawing {number:02d}',
+                approval=False,
+            )
+        self.client.force_login(self.staff_user)
+        url = reverse('projects:document_list', args=(self.project.pk,))
+
+        first_page = self.client.get(
+            url,
+            {'q': 'Permit', 'category': ProjectDocument.Category.PLAN},
+        )
+        self.assertEqual(len(first_page.context['documents']), 20)
+        self.assertContains(first_page, 'Page 1 of 2')
+        self.assertContains(first_page, 'q=Permit&amp;category=plan&amp;page=2')
+
+        second_page = self.client.get(
+            url,
+            {
+                'q': 'Permit',
+                'category': ProjectDocument.Category.PLAN,
+                'page': 2,
+            },
+        )
+        self.assertEqual(len(second_page.context['documents']), 1)
 
     def test_admin_uploads_private_document_and_notifies_client(self):
         self.client.force_login(self.admin_user)

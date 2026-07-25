@@ -784,7 +784,12 @@ input:focus {
     text-decoration: none;
 }
 
-.document-row:hover { border-color: #aabbb2; color: inherit; }
+.document-row:hover,
+.document-row:focus-visible {
+    border-color: #8da197;
+    color: inherit;
+    box-shadow: 0 6px 18px rgba(28, 59, 45, 0.08);
+}
 
 .document-row__icon {
     display: grid;
@@ -798,6 +803,7 @@ input:focus {
 
 .document-row__body h2 { margin: 0 0 0.2rem; font-size: 1rem; }
 .document-row__body p { margin: 0; color: var(--color-muted); font-size: 0.82rem; }
+.document-row__body .document-row__description { margin-top: 0.3rem; color: var(--color-text); }
 
 .document-row__meta {
     display: flex;

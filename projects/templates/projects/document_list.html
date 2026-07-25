@@ -14,24 +14,79 @@
     {% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:document_create' project.pk %}"><i class="bi bi-upload"></i> Upload document</a>{% endif %}
 </section>
 
+<section class="project-filter-bar" aria-label="Filter documents">
+    <form method="get" class="project-filter-form" role="search">
+        <label class="visually-hidden" for="document-search">Search documents</label>
+        <div class="project-filter-form__search">
+            <i class="bi bi-search" aria-hidden="true"></i>
+            <input id="document-search" type="search" name="q" value="{{ document_search }}" maxlength="100" placeholder="Search title, description, or filename">
+        </div>
+        <label class="visually-hidden" for="document-category">Document category</label>
+        <select id="document-category" name="category">
+            <option value="">All categories</option>
+            {% for value, label in document_category_choices %}
+            <option value="{{ value }}"{% if document_category == value %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        {% if can_manage_project %}
+        <label class="visually-hidden" for="document-visibility">Client visibility</label>
+        <select id="document-visibility" name="visibility">
+            <option value="">All visibility</option>
+            <option value="shared"{% if document_visibility == 'shared' %} selected{% endif %}>Client visible</option>
+            <option value="internal"{% if document_visibility == 'internal' %} selected{% endif %}>Internal only</option>
+        </select>
+        {% endif %}
+        <button class="btn btn-outline-secondary" type="submit">Filter</button>
+        {% if has_document_filters %}<a class="btn btn-link" href="{% url 'projects:document_list' project.pk %}">Clear</a>{% endif %}
+    </form>
+    <p>{{ page_obj.paginator.count }} document{{ page_obj.paginator.count|pluralize }}</p>
+</section>
+
 {% if documents %}
-<section class="document-list">
+<section class="document-list" aria-label="Project documents">
     {% for document in documents %}
     <a class="document-row" href="{% url 'projects:document_detail' project.pk document.pk %}">
-        <div class="document-row__icon"><i class="bi bi-file-earmark-text"></i></div>
+        <div class="document-row__icon"><i class="bi bi-file-earmark-text" aria-hidden="true"></i></div>
         <div class="document-row__body">
             <h2>{{ document.title }}</h2>
             <p>{{ document.get_category_display }}{% if document.current_version %} · Version {{ document.current_version.version_number }} · {{ document.current_version.original_filename }}{% endif %}</p>
+            {% if document.description %}<p class="document-row__description">{{ document.description|truncatechars:125 }}</p>{% endif %}
         </div>
         <div class="document-row__meta">
             {% if can_manage_project %}<span>{% if document.client_visible %}Client visible{% else %}Internal only{% endif %}</span>{% endif %}
             <span class="status-pill {{ document.approval_status_class }}">{{ document.approval_status }}</span>
+            {% if document.current_version %}<time datetime="{{ document.current_version.created_at|date:'c' }}">Updated {{ document.current_version.created_at|date:"M j, Y" }}</time>{% endif %}
             <i class="bi bi-chevron-right" aria-hidden="true"></i>
         </div>
     </a>
     {% endfor %}
 </section>
 {% else %}
-<div class="empty-state"><i class="bi bi-files"></i><h2>No documents yet</h2><p>{% if can_manage_project %}Upload the first file for this project.{% else %}The company has not shared any documents yet.{% endif %}</p>{% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:document_create' project.pk %}">Upload document</a>{% endif %}</div>
+<div class="empty-state">
+    <i class="bi bi-files" aria-hidden="true"></i>
+    {% if has_document_filters %}
+    <h2>No documents match these filters</h2>
+    <p>Try a different title, filename, category, or visibility.</p>
+    <a class="btn btn-outline-secondary" href="{% url 'projects:document_list' project.pk %}">Clear filters</a>
+    {% else %}
+    <h2>No documents yet</h2>
+    <p>{% if can_manage_project %}Upload the first file for this project.{% else %}The company has not shared any documents yet.{% endif %}</p>
+    {% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:document_create' project.pk %}">Upload document</a>{% endif %}
+    {% endif %}
+</div>
+{% endif %}
+
+{% if page_obj.paginator.num_pages > 1 %}
+<nav class="pagination-bar" aria-label="Document pages">
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    <div>
+        {% if page_obj.has_previous %}
+        <a class="btn btn-sm btn-outline-secondary" href="?{% if document_querystring %}{{ document_querystring }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">Previous</a>
+        {% endif %}
+        {% if page_obj.has_next %}
+        <a class="btn btn-sm btn-outline-secondary" href="?{% if document_querystring %}{{ document_querystring }}&amp;{% endif %}page={{ page_obj.next_page_number }}">Next</a>
+        {% endif %}
+    </div>
+</nav>
 {% endif %}
 {% endblock %}

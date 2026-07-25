@@ -498,6 +498,7 @@ class ProjectMessageThreadView(LoginRequiredMixin, View):
 
 class ProjectDocumentListView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/document_list.html'
+    paginate_by = 20
 
     def dispatch(self, request, *args, **kwargs):
         self.project = documents_project_or_404(request.user, kwargs['pk'])
@@ -505,11 +506,43 @@ class ProjectDocumentListView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        viewer_is_client = is_project_client(self.request.user, self.project)
+        can_manage = can_manage_project(self.request.user, self.project)
+        document_search = self.request.GET.get('q', '').strip()[:100]
+        requested_category = self.request.GET.get('category', '').strip()
+        document_category = (
+            requested_category
+            if requested_category in ProjectDocument.Category.values
+            else ''
+        )
+        requested_visibility = self.request.GET.get('visibility', '').strip()
+        document_visibility = (
+            requested_visibility
+            if can_manage and requested_visibility in ('shared', 'internal')
+            else ''
+        )
         documents = self.project.documents.prefetch_related(
             'versions__decisions'
         )
-        if is_project_client(self.request.user, self.project):
+        if viewer_is_client:
             documents = documents.filter(client_visible=True)
+        if document_search:
+            documents = documents.filter(
+                Q(title__icontains=document_search)
+                | Q(description__icontains=document_search)
+                | Q(versions__original_filename__icontains=document_search)
+            ).distinct()
+        if document_category:
+            documents = documents.filter(category=document_category)
+        if document_visibility:
+            documents = documents.filter(
+                client_visible=document_visibility == 'shared'
+            )
+
+        page_obj = Paginator(documents, self.paginate_by).get_page(
+            self.request.GET.get('page')
+        )
+        documents = page_obj.object_list
         for document in documents:
             version = document.latest_version
             document.current_version = version
@@ -527,13 +560,27 @@ class ProjectDocumentListView(LoginRequiredMixin, TemplateView):
             else:
                 document.approval_status = 'Awaiting decision'
                 document.approval_status_class = 'status-pill--on_hold'
+        query_params = {}
+        if document_search:
+            query_params['q'] = document_search
+        if document_category:
+            query_params['category'] = document_category
+        if document_visibility:
+            query_params['visibility'] = document_visibility
         context.update(
             {
                 'project': self.project,
                 'documents': documents,
-                'can_manage_project': can_manage_project(
-                    self.request.user, self.project
+                'page_obj': page_obj,
+                'document_search': document_search,
+                'document_category': document_category,
+                'document_category_choices': ProjectDocument.Category.choices,
+                'document_visibility': document_visibility,
+                'has_document_filters': bool(
+                    document_search or document_category or document_visibility
                 ),
+                'document_querystring': urlencode(query_params),
+                'can_manage_project': can_manage,
             }
         )
         return context
