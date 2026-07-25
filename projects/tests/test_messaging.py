@@ -196,24 +196,32 @@ class ProjectMessagingTests(TestCase):
     def test_contractor_can_close_and_reopen_thread(self):
         thread = self.create_thread()
         self.client.force_login(self.staff_user)
-
-        self.client.post(
-            reverse(
-                'projects:message_status',
-                args=(self.project.pk, thread.pk, 'close'),
-            )
+        close_url = reverse(
+            'projects:message_status',
+            args=(self.project.pk, thread.pk, 'close'),
         )
+        reopen_url = reverse(
+            'projects:message_status',
+            args=(self.project.pk, thread.pk, 'reopen'),
+        )
+
+        self.client.post(close_url)
+        duplicate_close = self.client.post(close_url, follow=True)
         thread.refresh_from_db()
         self.assertEqual(thread.status, ConversationThread.Status.CLOSED)
-
-        self.client.post(
-            reverse(
-                'projects:message_status',
-                args=(self.project.pk, thread.pk, 'reopen'),
-            )
+        self.assertContains(duplicate_close, 'Conversation is already closed.')
+        self.assertEqual(
+            ActivityEvent.objects.filter(
+                event_type=ActivityEvent.Type.MESSAGE_THREAD_STATUS_CHANGED
+            ).count(),
+            1,
         )
+
+        self.client.post(reopen_url)
+        duplicate_reopen = self.client.post(reopen_url, follow=True)
         thread.refresh_from_db()
         self.assertEqual(thread.status, ConversationThread.Status.OPEN)
+        self.assertContains(duplicate_reopen, 'Conversation is already reopened.')
         self.assertEqual(
             ActivityEvent.objects.filter(
                 event_type=ActivityEvent.Type.MESSAGE_THREAD_STATUS_CHANGED

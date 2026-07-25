@@ -487,6 +487,36 @@ input:focus {
     --bs-btn-hover-border-color: #103c2b;
 }
 
+.btn.is-submitting {
+    display: inline-flex;
+    gap: 0.55rem;
+    align-items: center;
+    justify-content: center;
+    cursor: wait;
+}
+
+.btn.is-submitting::after {
+    width: 0.9em;
+    height: 0.9em;
+    border: 2px solid currentcolor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    content: '';
+    animation: submission-spinner 0.7s linear infinite;
+}
+
+@keyframes submission-spinner {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .btn.is-submitting::after {
+        border-right-color: currentcolor;
+        opacity: 0.55;
+        animation: none;
+    }
+}
+
 .button-row {
     display: flex;
     flex-wrap: wrap;

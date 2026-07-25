@@ -1749,30 +1749,40 @@ class ProjectMessageStatusView(LoginRequiredMixin, View):
 
     def post(self, request, pk, thread_pk, action):
         project = managed_project_or_404(request.user, pk)
-        thread = get_object_or_404(
-            ConversationThread, pk=thread_pk, project=project
-        )
         if action not in ('close', 'reopen'):
             raise PermissionDenied('Unknown conversation action.')
-        thread.status = (
+        desired_status = (
             ConversationThread.Status.CLOSED
             if action == 'close'
             else ConversationThread.Status.OPEN
         )
-        thread.save(update_fields=('status', 'updated_at'))
-        record_activity(
-            organization=project.organization,
-            project=project,
-            actor=request.user,
-            event_type=ActivityEvent.Type.MESSAGE_THREAD_STATUS_CHANGED,
-            summary=f'{request.user.email} {action}d "{thread.subject}".',
-            metadata={
-                'thread_id': thread.pk,
-                'subject': thread.subject,
-                'status': thread.status,
-            },
-        )
-        messages.success(request, f'Conversation {action}d.')
+        verb = 'closed' if action == 'close' else 'reopened'
+        with transaction.atomic():
+            thread = get_object_or_404(
+                ConversationThread.objects.select_for_update(),
+                pk=thread_pk,
+                project=project,
+            )
+            if thread.status == desired_status:
+                messages.info(request, f'Conversation is already {verb}.')
+                return redirect(
+                    'projects:message_thread', pk=project.pk, thread_pk=thread.pk
+                )
+            thread.status = desired_status
+            thread.save(update_fields=('status', 'updated_at'))
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.MESSAGE_THREAD_STATUS_CHANGED,
+                summary=f'{request.user.email} {verb} "{thread.subject}".',
+                metadata={
+                    'thread_id': thread.pk,
+                    'subject': thread.subject,
+                    'status': thread.status,
+                },
+            )
+        messages.success(request, f'Conversation {verb}.')
         return redirect(
             'projects:message_thread', pk=project.pk, thread_pk=thread.pk
         )
@@ -2002,30 +2012,38 @@ class ProjectMemberAccessView(LoginRequiredMixin, View):
 
     def post(self, request, pk, membership_pk, action):
         project = managed_project_or_404(request.user, pk)
-        membership = get_object_or_404(
-            ProjectMembership.objects.select_related('user'),
-            pk=membership_pk,
-            project=project,
-        )
         if action not in ('revoke', 'restore'):
             raise PermissionDenied('Unknown access action.')
         active = action == 'restore'
-        membership.is_active = active
-        membership.save(update_fields=('is_active',))
-        event_type = (
-            ActivityEvent.Type.CLIENT_ACCESS_RESTORED
-            if active
-            else ActivityEvent.Type.CLIENT_ACCESS_REVOKED
-        )
+        state = 'active' if active else 'revoked'
         verb = 'restored' if active else 'revoked'
-        record_activity(
-            organization=project.organization,
-            project=project,
-            actor=request.user,
-            event_type=event_type,
-            summary=f'{request.user.email} {verb} access for {membership.user.email}.',
-            metadata={'email': membership.user.email},
-        )
+        with transaction.atomic():
+            membership = get_object_or_404(
+                ProjectMembership.objects.select_for_update().select_related('user'),
+                pk=membership_pk,
+                project=project,
+            )
+            if membership.is_active == active:
+                messages.info(request, f'Project access is already {state}.')
+                return redirect('projects:people', pk=project.pk)
+            membership.is_active = active
+            membership.save(update_fields=('is_active',))
+            event_type = (
+                ActivityEvent.Type.CLIENT_ACCESS_RESTORED
+                if active
+                else ActivityEvent.Type.CLIENT_ACCESS_REVOKED
+            )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=event_type,
+                summary=(
+                    f'{request.user.email} {verb} access for '
+                    f'{membership.user.email}.'
+                ),
+                metadata={'email': membership.user.email},
+            )
         messages.success(request, f'Project access was {verb}.')
         return redirect('projects:people', pk=project.pk)
 

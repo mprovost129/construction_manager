@@ -127,8 +127,10 @@ class ProjectAdministrationTests(TestCase):
         )
 
         self.client.post(revoke_url)
+        duplicate_revoke = self.client.post(revoke_url, follow=True)
         self.client_membership.refresh_from_db()
         self.assertFalse(self.client_membership.is_active)
+        self.assertContains(duplicate_revoke, 'Project access is already revoked.')
         self.assertEqual(
             ActivityEvent.objects.filter(
                 event_type=ActivityEvent.Type.CLIENT_ACCESS_REVOKED
@@ -137,8 +139,16 @@ class ProjectAdministrationTests(TestCase):
         )
 
         self.client.post(restore_url)
+        duplicate_restore = self.client.post(restore_url, follow=True)
         self.client_membership.refresh_from_db()
         self.assertTrue(self.client_membership.is_active)
+        self.assertContains(duplicate_restore, 'Project access is already active.')
+        self.assertEqual(
+            ActivityEvent.objects.filter(
+                event_type=ActivityEvent.Type.CLIENT_ACCESS_RESTORED
+            ).count(),
+            1,
+        )
 
     def test_staff_can_resend_and_revoke_customer_invitation(self):
         invitation = ProjectInvitation.objects.create(
