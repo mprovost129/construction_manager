@@ -139,7 +139,7 @@ These decisions govern remaining implementation work:
 - Environment-driven legal entity, contact, address, governing law, and effective date.
 - Development/production environment examples, production HTTPS controls, database SSL option, and console-first logging.
 - Docker static build settings, runtime migrations, and superuser bootstrap.
-- Current automated baseline: 155 passing tests, Ruff clean, Django checks clean, and `collectstatic` passing as of this update.
+- Current automated baseline: 155 passing tests, Ruff clean, Django checks clean, migration check clean, and `collectstatic` passing as of this update.
 
 ## Partial feature gaps
 
