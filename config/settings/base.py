@@ -124,7 +124,9 @@ CACHES = {
     }
 }
 
-# Logging
+# Logging. Containers should log to stdout; optional file logging is intended for
+# local environments that explicitly enable it.
+DJANGO_LOG_HANDLERS = ['console']
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -139,20 +141,27 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
-        'file': {
-            'class': 'logging.FileHandler',
-            'filename': BASE_DIR / 'logs' / 'django.log',
-            'formatter': 'verbose',
-        },
     },
     'loggers': {
         'django': {
-            'handlers': ['console', 'file'],
+            'handlers': DJANGO_LOG_HANDLERS,
             'level': os.environ.get('DJANGO_LOG_LEVEL', 'INFO'),
             'propagate': False,
         },
     },
 }
+
+if env_bool('DJANGO_LOG_TO_FILE', False):
+    django_log_directory = Path(
+        os.environ.get('DJANGO_LOG_DIRECTORY', BASE_DIR / 'logs')
+    )
+    django_log_directory.mkdir(parents=True, exist_ok=True)
+    LOGGING['handlers']['file'] = {
+        'class': 'logging.FileHandler',
+        'filename': django_log_directory / 'django.log',
+        'formatter': 'verbose',
+    }
+    DJANGO_LOG_HANDLERS.append('file')
 
 # Database
 DATABASES = {
