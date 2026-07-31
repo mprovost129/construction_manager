@@ -8,9 +8,11 @@ from projects.models import (
     Organization,
     OrganizationMembership,
     Project,
+    ProjectInternalAccess,
     ProjectInvitation,
     ProjectMembership,
 )
+from projects.tests import grant_internal_access
 
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
@@ -52,6 +54,13 @@ class ProjectAdministrationTests(TestCase):
             user=cls.client_user,
             role=OrganizationMembership.Role.CLIENT,
             invited_by=cls.admin_user,
+        )
+        grant_internal_access(cls.staff_user, cls.project)
+        grant_internal_access(
+            cls.accountant,
+            cls.project,
+            can_manage=False,
+            can_invite_clients=False,
         )
 
     def project_payload(self, name='Pine Street'):
@@ -148,6 +157,63 @@ class ProjectAdministrationTests(TestCase):
                 event_type=ActivityEvent.Type.CLIENT_ACCESS_RESTORED
             ).count(),
             1,
+        )
+
+    def test_admin_assigns_and_revokes_internal_project_access(self):
+        manager = get_user_model().objects.create_user(
+            'manager@example.com', 'password'
+        )
+        membership = OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=manager,
+            role=OrganizationMembership.Role.MANAGER,
+        )
+        self.client.force_login(self.admin_user)
+
+        response = self.client.post(
+            reverse('projects:internal_access_update', args=(self.project.pk,)),
+            {
+                'membership': membership.pk,
+                'can_manage': 'on',
+                'can_invite_clients': 'on',
+                'receives_notifications': 'on',
+            },
+        )
+
+        access = ProjectInternalAccess.objects.get(
+            project=self.project,
+            membership=membership,
+        )
+        self.assertRedirects(response, reverse('projects:people', args=(self.project.pk,)))
+        self.assertTrue(access.can_manage)
+        self.assertTrue(access.can_invite_clients)
+        self.assertTrue(access.receives_notifications)
+        self.assertTrue(
+            ActivityEvent.objects.filter(
+                project=self.project,
+                event_type=ActivityEvent.Type.INTERNAL_ACCESS_ASSIGNED,
+                actor=self.admin_user,
+            ).exists()
+        )
+
+        revoke_response = self.client.post(
+            reverse(
+                'projects:internal_access_revoke',
+                args=(self.project.pk, access.pk),
+            )
+        )
+        access.refresh_from_db()
+        self.assertRedirects(
+            revoke_response,
+            reverse('projects:people', args=(self.project.pk,)),
+        )
+        self.assertFalse(access.is_active)
+        self.assertTrue(
+            ActivityEvent.objects.filter(
+                project=self.project,
+                event_type=ActivityEvent.Type.INTERNAL_ACCESS_REVOKED,
+                actor=self.admin_user,
+            ).exists()
         )
 
     def test_staff_can_resend_and_revoke_customer_invitation(self):

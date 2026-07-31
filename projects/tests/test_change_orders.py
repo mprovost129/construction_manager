@@ -14,6 +14,7 @@ from projects.models import (
     Project,
     ProjectMembership,
 )
+from projects.tests import grant_internal_access
 
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
@@ -68,6 +69,14 @@ class ChangeOrderTests(TestCase):
             ProjectMembership.objects.create(
                 project=cls.project, user=user, role=role
             )
+        grant_internal_access(cls.staff_user, cls.project, cls.other_project)
+        grant_internal_access(
+            cls.accountant,
+            cls.project,
+            cls.other_project,
+            can_manage=False,
+            can_invite_clients=False,
+        )
 
     def create_change_order(self, *, project=None, status=ChangeOrder.Status.DRAFT):
         project = project or self.project
@@ -223,7 +232,7 @@ class ChangeOrderTests(TestCase):
 
         self.assertContains(response, '$900.00')
         self.assertContains(response, '$1600.00')
-        self.assertContains(response, 'Ready for QuickBooks entry')
+        self.assertContains(response, 'Send to QuickBooks when invoiced')
         self.assertContains(response, 'QuickBooks remains the accounting source of truth')
 
     def test_first_client_decision_is_authenticated_audited_and_locked(self):

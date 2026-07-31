@@ -40,12 +40,24 @@ class Organization(models.Model):
 class OrganizationMembership(models.Model):
     class Role(models.TextChoices):
         ADMIN = 'admin', 'Admin'
+        MANAGER = 'manager', 'Manager'
+        PROJECT_MANAGER = 'project_manager', 'Project manager'
         STAFF = 'staff', 'Staff'
+        OFFICE_MANAGER = 'office_manager', 'Office manager'
+        REAL_ESTATE_AGENT = 'real_estate_agent', 'Real estate agent'
         ACCOUNTANT = 'accountant', 'Accountant'
         CLIENT = 'client', 'Client'
         SUBCONTRACTOR = 'subcontractor', 'Subcontractor'
 
-    INTERNAL_ROLES = (Role.ADMIN, Role.STAFF, Role.ACCOUNTANT)
+    INTERNAL_ROLES = (
+        Role.ADMIN,
+        Role.MANAGER,
+        Role.PROJECT_MANAGER,
+        Role.STAFF,
+        Role.OFFICE_MANAGER,
+        Role.REAL_ESTATE_AGENT,
+        Role.ACCOUNTANT,
+    )
     EXTERNAL_ROLES = (Role.CLIENT, Role.SUBCONTRACTOR)
 
     organization = models.ForeignKey(
@@ -85,7 +97,11 @@ class OrganizationMembership(models.Model):
 
     @property
     def can_invite_clients(self):
-        return self.role in (self.Role.ADMIN, self.Role.STAFF)
+        return self.role in (
+            self.Role.ADMIN,
+            self.Role.MANAGER,
+            self.Role.PROJECT_MANAGER,
+        )
 
     def __str__(self):
         return f'{self.user.email} - {self.organization} ({self.get_role_display()})'
@@ -128,6 +144,59 @@ class Project(models.Model):
 
     def __str__(self):
         return f'{self.organization}: {self.name}'
+
+
+class ProjectInternalAccess(models.Model):
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='internal_access',
+    )
+    membership = models.ForeignKey(
+        OrganizationMembership,
+        on_delete=models.CASCADE,
+        related_name='project_access',
+    )
+    can_manage = models.BooleanField(default=False)
+    can_invite_clients = models.BooleanField(default=False)
+    receives_notifications = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
+    assigned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name='project_internal_access_assignments',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('membership__user__email',)
+        constraints = [
+            models.UniqueConstraint(
+                fields=('project', 'membership'),
+                name='projects_unique_internal_access',
+            ),
+        ]
+
+    @property
+    def user(self):
+        return self.membership.user
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.membership_id and self.project_id:
+            if self.membership.organization_id != self.project.organization_id:
+                errors['membership'] = 'The team member must belong to this company.'
+            if not self.membership.is_internal:
+                errors['membership'] = 'Project internal access requires an internal role.'
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f'{self.membership.user.email} - {self.project}'
 
 
 class ProjectMembership(models.Model):
@@ -266,8 +335,24 @@ class OrganizationInvitation(models.Model):
                 OrganizationMembership.Role.ADMIN.label,
             ),
             (
+                OrganizationMembership.Role.MANAGER,
+                OrganizationMembership.Role.MANAGER.label,
+            ),
+            (
+                OrganizationMembership.Role.PROJECT_MANAGER,
+                OrganizationMembership.Role.PROJECT_MANAGER.label,
+            ),
+            (
                 OrganizationMembership.Role.STAFF,
                 OrganizationMembership.Role.STAFF.label,
+            ),
+            (
+                OrganizationMembership.Role.OFFICE_MANAGER,
+                OrganizationMembership.Role.OFFICE_MANAGER.label,
+            ),
+            (
+                OrganizationMembership.Role.REAL_ESTATE_AGENT,
+                OrganizationMembership.Role.REAL_ESTATE_AGENT.label,
             ),
             (
                 OrganizationMembership.Role.ACCOUNTANT,
@@ -337,6 +422,18 @@ class ActivityEvent(models.Model):
         TEAM_JOINED = 'team_joined', 'Team member joined'
         TEAM_ROLE_CHANGED = 'team_role_changed', 'Team role changed'
         TEAM_ACCESS_CHANGED = 'team_access_changed', 'Team access changed'
+        INTERNAL_ACCESS_ASSIGNED = (
+            'internal_access_assigned',
+            'Internal project access assigned',
+        )
+        INTERNAL_ACCESS_UPDATED = (
+            'internal_access_updated',
+            'Internal project access updated',
+        )
+        INTERNAL_ACCESS_REVOKED = (
+            'internal_access_revoked',
+            'Internal project access revoked',
+        )
         MESSAGE_THREAD_CREATED = 'message_thread_created', 'Message thread created'
         MESSAGE_SENT = 'message_sent', 'Message sent'
         MESSAGE_THREAD_STATUS_CHANGED = (
@@ -345,6 +442,7 @@ class ActivityEvent(models.Model):
         )
         DOCUMENT_CREATED = 'document_created', 'Document created'
         DOCUMENT_VERSION_ADDED = 'document_version_added', 'Document version added'
+        CLIENT_UPLOAD_CREATED = 'client_upload_created', 'Client upload created'
         DOCUMENT_DECISION_RECORDED = (
             'document_decision_recorded',
             'Document decision recorded',
@@ -367,6 +465,7 @@ class ActivityEvent(models.Model):
         )
         SELECTION_PUBLISHED = 'selection_published', 'Selection published'
         SELECTION_CHOSEN = 'selection_chosen', 'Selection chosen'
+        SELECTION_REOPENED = 'selection_reopened', 'Selection reopened'
         SELECTION_VOIDED = 'selection_voided', 'Selection voided'
         SCHEDULE_MILESTONE_CREATED = (
             'schedule_milestone_created',
@@ -488,6 +587,7 @@ class ProjectDocument(models.Model):
         CONTRACT = 'contract', 'Contract'
         SELECTION = 'selection', 'Selection'
         CHANGE_ORDER = 'change_order', 'Change order'
+        CLIENT_UPLOAD = 'client_upload', 'Client upload'
         OTHER = 'other', 'Other'
 
     project = models.ForeignKey(
@@ -725,7 +825,7 @@ class ChangeOrder(models.Model):
     @property
     def quickbooks_handoff_label(self):
         if self.status == self.Status.APPROVED:
-            return 'Ready for QuickBooks entry'
+            return 'Send to QuickBooks when invoiced'
         return 'Not ready for QuickBooks'
 
     def clean(self):
@@ -894,6 +994,10 @@ class FinishSelection(models.Model):
             return None
         return self.chosen_option.price - self.allowance_amount
 
+    @property
+    def requires_change_order(self):
+        return bool(self.selected_variance is not None and self.selected_variance > 0)
+
     def clean(self):
         super().clean()
         self.title = self.title.strip()
@@ -1003,7 +1107,7 @@ class ScheduleMilestone(models.Model):
         choices=Status.choices,
         default=Status.PLANNED,
     )
-    client_visible = models.BooleanField(default=True)
+    client_visible = models.BooleanField(default=False)
     internal_notes = models.TextField(blank=True)
     sort_order = models.PositiveIntegerField(default=0)
     created_by = models.ForeignKey(

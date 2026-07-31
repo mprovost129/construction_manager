@@ -14,6 +14,7 @@ from projects.models import (
     ProjectInvitation,
     ProjectMembership,
 )
+from projects.tests import grant_internal_access
 
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
@@ -59,6 +60,14 @@ class ProjectInvitationTests(TestCase):
                 user=user,
                 role=role,
             )
+        grant_internal_access(cls.staff_user, cls.project, cls.other_project)
+        grant_internal_access(
+            cls.accountant,
+            cls.project,
+            cls.other_project,
+            can_manage=False,
+            can_invite_clients=False,
+        )
 
     def invite_url(self):
         return reverse('projects:invite_client', args=(self.project.pk,))

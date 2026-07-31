@@ -13,6 +13,7 @@ from .models import (
     Project,
     ProjectDocument,
     ProjectDocumentVersion,
+    ProjectInternalAccess,
     ProjectInvitation,
     ProjectMembership,
     ScheduleMilestone,
@@ -38,12 +39,17 @@ class ProjectMembershipInline(admin.TabularInline):
     extra = 0
 
 
+class ProjectInternalAccessInline(admin.TabularInline):
+    model = ProjectInternalAccess
+    extra = 0
+
+
 @admin.register(Project)
 class ProjectAdmin(admin.ModelAdmin):
     list_display = ('name', 'organization', 'status', 'updated_at')
     list_filter = ('organization', 'status')
     search_fields = ('name', 'code', 'organization__name')
-    inlines = (ProjectMembershipInline,)
+    inlines = (ProjectInternalAccessInline, ProjectMembershipInline)
 
 
 @admin.register(OrganizationMembership)
@@ -58,6 +64,26 @@ class ProjectMembershipAdmin(admin.ModelAdmin):
     list_display = ('user', 'project', 'role', 'is_active', 'joined_at')
     list_filter = ('role', 'is_active', 'project__organization')
     search_fields = ('user__email', 'project__name')
+
+
+@admin.register(ProjectInternalAccess)
+class ProjectInternalAccessAdmin(admin.ModelAdmin):
+    list_display = (
+        'membership',
+        'project',
+        'can_manage',
+        'can_invite_clients',
+        'receives_notifications',
+        'is_active',
+    )
+    list_filter = (
+        'can_manage',
+        'can_invite_clients',
+        'receives_notifications',
+        'is_active',
+        'project__organization',
+    )
+    search_fields = ('membership__user__email', 'project__name')
 
 
 @admin.register(ProjectInvitation)

@@ -24,5 +24,5 @@
 
 {% if change_order.status == 'voided' %}<div class="role-banner"><i class="bi bi-slash-circle"></i><span>Voided by {{ change_order.voided_by.email }} on {{ change_order.voided_at|date:"M j, Y g:i A" }}. No client decision is required.</span></div>{% endif %}
 
-{% if can_manage_project %}<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Accounting handoff</p><h2>QuickBooks Online</h2></div><span class="status-pill {% if change_order.status == 'approved' %}status-pill--on_hold{% endif %}">{{ change_order.quickbooks_handoff_label }}</span></div><p class="empty-copy">QuickBooks remains the accounting source of truth. No accounting entry or sync is performed by this workflow yet.</p></section>{% endif %}
+{% if can_manage_project %}<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Accounting handoff</p><h2>QuickBooks Online</h2></div><span class="status-pill {% if change_order.status == 'approved' %}status-pill--on_hold{% endif %}">{{ change_order.quickbooks_handoff_label }}</span></div><p class="empty-copy">QuickBooks remains the accounting source of truth. Approved change orders are held until invoicing; no accounting entry is created merely by client approval.</p></section>{% endif %}
 {% endblock %}

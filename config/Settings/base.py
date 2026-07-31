@@ -10,6 +10,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 # Load .env from project root
 load_dotenv(BASE_DIR / '.env')
 
+
+def env_bool(name, default=False):
+    return os.environ.get(name, str(default)).strip().lower() in {
+        '1',
+        'true',
+        'yes',
+        'on',
+    }
+
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ['SECRET_KEY']
 
@@ -82,7 +91,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # Internationalization
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+TIME_ZONE = os.environ.get('TIME_ZONE', 'America/New_York')
 USE_I18N = True
 USE_TZ = True
 
@@ -94,8 +103,12 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 # Media files
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
-PRIVATE_MEDIA_ROOT = BASE_DIR / 'private_media'
-DOCUMENT_MAX_UPLOAD_SIZE = 25 * 1024 * 1024
+PRIVATE_MEDIA_ROOT = Path(
+    os.environ.get('PRIVATE_MEDIA_ROOT', BASE_DIR / 'private_media')
+)
+DOCUMENT_MAX_UPLOAD_SIZE = (
+    int(os.environ.get('DOCUMENT_MAX_UPLOAD_SIZE_MB', '25')) * 1024 * 1024
+)
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -157,7 +170,26 @@ DATABASES = {
 EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
 EMAIL_HOST = os.environ.get('EMAIL_HOST', 'localhost')
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
-EMAIL_USE_TLS = True
+EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
+EMAIL_USE_SSL = env_bool('EMAIL_USE_SSL', False)
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'webmaster@localhost')
+
+# QuickBooks Online. OAuth remains disabled until all required credentials exist.
+QUICKBOOKS_ENVIRONMENT = os.environ.get('QUICKBOOKS_ENVIRONMENT', 'sandbox')
+QUICKBOOKS_CLIENT_ID = os.environ.get('QUICKBOOKS_CLIENT_ID', '')
+QUICKBOOKS_CLIENT_SECRET = os.environ.get('QUICKBOOKS_CLIENT_SECRET', '')
+QUICKBOOKS_REDIRECT_URI = os.environ.get('QUICKBOOKS_REDIRECT_URI', '')
+QUICKBOOKS_REALM_ID = os.environ.get('QUICKBOOKS_REALM_ID', '')
+QUICKBOOKS_WEBHOOK_VERIFIER_TOKEN = os.environ.get(
+    'QUICKBOOKS_WEBHOOK_VERIFIER_TOKEN', ''
+)
+QUICKBOOKS_CONFIGURED = all(
+    (
+        QUICKBOOKS_CLIENT_ID,
+        QUICKBOOKS_CLIENT_SECRET,
+        QUICKBOOKS_REDIRECT_URI,
+        QUICKBOOKS_REALM_ID,
+    )
+)

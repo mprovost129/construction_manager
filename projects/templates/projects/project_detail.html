@@ -18,11 +18,11 @@
         <h1>{{ project.name }}</h1>
         {% if project.description %}<p>{{ project.description }}</p>{% endif %}
     </div>
-    {% if can_manage_project %}
+    {% if can_manage_project or can_invite_clients %}
     <div class="button-row">
-        <a class="btn btn-outline-secondary" href="{% url 'projects:edit' project.pk %}">
+        {% if can_manage_project %}<a class="btn btn-outline-secondary" href="{% url 'projects:edit' project.pk %}">
             <i class="bi bi-pencil"></i> Edit project
-        </a>
+        </a>{% endif %}
         <a class="btn btn-primary" href="{% url 'projects:people' project.pk %}">
             <i class="bi bi-people"></i> People &amp; access
         </a>
@@ -35,6 +35,7 @@
     <span>
         {% if user.is_superuser %}Superuser access
         {% elif project_membership %}{{ project_membership.get_role_display }} portal access
+        {% elif internal_access %}{{ organization_membership.get_role_display }} assigned project access
         {% elif organization_membership %}{{ organization_membership.get_role_display }} access
         {% endif %}
     </span>
@@ -68,7 +69,7 @@
     </a>{% endif %}
     {% if can_use_schedule %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:schedule' project.pk %}">
         <i class="bi bi-calendar3"></i>
-        <div><h2>Schedule</h2><p>Milestones and customer-visible dates.</p></div>
+        <div><h2>Schedule</h2><p>Internal milestones and project dates.</p></div>
         <span>Open schedule <i class="bi bi-arrow-right"></i></span>
     </a>{% endif %}
     {% if can_view_project_financials %}

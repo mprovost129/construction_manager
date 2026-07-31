@@ -23,6 +23,16 @@ urlpatterns = [
         name='people',
     ),
     path(
+        'projects/<int:pk>/people/internal-access/',
+        views.ProjectInternalAccessUpdateView.as_view(),
+        name='internal_access_update',
+    ),
+    path(
+        'projects/<int:pk>/people/internal-access/<int:access_pk>/revoke/',
+        views.ProjectInternalAccessRevokeView.as_view(),
+        name='internal_access_revoke',
+    ),
+    path(
         'projects/<int:pk>/messages/',
         views.ProjectMessageListView.as_view(),
         name='message_list',
@@ -51,6 +61,11 @@ urlpatterns = [
         'projects/<int:pk>/documents/new/',
         views.ProjectDocumentCreateView.as_view(),
         name='document_create',
+    ),
+    path(
+        'projects/<int:pk>/documents/client-upload/',
+        views.ClientProjectUploadView.as_view(),
+        name='client_upload',
     ),
     path(
         'projects/<int:pk>/documents/<int:document_pk>/',
@@ -151,6 +166,11 @@ urlpatterns = [
         'projects/<int:pk>/selections/<int:selection_pk>/choose/',
         views.FinishSelectionChooseView.as_view(),
         name='selection_choose',
+    ),
+    path(
+        'projects/<int:pk>/selections/<int:selection_pk>/reopen/',
+        views.FinishSelectionReopenView.as_view(),
+        name='selection_reopen',
     ),
     path(
         'projects/<int:pk>/selections/<int:selection_pk>/void/',

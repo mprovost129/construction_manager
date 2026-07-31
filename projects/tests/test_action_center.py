@@ -20,6 +20,7 @@ from projects.models import (
     ScheduleMilestone,
     SelectionOption,
 )
+from projects.tests import grant_internal_access
 
 
 class ProjectActionCenterTests(TestCase):
@@ -68,6 +69,14 @@ class ProjectActionCenterTests(TestCase):
             ProjectMembership.objects.create(
                 project=cls.project, user=user, role=role
             )
+        grant_internal_access(cls.staff_user, cls.project, cls.other_project)
+        grant_internal_access(
+            cls.accountant,
+            cls.project,
+            cls.other_project,
+            can_manage=False,
+            can_invite_clients=False,
+        )
 
         cls.draft_change_order = ChangeOrder.objects.create(
             project=cls.project,

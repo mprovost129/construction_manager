@@ -36,6 +36,7 @@ from .forms import (
     ChangeOrderDecisionForm,
     ChangeOrderForm,
     ClientInvitationForm,
+    ClientProjectUploadForm,
     ConversationReplyForm,
     ConversationThreadForm,
     DocumentDecisionForm,
@@ -44,6 +45,7 @@ from .forms import (
     ProjectDocumentCreateForm,
     ProjectDocumentVersionForm,
     ProjectForm,
+    ProjectInternalAccessForm,
     ScheduleMilestoneForm,
     SelectionDecisionForm,
     SelectionOptionForm,
@@ -63,6 +65,7 @@ from .models import (
     Project,
     ProjectDocument,
     ProjectDocumentVersion,
+    ProjectInternalAccess,
     ProjectInvitation,
     ProjectMembership,
     ScheduleMilestone,
@@ -81,11 +84,11 @@ from .services import (
     send_change_order_decision_notification,
     send_change_order_review_notification,
     send_change_order_voided_notification,
+    send_client_upload_notification,
     send_document_available_notification,
     send_document_decision_notification,
     send_message_notifications,
     send_project_invitation,
-    send_schedule_milestone_notification,
     send_selection_chosen_notification,
     send_selection_review_notification,
     send_selection_voided_notification,
@@ -100,6 +103,16 @@ def managed_project_or_404(user, pk):
     )
     if not can_manage_project(user, project):
         raise PermissionDenied('You cannot manage this project.')
+    return project
+
+
+def people_project_or_404(user, pk):
+    project = get_object_or_404(
+        projects_for_user(user).select_related('organization'),
+        pk=pk,
+    )
+    if not (can_manage_project(user, project) or can_invite_clients(user, project)):
+        raise PermissionDenied('You cannot manage people for this project.')
     return project
 
 
@@ -233,6 +246,11 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
             user=self.request.user,
             is_active=True,
         ).first()
+        internal_access = self.object.internal_access.filter(
+            membership__user=self.request.user,
+            membership__is_active=True,
+            is_active=True,
+        ).select_related('membership').first()
         is_internal = bool(
             self.request.user.is_superuser
             or (organization_membership and organization_membership.is_internal)
@@ -249,6 +267,7 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
             {
                 'organization_membership': organization_membership,
                 'project_membership': project_membership,
+                'internal_access': internal_access,
                 'can_manage_project': can_manage_project(
                     self.request.user, self.object
                 ),
@@ -581,6 +600,7 @@ class ProjectDocumentListView(LoginRequiredMixin, TemplateView):
                 ),
                 'document_querystring': urlencode(query_params),
                 'can_manage_project': can_manage,
+                'can_upload_files': viewer_is_client,
             }
         )
         return context
@@ -633,6 +653,67 @@ class ProjectDocumentCreateView(LoginRequiredMixin, FormView):
         )
         warn_if_notification_failed(self.request, delivery_result)
         messages.success(self.request, f'{document.title} was uploaded.')
+        return redirect(
+            'projects:document_detail',
+            pk=self.project.pk,
+            document_pk=document.pk,
+        )
+
+
+class ClientProjectUploadView(LoginRequiredMixin, FormView):
+    form_class = ClientProjectUploadForm
+    template_name = 'projects/client_upload_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = documents_project_or_404(request.user, kwargs['pk'])
+        if not is_project_client(request.user, self.project):
+            raise PermissionDenied('Only assigned clients can use the client upload area.')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['project'] = self.project
+        return context
+
+    def form_valid(self, form):
+        upload = form.cleaned_data['file']
+        with transaction.atomic():
+            document = ProjectDocument(
+                project=self.project,
+                title=form.cleaned_data['title'],
+                description=form.cleaned_data['description'],
+                category=ProjectDocument.Category.CLIENT_UPLOAD,
+                client_visible=True,
+                requires_client_approval=False,
+                created_by=self.request.user,
+            )
+            document.full_clean()
+            document.save()
+            version = ProjectDocumentVersion.objects.create(
+                document=document,
+                version_number=1,
+                file=upload,
+                original_filename=upload.name,
+                uploaded_by=self.request.user,
+            )
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.CLIENT_UPLOAD_CREATED,
+                summary=(
+                    f'{self.request.user.email} uploaded "{document.title}" '
+                    'through the client portal.'
+                ),
+                metadata={
+                    'document_id': document.pk,
+                    'version_id': version.pk,
+                    'filename': version.original_filename,
+                },
+            )
+        delivery_result = send_client_upload_notification(self.request, version)
+        warn_if_notification_failed(self.request, delivery_result)
+        messages.success(self.request, f'{document.title} was uploaded to the project.')
         return redirect(
             'projects:document_detail',
             pk=self.project.pk,
@@ -855,6 +936,29 @@ class ChangeOrderCreateView(LoginRequiredMixin, FormView):
         context = super().get_context_data(**kwargs)
         context.update({'project': self.project, 'change_order': None})
         return context
+
+    def get_initial(self):
+        initial = super().get_initial()
+        selection_id = self.request.GET.get('selection')
+        if not selection_id:
+            return initial
+        selection = self.project.finish_selections.select_related(
+            'chosen_option'
+        ).filter(pk=selection_id, status=FinishSelection.Status.SELECTED).first()
+        if not selection or not selection.requires_change_order:
+            return initial
+        initial.update(
+            {
+                'title': f'{selection.title} allowance overage',
+                'description': (
+                    f'Allowance overage for {selection.display_number}: '
+                    f'{selection.chosen_option.name}.'
+                ),
+                'reason': 'Client finish selection exceeds the approved allowance.',
+                'price_delta': selection.selected_variance,
+            }
+        )
+        return initial
 
     def form_valid(self, form):
         with transaction.atomic():
@@ -1663,6 +1767,60 @@ class FinishSelectionChooseView(LoginRequiredMixin, View):
         )
 
 
+class FinishSelectionReopenView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, selection_pk):
+        project = managed_project_or_404(request.user, pk)
+        with transaction.atomic():
+            selection = get_object_or_404(
+                FinishSelection.objects.select_for_update(),
+                project=project,
+                pk=selection_pk,
+            )
+            if selection.status != FinishSelection.Status.SELECTED:
+                raise PermissionDenied('Only completed selections can be reopened.')
+            previous_option = selection.chosen_option
+            previous_client = selection.selected_by
+            selection.status = FinishSelection.Status.OPEN
+            selection.chosen_option = None
+            selection.selected_by = None
+            selection.selected_at = None
+            selection.client_comment = ''
+            selection.full_clean()
+            selection.save(
+                update_fields=(
+                    'status',
+                    'chosen_option',
+                    'selected_by',
+                    'selected_at',
+                    'client_comment',
+                    'updated_at',
+                )
+            )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.SELECTION_REOPENED,
+                summary=(
+                    f'{request.user.email} reopened {selection.display_number} '
+                    'for a new client choice.'
+                ),
+                metadata={
+                    'selection_id': selection.pk,
+                    'previous_option_id': previous_option.pk,
+                    'previous_client_id': previous_client.pk,
+                },
+            )
+        delivery_result = send_selection_review_notification(request, selection)
+        warn_if_notification_failed(request, delivery_result)
+        messages.success(request, 'The selection was reopened for the client.')
+        return redirect(
+            'projects:selection_detail', pk=project.pk, selection_pk=selection.pk
+        )
+
+
 class FinishSelectionVoidView(LoginRequiredMixin, View):
     http_method_names = ('post',)
 
@@ -1714,8 +1872,6 @@ class ProjectScheduleView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         milestones = self.project.schedule_milestones.all()
-        if is_project_client(self.request.user, self.project):
-            milestones = milestones.filter(client_visible=True)
         milestones = list(milestones)
         today = timezone.localdate()
         calendar_month = choose_calendar_month(
@@ -1779,15 +1935,8 @@ class ScheduleMilestoneCreateView(LoginRequiredMixin, FormView):
                         milestone.end_date.isoformat() if milestone.end_date else None
                     ),
                     'status': milestone.status,
-                    'client_visible': milestone.client_visible,
                 },
             )
-        if form.cleaned_data['notify_clients'] and milestone.client_visible:
-            delivery_result = send_schedule_milestone_notification(
-                self.request,
-                milestone,
-            )
-            warn_if_notification_failed(self.request, delivery_result)
         messages.success(self.request, f'{milestone.title} was added to the schedule.')
         return redirect('projects:schedule', pk=self.project.pk)
 
@@ -1823,7 +1972,6 @@ class ScheduleMilestoneUpdateView(LoginRequiredMixin, FormView):
                 project=self.project,
                 pk=self.milestone.pk,
             )
-            was_client_visible = milestone.client_visible
             for field_name in editable_fields:
                 setattr(milestone, field_name, form.cleaned_data[field_name])
             milestone.full_clean()
@@ -1844,21 +1992,8 @@ class ScheduleMilestoneUpdateView(LoginRequiredMixin, FormView):
                         milestone.end_date.isoformat() if milestone.end_date else None
                     ),
                     'status': milestone.status,
-                    'client_visible': milestone.client_visible,
                 },
             )
-        if form.cleaned_data['notify_clients']:
-            if milestone.client_visible:
-                delivery_result = send_schedule_milestone_notification(
-                    self.request,
-                    milestone,
-                )
-                warn_if_notification_failed(self.request, delivery_result)
-            elif was_client_visible:
-                delivery_result = send_schedule_milestone_notification(
-                    self.request, milestone, withdrawn=True
-                )
-                warn_if_notification_failed(self.request, delivery_result)
         messages.success(self.request, f'{milestone.title} was updated.')
         return redirect('projects:schedule', pk=self.project.pk)
 
@@ -1936,16 +2071,29 @@ class ProjectCreateView(LoginRequiredMixin, FormView):
         return initial
 
     def form_valid(self, form):
-        project = form.save(commit=False)
-        project.created_by = self.request.user
-        project.save()
-        record_activity(
-            organization=project.organization,
-            project=project,
-            actor=self.request.user,
-            event_type=ActivityEvent.Type.PROJECT_CREATED,
-            summary=f'{self.request.user.email} created the project.',
-        )
+        with transaction.atomic():
+            project = form.save(commit=False)
+            project.created_by = self.request.user
+            project.save()
+            membership = organization_membership_for(
+                self.request.user, project.organization
+            )
+            if membership and membership.is_internal:
+                ProjectInternalAccess.objects.create(
+                    project=project,
+                    membership=membership,
+                    can_manage=True,
+                    can_invite_clients=True,
+                    receives_notifications=True,
+                    assigned_by=self.request.user,
+                )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.PROJECT_CREATED,
+                summary=f'{self.request.user.email} created the project.',
+            )
         messages.success(self.request, f'{project.name} was created.')
         return redirect('projects:detail', pk=project.pk)
 
@@ -1996,7 +2144,7 @@ class ProjectPeopleView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/project_people.html'
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        self.project = people_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
@@ -2004,6 +2152,15 @@ class ProjectPeopleView(LoginRequiredMixin, TemplateView):
         context.update(
             {
                 'project': self.project,
+                'can_manage_project': can_manage_project(
+                    self.request.user, self.project
+                ),
+                'internal_access_entries': self.project.internal_access.filter(
+                    membership__is_active=True,
+                ).select_related('membership__user'),
+                'internal_access_form': ProjectInternalAccessForm(
+                    project=self.project
+                ),
                 'project_memberships': self.project.project_memberships.select_related(
                     'user'
                 ),
@@ -2015,12 +2172,97 @@ class ProjectPeopleView(LoginRequiredMixin, TemplateView):
         return context
 
 
+class ProjectInternalAccessUpdateView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk):
+        project = managed_project_or_404(request.user, pk)
+        form = ProjectInternalAccessForm(request.POST, project=project)
+        if not form.is_valid():
+            messages.error(request, 'Choose a valid internal user and permissions.')
+            return redirect('projects:people', pk=project.pk)
+        membership = form.cleaned_data['membership']
+        defaults = {
+            'can_manage': form.cleaned_data['can_manage'],
+            'can_invite_clients': form.cleaned_data['can_invite_clients'],
+            'receives_notifications': form.cleaned_data['receives_notifications'],
+            'is_active': True,
+            'assigned_by': request.user,
+        }
+        with transaction.atomic():
+            access, created = ProjectInternalAccess.objects.update_or_create(
+                project=project,
+                membership=membership,
+                defaults=defaults,
+            )
+            access.full_clean()
+            event_type = (
+                ActivityEvent.Type.INTERNAL_ACCESS_ASSIGNED
+                if created
+                else ActivityEvent.Type.INTERNAL_ACCESS_UPDATED
+            )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=event_type,
+                summary=(
+                    f'{request.user.email} {"assigned" if created else "updated"} '
+                    f'project access for {membership.user.email}.'
+                ),
+                metadata={
+                    'membership_id': membership.pk,
+                    'can_manage': access.can_manage,
+                    'can_invite_clients': access.can_invite_clients,
+                    'receives_notifications': access.receives_notifications,
+                },
+            )
+        messages.success(request, f'Project access updated for {membership.user.email}.')
+        return redirect('projects:people', pk=project.pk)
+
+
+class ProjectInternalAccessRevokeView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, access_pk):
+        project = managed_project_or_404(request.user, pk)
+        with transaction.atomic():
+            access = get_object_or_404(
+                ProjectInternalAccess.objects.select_for_update().select_related(
+                    'membership__user'
+                ),
+                pk=access_pk,
+                project=project,
+            )
+            if not access.is_active:
+                messages.info(request, 'That project access is already revoked.')
+                return redirect('projects:people', pk=project.pk)
+            if access.membership.user_id == request.user.pk:
+                messages.error(request, 'You cannot revoke your own project access.')
+                return redirect('projects:people', pk=project.pk)
+            access.is_active = False
+            access.save(update_fields=('is_active', 'updated_at'))
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.INTERNAL_ACCESS_REVOKED,
+                summary=(
+                    f'{request.user.email} revoked project access for '
+                    f'{access.membership.user.email}.'
+                ),
+                metadata={'membership_id': access.membership_id},
+            )
+        messages.success(request, f'Project access revoked for {access.user.email}.')
+        return redirect('projects:people', pk=project.pk)
+
+
 class ClientInviteView(LoginRequiredMixin, FormView):
     form_class = ClientInvitationForm
     template_name = 'projects/invite_client.html'
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        self.project = people_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self):
@@ -2065,7 +2307,7 @@ class ProjectInvitationResendView(LoginRequiredMixin, View):
     http_method_names = ('post',)
 
     def post(self, request, pk, invitation_pk):
-        project = managed_project_or_404(request.user, pk)
+        project = people_project_or_404(request.user, pk)
         old_invitation = get_object_or_404(
             ProjectInvitation, pk=invitation_pk, project=project
         )
@@ -2103,7 +2345,7 @@ class ProjectInvitationRevokeView(LoginRequiredMixin, View):
     http_method_names = ('post',)
 
     def post(self, request, pk, invitation_pk):
-        project = managed_project_or_404(request.user, pk)
+        project = people_project_or_404(request.user, pk)
         invitation = get_object_or_404(
             ProjectInvitation, pk=invitation_pk, project=project
         )
@@ -2130,7 +2372,7 @@ class ProjectMemberAccessView(LoginRequiredMixin, View):
     http_method_names = ('post',)
 
     def post(self, request, pk, membership_pk, action):
-        project = managed_project_or_404(request.user, pk)
+        project = people_project_or_404(request.user, pk)
         if action not in ('revoke', 'restore'):
             raise PermissionDenied('Unknown access action.')
         active = action == 'restore'

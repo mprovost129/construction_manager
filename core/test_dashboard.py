@@ -21,6 +21,7 @@ from projects.models import (
     ProjectMembership,
     ScheduleMilestone,
 )
+from projects.tests import grant_internal_access
 
 
 class PortfolioDashboardTests(TestCase):
@@ -105,6 +106,16 @@ class PortfolioDashboardTests(TestCase):
                 user=user,
                 role=role,
             )
+        grant_internal_access(
+            cls.staff_user, cls.priority_project, cls.clear_project
+        )
+        grant_internal_access(
+            cls.accountant,
+            cls.priority_project,
+            cls.clear_project,
+            can_manage=False,
+            can_invite_clients=False,
+        )
 
         ChangeOrder.objects.create(
             project=cls.priority_project,
@@ -405,7 +416,7 @@ class PortfolioDashboardTests(TestCase):
         self.assertEqual(response.context['project_result_count'], 2)
 
     def test_portfolio_rollup_uses_a_fixed_number_of_queries(self):
-        Project.objects.bulk_create(
+        scale_projects = Project.objects.bulk_create(
             [
                 Project(
                     organization=self.organization,
@@ -414,6 +425,7 @@ class PortfolioDashboardTests(TestCase):
                 for number in range(1, 13)
             ]
         )
+        grant_internal_access(self.staff_user, *scale_projects)
         projects = list(
             projects_for_user(self.staff_user).select_related('organization')
         )

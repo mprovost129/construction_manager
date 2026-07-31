@@ -14,6 +14,7 @@ from projects.models import (
     Project,
     ProjectMembership,
 )
+from projects.tests import grant_internal_access
 
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
@@ -68,6 +69,14 @@ class ProjectMessagingTests(TestCase):
             project=cls.project,
             user=cls.subcontractor,
             role=OrganizationMembership.Role.SUBCONTRACTOR,
+        )
+        grant_internal_access(cls.staff_user, cls.project, cls.other_project)
+        grant_internal_access(
+            cls.accountant,
+            cls.project,
+            cls.other_project,
+            can_manage=False,
+            can_invite_clients=False,
         )
 
     def create_thread(

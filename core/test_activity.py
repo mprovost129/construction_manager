@@ -14,6 +14,7 @@ from projects.models import (
     Project,
     ProjectMembership,
 )
+from projects.tests import grant_internal_access
 
 
 class ProjectActivityListTests(TestCase):
@@ -79,6 +80,14 @@ class ProjectActivityListTests(TestCase):
                 user=user,
                 role=role,
             )
+        grant_internal_access(cls.staff_user, cls.oak_project, cls.pine_project)
+        grant_internal_access(
+            cls.accountant,
+            cls.oak_project,
+            cls.pine_project,
+            can_manage=False,
+            can_invite_clients=False,
+        )
 
         cls.oak_event = ActivityEvent.objects.create(
             organization=cls.organization,

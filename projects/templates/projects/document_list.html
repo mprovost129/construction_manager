@@ -11,7 +11,7 @@
 
 <section class="page-heading">
     <div><p class="eyebrow">Project files</p><h1>Documents</h1><p class="text-secondary mb-0">Review current files and keep every version and client decision together.</p></div>
-    {% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:document_create' project.pk %}"><i class="bi bi-upload"></i> Upload document</a>{% endif %}
+    {% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:document_create' project.pk %}"><i class="bi bi-upload"></i> Upload document</a>{% elif can_upload_files %}<a class="btn btn-primary" href="{% url 'projects:client_upload' project.pk %}"><i class="bi bi-upload"></i> Upload files or photos</a>{% endif %}
 </section>
 
 <section class="project-filter-bar" aria-label="Filter documents">
@@ -70,8 +70,8 @@
     <a class="btn btn-outline-secondary" href="{% url 'projects:document_list' project.pk %}">Clear filters</a>
     {% else %}
     <h2>No documents yet</h2>
-    <p>{% if can_manage_project %}Upload the first file for this project.{% else %}The company has not shared any documents yet.{% endif %}</p>
-    {% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:document_create' project.pk %}">Upload document</a>{% endif %}
+    <p>{% if can_manage_project %}Upload the first file for this project.{% elif can_upload_files %}No files have been shared yet. You can upload a file or photo for the company.{% else %}The company has not shared any documents yet.{% endif %}</p>
+    {% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:document_create' project.pk %}">Upload document</a>{% elif can_upload_files %}<a class="btn btn-primary" href="{% url 'projects:client_upload' project.pk %}">Upload files or photos</a>{% endif %}
     {% endif %}
 </div>
 {% endif %}

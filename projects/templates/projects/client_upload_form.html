@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+
+{% block title %}Upload files | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:document_list' project.pk %}">Documents</a><i class="bi bi-chevron-right"></i><span>Client upload</span></nav>
+<div class="form-shell form-shell--top">
+    <section class="form-card form-card--wide">
+        <p class="eyebrow">Client portal upload</p>
+        <h1>Upload a file or photo</h1>
+        <p class="text-secondary">Your upload will appear with today&rsquo;s date in the project documents area, and assigned company users who receive project notifications will be emailed.</p>
+        <form method="post" enctype="multipart/form-data" class="stacked-form">{% csrf_token %}
+            {{ form.non_field_errors }}
+            {% for field in form %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{{ field.errors }}</div>{% endfor %}
+            <div class="form-actions"><a class="btn btn-outline-secondary" href="{% url 'projects:document_list' project.pk %}">Cancel</a><button class="btn btn-primary" type="submit">Upload</button></div>
+        </form>
+    </section>
+</div>
+{% endblock %}

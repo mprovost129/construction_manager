@@ -10,9 +10,9 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import ListView, TemplateView
 
-from projects.access import internal_organizations_for_user, projects_for_user
+from projects.access import projects_for_user
 from projects.action_center import build_portfolio_action_center
-from projects.models import ActivityEvent, Project
+from projects.models import ActivityEvent, OrganizationMembership, Project
 
 PROJECT_ACTIVITY_TYPE_CHOICES = tuple(
     (value, label)
@@ -101,18 +101,20 @@ class ProjectActivityAccessMixin(LoginRequiredMixin):
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
             return super().dispatch(request, *args, **kwargs)
-        organizations = internal_organizations_for_user(
-            request.user,
-            management_only=True,
-        )
-        if not request.user.is_superuser and not organizations.exists():
+        can_view_activity = request.user.is_superuser or request.user.organization_memberships.filter(
+            is_active=True,
+            role__in=tuple(
+                role
+                for role in OrganizationMembership.INTERNAL_ROLES
+                if role != OrganizationMembership.Role.ACCOUNTANT
+            ),
+        ).exists()
+        if not can_view_activity:
             raise PermissionDenied(
-                'Only company administrators and staff can view project activity.'
+                'Only assigned internal project users can view project activity.'
             )
         self.projects = list(
-            Project.objects.filter(organization__in=organizations).select_related(
-                'organization'
-            )
+            projects_for_user(request.user).select_related('organization')
         )
         self.project_ids = {project.pk for project in self.projects}
         self.activity_search = request.GET.get('q', '').strip()[:100]

@@ -14,6 +14,7 @@ from .models import (
     OrganizationMembership,
     Project,
     ProjectDocument,
+    ProjectInternalAccess,
     ProjectInvitation,
     ScheduleMilestone,
     SelectionOption,
@@ -22,10 +23,16 @@ from .models import (
 ALLOWED_DOCUMENT_EXTENSIONS = {
     '.doc',
     '.docx',
+    '.csv',
+    '.heic',
     '.jpeg',
     '.jpg',
     '.pdf',
     '.png',
+    '.ppt',
+    '.pptx',
+    '.txt',
+    '.webp',
     '.xls',
     '.xlsx',
 }
@@ -70,6 +77,18 @@ class ProjectDocumentVersionForm(forms.Form):
         required=False,
         widget=forms.Textarea(attrs={'rows': 4}),
     )
+
+    def clean_file(self):
+        return validate_document_file(self.cleaned_data['file'])
+
+
+class ClientProjectUploadForm(forms.Form):
+    title = forms.CharField(max_length=200)
+    description = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'rows': 4}),
+    )
+    file = forms.FileField()
 
     def clean_file(self):
         return validate_document_file(self.cleaned_data['file'])
@@ -195,12 +214,6 @@ class SelectionDecisionForm(forms.Form):
 
 
 class ScheduleMilestoneForm(forms.ModelForm):
-    notify_clients = forms.BooleanField(
-        required=False,
-        initial=True,
-        help_text='Send active project clients an email about this schedule update.',
-    )
-
     class Meta:
         model = ScheduleMilestone
         fields = (
@@ -209,17 +222,15 @@ class ScheduleMilestoneForm(forms.ModelForm):
             'start_date',
             'end_date',
             'status',
-            'client_visible',
             'internal_notes',
             'sort_order',
         )
         labels = {
-            'client_visible': 'Show in client portal',
             'sort_order': 'Display order for the same start date',
         }
         help_texts = {
-            'description': 'Shown to clients when this milestone is visible.',
-            'internal_notes': 'Internal only and never shown to clients.',
+            'description': 'Visible to assigned internal project users.',
+            'internal_notes': 'Internal planning notes.',
         }
         widgets = {
             'description': forms.Textarea(attrs={'rows': 4}),
@@ -321,8 +332,24 @@ class TeamMembershipForm(forms.ModelForm):
                 OrganizationMembership.Role.ADMIN.label,
             ),
             (
+                OrganizationMembership.Role.MANAGER,
+                OrganizationMembership.Role.MANAGER.label,
+            ),
+            (
+                OrganizationMembership.Role.PROJECT_MANAGER,
+                OrganizationMembership.Role.PROJECT_MANAGER.label,
+            ),
+            (
                 OrganizationMembership.Role.STAFF,
                 OrganizationMembership.Role.STAFF.label,
+            ),
+            (
+                OrganizationMembership.Role.OFFICE_MANAGER,
+                OrganizationMembership.Role.OFFICE_MANAGER.label,
+            ),
+            (
+                OrganizationMembership.Role.REAL_ESTATE_AGENT,
+                OrganizationMembership.Role.REAL_ESTATE_AGENT.label,
             ),
             (
                 OrganizationMembership.Role.ACCOUNTANT,
@@ -334,6 +361,44 @@ class TeamMembershipForm(forms.ModelForm):
     class Meta:
         model = OrganizationMembership
         fields = ('role', 'is_active')
+
+
+class ProjectInternalAccessForm(forms.ModelForm):
+    class Meta:
+        model = ProjectInternalAccess
+        fields = (
+            'membership',
+            'can_manage',
+            'can_invite_clients',
+            'receives_notifications',
+        )
+        labels = {
+            'membership': 'Internal user',
+            'can_manage': 'Manage project workflows',
+            'can_invite_clients': 'Invite and manage clients',
+            'receives_notifications': 'Receive project email notifications',
+        }
+
+    def __init__(self, *args, project, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.project = project
+        self.fields['membership'].queryset = (
+            project.organization.memberships.filter(
+                is_active=True,
+                role__in=OrganizationMembership.INTERNAL_ROLES,
+            )
+            .exclude(role=OrganizationMembership.Role.ADMIN)
+            .select_related('user')
+            .order_by('user__email')
+        )
+
+    def clean_membership(self):
+        membership = self.cleaned_data['membership']
+        if membership.organization_id != self.project.organization_id:
+            raise forms.ValidationError('Choose a team member from this company.')
+        if not membership.is_internal:
+            raise forms.ValidationError('Choose an internal team member.')
+        return membership
 
 
 class ClientInvitationForm(forms.ModelForm):

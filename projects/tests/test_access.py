@@ -8,6 +8,7 @@ from projects.models import (
     Project,
     ProjectMembership,
 )
+from projects.tests import grant_internal_access
 
 
 class ProjectAccessTests(TestCase):
@@ -57,17 +58,15 @@ class ProjectAccessTests(TestCase):
             user=cls.client_user,
             role=OrganizationMembership.Role.CLIENT,
         )
+        grant_internal_access(cls.staff, cls.project)
 
     def test_user_manager_normalizes_email_for_login(self):
         self.assertEqual(self.staff.email, 'staff@example.com')
         self.assertEqual(get_user_model().USERNAME_FIELD, 'email')
 
-    def test_internal_staff_can_access_all_projects_for_their_company(self):
+    def test_internal_staff_can_only_access_assigned_projects(self):
         projects = projects_for_user(self.staff)
-        self.assertQuerySetEqual(
-            projects.order_by('name'),
-            [self.project, self.second_project],
-        )
+        self.assertQuerySetEqual(projects, [self.project])
 
     def test_client_can_only_access_assigned_project(self):
         self.assertQuerySetEqual(projects_for_user(self.client_user), [self.project])

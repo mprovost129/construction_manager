@@ -16,6 +16,7 @@ from projects.models import (
     ProjectMembership,
     SelectionOption,
 )
+from projects.tests import grant_internal_access
 
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
@@ -70,6 +71,14 @@ class FinishSelectionTests(TestCase):
             ProjectMembership.objects.create(
                 project=cls.project, user=user, role=role
             )
+        grant_internal_access(cls.staff_user, cls.project, cls.other_project)
+        grant_internal_access(
+            cls.accountant,
+            cls.project,
+            cls.other_project,
+            can_manage=False,
+            can_invite_clients=False,
+        )
 
     def selection_form_data(self, title='Kitchen countertops'):
         return {
@@ -335,6 +344,69 @@ class FinishSelectionTests(TestCase):
         selection.refresh_from_db()
         self.assertEqual(selection.selected_by, self.client_user)
         self.assertEqual(len(mail.outbox), 1)
+
+    def test_manager_reopens_completed_selection_for_a_new_client_choice(self):
+        selection, option = self.create_selection(
+            status=FinishSelection.Status.SELECTED
+        )
+        selection.client_comment = 'Original choice.'
+        selection.save(update_fields=('client_comment', 'updated_at'))
+        self.client.force_login(self.staff_user)
+
+        response = self.client.post(
+            reverse(
+                'projects:selection_reopen',
+                args=(self.project.pk, selection.pk),
+            )
+        )
+
+        selection.refresh_from_db()
+        self.assertRedirects(
+            response,
+            reverse(
+                'projects:selection_detail',
+                args=(self.project.pk, selection.pk),
+            ),
+        )
+        self.assertEqual(selection.status, FinishSelection.Status.OPEN)
+        self.assertIsNone(selection.chosen_option)
+        self.assertIsNone(selection.selected_by)
+        self.assertIsNone(selection.selected_at)
+        self.assertEqual(selection.client_comment, '')
+        self.assertEqual(
+            mail.outbox[0].to,
+            ['client@example.com', 'second-client@example.com'],
+        )
+        event = ActivityEvent.objects.get(
+            project=self.project,
+            event_type=ActivityEvent.Type.SELECTION_REOPENED,
+        )
+        self.assertEqual(event.metadata['previous_option_id'], option.pk)
+
+    def test_selected_overage_links_to_prefilled_change_order(self):
+        selection, _ = self.create_selection(
+            status=FinishSelection.Status.SELECTED
+        )
+        self.client.force_login(self.staff_user)
+
+        detail_response = self.client.get(
+            reverse(
+                'projects:selection_detail',
+                args=(self.project.pk, selection.pk),
+            )
+        )
+        change_order_response = self.client.get(
+            reverse('projects:change_order_create', args=(self.project.pk,)),
+            {'selection': selection.pk},
+        )
+
+        self.assertContains(detail_response, 'Create change order')
+        form = change_order_response.context['form']
+        self.assertEqual(
+            form.initial['title'],
+            'Kitchen countertops allowance overage',
+        )
+        self.assertEqual(form.initial['price_delta'], Decimal('200.00'))
 
     def test_option_from_another_selection_cannot_be_chosen(self):
         selection, _ = self.create_selection(status=FinishSelection.Status.OPEN)

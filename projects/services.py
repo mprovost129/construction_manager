@@ -93,14 +93,7 @@ def message_notification_recipients(project, author):
         user=author,
     ).exists()
     if author_is_client:
-        emails = project.organization.memberships.filter(
-            role__in=(
-                OrganizationMembership.Role.ADMIN,
-                OrganizationMembership.Role.STAFF,
-            ),
-            is_active=True,
-            user__is_active=True,
-        ).exclude(user=author).values_list('user__email', flat=True)
+        emails = document_internal_recipients(project, exclude_user=author)
     else:
         emails = get_user_model().objects.filter(
             pk__in=client_user_ids,
@@ -143,17 +136,46 @@ def document_client_recipients(project):
 
 
 def document_internal_recipients(project, *, exclude_user=None):
-    memberships = project.organization.memberships.filter(
-        role__in=(
-            OrganizationMembership.Role.ADMIN,
-            OrganizationMembership.Role.STAFF,
-        ),
+    admin_memberships = project.organization.memberships.filter(
+        role=OrganizationMembership.Role.ADMIN,
         is_active=True,
         user__is_active=True,
     )
+    assigned_memberships = project.organization.memberships.filter(
+        project_access__project=project,
+        project_access__is_active=True,
+        project_access__receives_notifications=True,
+        is_active=True,
+        user__is_active=True,
+    ).exclude(role=OrganizationMembership.Role.ACCOUNTANT)
     if exclude_user:
-        memberships = memberships.exclude(user=exclude_user)
-    return sorted(set(memberships.values_list('user__email', flat=True)))
+        admin_memberships = admin_memberships.exclude(user=exclude_user)
+        assigned_memberships = assigned_memberships.exclude(user=exclude_user)
+    return sorted(
+        set(admin_memberships.values_list('user__email', flat=True))
+        | set(assigned_memberships.values_list('user__email', flat=True))
+    )
+
+
+def send_client_upload_notification(request, version):
+    document = version.document
+    recipients = document_internal_recipients(
+        document.project,
+        exclude_user=version.uploaded_by,
+    )
+    if not recipients:
+        return 0
+    document_url = request.build_absolute_uri(
+        reverse('projects:document_detail', args=(document.project_id, document.pk))
+    )
+    return send_notification_email(
+        subject=f'Client upload - {document.project.name}: {document.title}',
+        message=(
+            f'{version.uploaded_by.email} uploaded {version.original_filename} for '
+            f'{document.project.name}.\n\nView upload: {document_url}'
+        ),
+        recipient_list=recipients,
+    )
 
 
 def send_document_available_notification(request, version):

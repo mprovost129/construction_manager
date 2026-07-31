@@ -10,9 +10,42 @@
 </nav>
 
 <section class="page-heading">
-    <div><p class="eyebrow">Project administration</p><h1>People &amp; access</h1><p class="text-secondary mb-0">Manage customer access and project invitations.</p></div>
+    <div><p class="eyebrow">Project administration</p><h1>People &amp; access</h1><p class="text-secondary mb-0">Assign internal users, notification delivery, and customer access.</p></div>
     <a class="btn btn-primary" href="{% url 'projects:invite_client' project.pk %}"><i class="bi bi-person-plus"></i> Invite customer</a>
 </section>
+
+{% if can_manage_project %}
+<section class="admin-panel">
+    <div class="section-heading"><div><p class="eyebrow">Internal user viewing access</p><h2>Assigned company users</h2></div></div>
+    {% if internal_access_entries %}
+    <div class="table-responsive">
+        <table class="admin-table">
+            <thead><tr><th>User</th><th>Role</th><th>Permissions</th><th>Notifications</th><th>Status</th><th class="text-end">Action</th></tr></thead>
+            <tbody>
+            {% for access in internal_access_entries %}
+            <tr>
+                <td>{{ access.membership.user.email }}</td>
+                <td>{{ access.membership.get_role_display }}</td>
+                <td>{% if access.can_manage %}<span class="status-pill status-pill--active">Manage</span>{% endif %} {% if access.can_invite_clients %}<span class="status-pill status-pill--on_hold">Client access</span>{% endif %}{% if not access.can_manage and not access.can_invite_clients %}<span class="text-secondary">View and participate</span>{% endif %}</td>
+                <td>{% if access.receives_notifications %}<i class="bi bi-check-circle-fill text-success" aria-label="Enabled"></i> Enabled{% else %}<span class="text-secondary">Off</span>{% endif %}</td>
+                <td><span class="status-pill {% if access.is_active %}status-pill--active{% endif %}">{% if access.is_active %}Active{% else %}Revoked{% endif %}</span></td>
+                <td class="text-end">{% if access.is_active %}<form method="post" action="{% url 'projects:internal_access_revoke' project.pk access.pk %}" class="inline-form">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit">Revoke</button></form>{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}<p class="empty-copy">Only company administrators currently have internal access.</p>{% endif %}
+
+    <form method="post" action="{% url 'projects:internal_access_update' project.pk %}" class="stacked-form mt-4">
+        {% csrf_token %}
+        <div class="form-grid">
+            {% for field in internal_access_form %}<div class="form-field{% if field.field.widget.input_type == 'checkbox' %} form-field--checkbox{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}
+        </div>
+        <div class="form-actions"><button class="btn btn-primary" type="submit">Assign or update access</button></div>
+    </form>
+</section>
+{% endif %}
 
 <section class="admin-panel">
     <div class="section-heading"><div><p class="eyebrow">Current access</p><h2>Customers</h2></div></div>

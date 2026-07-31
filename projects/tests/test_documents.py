@@ -19,6 +19,7 @@ from projects.models import (
     ProjectMembership,
 )
 from projects.storage import private_document_storage
+from projects.tests import grant_internal_access
 
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
@@ -87,6 +88,14 @@ class ProjectDocumentTests(TestCase):
             ProjectMembership.objects.create(
                 project=cls.project, user=user, role=role
             )
+        grant_internal_access(cls.staff_user, cls.project, cls.other_project)
+        grant_internal_access(
+            cls.accountant,
+            cls.project,
+            cls.other_project,
+            can_manage=False,
+            can_invite_clients=False,
+        )
 
     def upload(self, name='plan.pdf', content=b'%PDF-1.4 test'):
         return SimpleUploadedFile(name, content, content_type='application/pdf')
@@ -245,6 +254,50 @@ class ProjectDocumentTests(TestCase):
                 event_type=ActivityEvent.Type.DOCUMENT_CREATED,
             ).exists()
         )
+
+    def test_client_uploads_project_file_and_notifies_assigned_internal_users(self):
+        self.client.force_login(self.client_user)
+        response = self.client.post(
+            reverse('projects:client_upload', args=(self.project.pk,)),
+            {
+                'title': 'Existing kitchen condition',
+                'description': 'Photo before demolition.',
+                'file': SimpleUploadedFile(
+                    'kitchen.webp', b'webp image data', content_type='image/webp'
+                ),
+            },
+        )
+
+        document = ProjectDocument.objects.get()
+        self.assertRedirects(
+            response,
+            reverse(
+                'projects:document_detail', args=(self.project.pk, document.pk)
+            ),
+        )
+        self.assertEqual(document.category, ProjectDocument.Category.CLIENT_UPLOAD)
+        self.assertTrue(document.client_visible)
+        self.assertFalse(document.requires_client_approval)
+        self.assertEqual(document.created_by, self.client_user)
+        self.assertEqual(
+            mail.outbox[0].to,
+            ['admin@example.com', 'staff@example.com'],
+        )
+        self.assertTrue(
+            ActivityEvent.objects.filter(
+                project=self.project,
+                event_type=ActivityEvent.Type.CLIENT_UPLOAD_CREATED,
+                actor=self.client_user,
+            ).exists()
+        )
+
+    def test_internal_user_cannot_use_client_upload_endpoint(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(
+            reverse('projects:client_upload', args=(self.project.pk,))
+        )
+
+        self.assertEqual(response.status_code, 403)
 
     def test_internal_document_is_hidden_from_client(self):
         document, version = self.create_document(
