@@ -1,0 +1,236 @@
+{% extends 'base.html' %}
+
+{% block title %}Terms of Use and EULA | Construction Manager{% endblock %}
+{% block meta_description %}Terms governing access to and use of the Construction Manager application.{% endblock %}
+
+{% block content %}
+<article class="legal-document">
+    <header class="legal-document__header">
+        <p class="eyebrow">Legal</p>
+        <h1>Terms of Use and End-User License Agreement</h1>
+        <p>Effective date: {{ legal_effective_date }}</p>
+    </header>
+
+    <section>
+        <p>
+            These Terms of Use and End-User License Agreement (the “Terms”) are a
+            binding agreement between {{ legal_business_name }} (“Company,” “we,”
+            “us,” or “our”) and the person or organization accessing Construction
+            Manager (the “Service”). By creating an account, accepting an invitation,
+            connecting QuickBooks Online, or using the Service, you agree to these
+            Terms. If you use the Service for an organization, you represent that you
+            have authority to bind that organization.
+        </p>
+    </section>
+
+    <section>
+        <h2>1. Eligibility and accounts</h2>
+        <p>
+            You must be at least 18 years old and legally able to enter into this
+            agreement. You must provide accurate account information, keep credentials
+            confidential, use reasonable security safeguards, and promptly notify us
+            of suspected unauthorized access. Your organization controls which users
+            may access its projects and is responsible for removing access that is no
+            longer appropriate.
+        </p>
+    </section>
+
+    <section>
+        <h2>2. Limited license</h2>
+        <p>
+            Subject to these Terms, Company grants you a limited, revocable,
+            non-exclusive, non-transferable, non-sublicensable license to access and
+            use the Service for your internal construction, project-management, client
+            communication, and accounting-coordination activities. No ownership right
+            in the Service or its software is transferred to you.
+        </p>
+    </section>
+
+    <section>
+        <h2>3. Permitted use and restrictions</h2>
+        <p>You may not, directly or indirectly:</p>
+        <ul>
+            <li>use the Service unlawfully, fraudulently, or outside its intended business purpose;</li>
+            <li>probe, disrupt, overload, bypass, or attempt unauthorized access to the Service;</li>
+            <li>upload malicious code or content that infringes another person’s rights;</li>
+            <li>reverse engineer, copy, resell, sublicense, or create a competing service from protected portions of the Service, except where law expressly permits it;</li>
+            <li>use another person’s credentials or access data beyond permissions granted by the applicable organization; or</li>
+            <li>use QuickBooks or other third-party data for advertising, profiling, resale, or any purpose unrelated to providing the Service.</li>
+        </ul>
+    </section>
+
+    <section>
+        <h2>4. Customer content and project records</h2>
+        <p>
+            You and your organization retain ownership of information submitted to the
+            Service, including project details, messages, documents, photographs,
+            schedules, selections, change orders, and accounting records (“Customer
+            Content”). You grant Company a limited license to host, process, transmit,
+            reproduce, and display Customer Content only as needed to operate, secure,
+            support, and improve the Service and fulfill legal obligations.
+        </p>
+        <p>
+            You represent that you have the rights and permissions needed to submit
+            Customer Content and disclose it to authorized project participants. Your
+            organization is responsible for the accuracy, legality, classification,
+            and project-level permissions applied to its content.
+        </p>
+    </section>
+
+    <section>
+        <h2>5. QuickBooks Online integration</h2>
+        <p>
+            If your organization connects QuickBooks Online, you authorize Company to
+            access and exchange the accounting data you select, which may include
+            customers, invoices, credit memos, payments, and related identifiers. We
+            use that access only to provide requested synchronization and related
+            application features. We do not request or store your Intuit password.
+        </p>
+        <p>
+            QuickBooks Online is provided by Intuit Inc. and is governed by Intuit’s
+            own terms and privacy practices. Company is not Intuit and does not control
+            QuickBooks availability, API behavior, or changes. You remain responsible
+            for reviewing synchronized entries, maintaining accurate books, resolving
+            conflicts, and obtaining any accounting or tax advice you require. You may
+            disconnect QuickBooks through the available connection controls or by
+            contacting us. Our handling of disconnected data is described in the
+            <a href="{% url 'core:privacy' %}#retention">Privacy Policy</a>.
+        </p>
+    </section>
+
+    <section>
+        <h2>6. Construction and financial decisions</h2>
+        <p>
+            The Service is a coordination and recordkeeping tool. It does not provide
+            architectural, engineering, safety, legal, accounting, insurance, or tax
+            advice. Schedules, budgets, allowances, pricing, notifications, and status
+            indicators may be estimates or depend on information supplied by users and
+            third parties. Qualified professionals and authorized project personnel
+            must independently review material decisions and legally required records.
+        </p>
+    </section>
+
+    <section>
+        <h2>7. Third-party services</h2>
+        <p>
+            The Service may interoperate with hosting, email, storage, authentication,
+            accounting, and other third-party services. Your use of a third-party
+            service may be subject to separate terms. We are not responsible for a
+            third party’s independent acts, outages, or changes, but we remain
+            responsible for our obligations regarding Customer Content in our control.
+        </p>
+    </section>
+
+    <section>
+        <h2>8. Fees</h2>
+        <p>
+            Any fees, billing schedule, renewal terms, and taxes will be stated in an
+            applicable order, subscription, or service agreement. Unless that agreement
+            says otherwise, fees already earned are nonrefundable to the extent
+            permitted by law.
+        </p>
+    </section>
+
+    <section>
+        <h2>9. Service operation and changes</h2>
+        <p>
+            We may maintain, update, secure, or modify the Service and may temporarily
+            suspend access when reasonably necessary. We do not guarantee uninterrupted
+            operation. If a material change or discontinuation substantially affects
+            customers, we will provide reasonable notice when practicable and explain
+            available data-export or transition options.
+        </p>
+    </section>
+
+    <section>
+        <h2>10. Suspension and termination</h2>
+        <p>
+            You may stop using the Service at any time. We may suspend or terminate
+            access for a material breach, unlawful use, security risk, nonpayment, or
+            when required by law. Where appropriate, we will provide notice and an
+            opportunity to cure. Upon termination, the license granted under these
+            Terms ends. Customer Content will be handled under the Privacy Policy and
+            applicable service agreement, including available retrieval and deletion
+            periods.
+        </p>
+    </section>
+
+    <section>
+        <h2>11. Intellectual property and feedback</h2>
+        <p>
+            Company and its licensors own the Service, software, design, documentation,
+            and related intellectual property, excluding Customer Content. If you
+            voluntarily provide product feedback, you grant Company permission to use
+            it without restriction or compensation, provided we do not identify you
+            publicly without permission.
+        </p>
+    </section>
+
+    <section>
+        <h2>12. Disclaimers</h2>
+        <p>
+            TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE SERVICE IS PROVIDED “AS IS” AND
+            “AS AVAILABLE.” COMPANY DISCLAIMS IMPLIED WARRANTIES OF MERCHANTABILITY,
+            FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. THESE
+            DISCLAIMERS DO NOT LIMIT RIGHTS OR WARRANTIES THAT CANNOT LAWFULLY BE
+            EXCLUDED.
+        </p>
+    </section>
+
+    <section>
+        <h2>13. Limitation of liability</h2>
+        <p>
+            TO THE MAXIMUM EXTENT PERMITTED BY LAW, COMPANY WILL NOT BE LIABLE FOR
+            INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR PUNITIVE
+            DAMAGES, OR FOR LOST PROFITS, REVENUE, DATA, GOODWILL, OR BUSINESS
+            OPPORTUNITIES. COMPANY’S TOTAL LIABILITY ARISING FROM THE SERVICE WILL NOT
+            EXCEED THE GREATER OF THE AMOUNT PAID FOR THE SERVICE DURING THE 12 MONTHS
+            BEFORE THE EVENT GIVING RISE TO THE CLAIM OR US$100. THESE LIMITS DO NOT
+            APPLY WHERE LIABILITY CANNOT LAWFULLY BE LIMITED.
+        </p>
+    </section>
+
+    <section>
+        <h2>14. Indemnification</h2>
+        <p>
+            To the extent permitted by law, an organization using the Service will
+            defend and indemnify Company against third-party claims arising from that
+            organization’s unlawful use, Customer Content, violation of another
+            person’s rights, or material breach of these Terms. Company will provide
+            prompt notice and reasonable cooperation and will not settle a claim in a
+            manner that admits fault by the organization without consent.
+        </p>
+    </section>
+
+    <section>
+        <h2>15. Governing law</h2>
+        <p>
+            These Terms are governed by {{ legal_governing_law }}, without regard to
+            conflict-of-law rules. Any mandatory rights or venue requirements under
+            applicable law remain unaffected.
+        </p>
+    </section>
+
+    <section>
+        <h2>16. Changes and general terms</h2>
+        <p>
+            We may update these Terms to reflect legal, security, or Service changes.
+            We will post the updated effective date and provide additional notice of
+            material changes when required. If a provision is unenforceable, the
+            remaining provisions continue in effect. A failure to enforce a provision
+            is not a waiver. You may not assign these Terms without our consent;
+            Company may assign them as part of a merger, reorganization, or sale of the
+            relevant business.
+        </p>
+    </section>
+
+    <section>
+        <h2>17. Contact</h2>
+        <address>
+            {{ legal_business_name }}
+            {% if legal_business_address %}{{ legal_business_address }}
+            {% endif %}<a href="mailto:{{ legal_contact_email }}">{{ legal_contact_email }}</a>
+        </address>
+    </section>
+</article>
+{% endblock %}

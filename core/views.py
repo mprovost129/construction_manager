@@ -2,6 +2,7 @@ import csv
 from datetime import date, datetime, time
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q
@@ -22,6 +23,31 @@ PROJECT_ACTIVITY_TYPE_CHOICES = tuple(
 PROJECT_ACTIVITY_TYPE_VALUES = {
     value for value, _label in PROJECT_ACTIVITY_TYPE_CHOICES
 }
+
+
+class LegalPolicyView(TemplateView):
+    """Public legal policy page with deployment-specific operator details."""
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'legal_business_name': settings.LEGAL_BUSINESS_NAME,
+                'legal_contact_email': settings.LEGAL_CONTACT_EMAIL,
+                'legal_business_address': settings.LEGAL_BUSINESS_ADDRESS,
+                'legal_governing_law': settings.LEGAL_GOVERNING_LAW,
+                'legal_effective_date': settings.LEGAL_EFFECTIVE_DATE,
+            }
+        )
+        return context
+
+
+class EndUserLicenseAgreementView(LegalPolicyView):
+    template_name = 'core/legal/eula.html'
+
+
+class PrivacyPolicyView(LegalPolicyView):
+    template_name = 'core/legal/privacy.html'
 
 
 class HomeView(TemplateView):

@@ -185,6 +185,16 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'webmaster@localhost')
 
+# Public legal policy details. Set these to the operating legal entity's details
+# before requesting production access from third-party platforms.
+LEGAL_BUSINESS_NAME = os.environ.get('LEGAL_BUSINESS_NAME', 'Construction Manager')
+LEGAL_CONTACT_EMAIL = os.environ.get('LEGAL_CONTACT_EMAIL', 'support@localhost')
+LEGAL_BUSINESS_ADDRESS = os.environ.get('LEGAL_BUSINESS_ADDRESS', '')
+LEGAL_GOVERNING_LAW = os.environ.get(
+    'LEGAL_GOVERNING_LAW', 'applicable laws of the United States'
+)
+LEGAL_EFFECTIVE_DATE = os.environ.get('LEGAL_EFFECTIVE_DATE', 'July 31, 2026')
+
 # QuickBooks Online. OAuth remains disabled until all required credentials exist.
 QUICKBOOKS_ENVIRONMENT = os.environ.get('QUICKBOOKS_ENVIRONMENT', 'sandbox')
 QUICKBOOKS_CLIENT_ID = os.environ.get('QUICKBOOKS_CLIENT_ID', '')

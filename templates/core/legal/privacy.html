@@ -1,0 +1,230 @@
+{% extends 'base.html' %}
+
+{% block title %}Privacy Policy | Construction Manager{% endblock %}
+{% block meta_description %}How Construction Manager collects, uses, discloses, retains, and protects personal and business information.{% endblock %}
+
+{% block content %}
+<article class="legal-document">
+    <header class="legal-document__header">
+        <p class="eyebrow">Legal</p>
+        <h1>Privacy Policy</h1>
+        <p>Effective date: {{ legal_effective_date }}</p>
+    </header>
+
+    <section>
+        <p>
+            This Privacy Policy explains how {{ legal_business_name }} (“Company,”
+            “we,” “us,” or “our”) collects, uses, discloses, retains, and protects
+            information when you use Construction Manager (the “Service”). It applies
+            to contractors, employees, project personnel, clients, and other authorized
+            users. It should be read with our
+            <a href="{% url 'core:eula' %}">Terms of Use and End-User License Agreement</a>.
+        </p>
+    </section>
+
+    <section>
+        <h2>1. Information we collect</h2>
+
+        <h3>Account and organization information</h3>
+        <p>
+            We collect names, email addresses, authentication records, organization and
+            role information, project assignments, invitation status, account settings,
+            and communications with support. Passwords are stored only in one-way hashed
+            form; we cannot retrieve your original password.
+        </p>
+
+        <h3>Construction and project information</h3>
+        <p>
+            Authorized users may submit project names and addresses, schedules,
+            milestones, messages, documents, photographs, plans, selections,
+            allowances, pricing, estimated costs, change orders, approvals, comments,
+            client decisions, and related metadata. The Service records activity and
+            timestamps to provide an audit history and protect project integrity.
+        </p>
+
+        <h3>QuickBooks Online information</h3>
+        <p>
+            If an authorized organization connects QuickBooks Online, we may receive
+            the QuickBooks company identifier, OAuth authorization tokens, customer
+            records, invoices, credit memos, payments, transaction identifiers, sync
+            status, and related accounting fields selected for integration. We do not
+            request or store your Intuit password. The exact information available
+            depends on the permissions approved during Intuit’s authorization flow and
+            the features your organization uses.
+        </p>
+
+        <h3>Technical and security information</h3>
+        <p>
+            We may collect IP address, browser and device information, session and CSRF
+            security cookies, request timestamps, login successes and failures,
+            application errors, and diagnostic logs. We currently use essential cookies
+            for authentication, security, and application operation and do not use
+            third-party advertising cookies.
+        </p>
+    </section>
+
+    <section>
+        <h2>2. Sources of information</h2>
+        <p>
+            We receive information directly from you, from your employer or project
+            organization, from other authorized project participants, automatically
+            through use of the Service, and from services you authorize us to connect,
+            including Intuit QuickBooks Online.
+        </p>
+    </section>
+
+    <section>
+        <h2>3. How we use information</h2>
+        <p>We use information to:</p>
+        <ul>
+            <li>create accounts, authenticate users, and enforce organization and project permissions;</li>
+            <li>provide project communication, document, selection, change-order, scheduling, notification, and audit features;</li>
+            <li>exchange authorized accounting information with QuickBooks Online and identify or resolve synchronization errors;</li>
+            <li>deliver emails and other service communications requested by users or administrators;</li>
+            <li>secure, troubleshoot, maintain, and improve the Service;</li>
+            <li>respond to support, privacy, and legal requests; and</li>
+            <li>comply with law, enforce agreements, and protect users, Company, and others.</li>
+        </ul>
+        <p>
+            We do not use QuickBooks data or project content for third-party advertising,
+            sell it to data brokers, or use it for a purpose materially different from
+            providing and securing the Service without additional notice and any
+            consent required by law.
+        </p>
+    </section>
+
+    <section>
+        <h2>4. How information is disclosed</h2>
+        <p>We may disclose information as follows:</p>
+        <ul>
+            <li><strong>Within your organization and projects.</strong> Information is available to users according to roles, explicit project assignments, client visibility settings, and workflow permissions.</li>
+            <li><strong>At your direction.</strong> We transmit information when an authorized user publishes, approves, uploads, exports, notifies, or synchronizes it.</li>
+            <li><strong>Service providers.</strong> Hosting, database, storage, cache, email, security, monitoring, and support providers may process information for us under contractual confidentiality and data-protection obligations.</li>
+            <li><strong>QuickBooks Online.</strong> When authorized, we exchange selected information with Intuit to provide integration features. Intuit handles information under its own terms and privacy policy.</li>
+            <li><strong>Legal and safety reasons.</strong> We may disclose information when reasonably necessary to comply with law or valid process, enforce agreements, investigate fraud or security events, or protect rights and safety.</li>
+            <li><strong>Business transactions.</strong> Information may transfer as part of a merger, financing, reorganization, or sale, subject to appropriate confidentiality and notice obligations.</li>
+        </ul>
+        <p>We do not sell personal information for money or share it for cross-context behavioral advertising.</p>
+    </section>
+
+    <section>
+        <h2>5. QuickBooks authorization and control</h2>
+        <p>
+            A QuickBooks administrator chooses whether to connect a company and sees
+            the permissions requested through Intuit’s OAuth consent flow. We access
+            QuickBooks information only within that authorization and only for enabled
+            features. Authorized administrators may revoke access through the Service,
+            through their Intuit account, or by contacting us.
+        </p>
+        <p>
+            <strong>Disconnecting QuickBooks</strong> stops new API collection and
+            synchronization after the revocation is processed. We disable and securely
+            delete active OAuth tokens within 30 days of a confirmed disconnect. Data
+            already synchronized into project or accounting records is not silently
+            removed because doing so could damage required business records; an
+            authorized organization administrator may request its export or deletion as
+            described below.
+        </p>
+    </section>
+
+    <section id="retention">
+        <h2>6. Retention and deletion</h2>
+        <p>Our retention practices are:</p>
+        <ul>
+            <li>We retain account and project information while the applicable customer relationship or project workspace remains active and as directed by the organization controlling that workspace.</li>
+            <li>After a verified deletion request or termination of the applicable service agreement, we delete or de-identify covered personal information and QuickBooks-derived data from active systems within 90 days, unless an authorized customer asks us to retain it or law requires retention.</li>
+            <li>Residual copies may remain in protected backups for up to an additional 90 days and are not restored except for disaster recovery, security, or legal purposes.</li>
+            <li>Financial, contractual, payment, audit, fraud-prevention, and dispute records may be retained longer when reasonably necessary, including for applicable tax, accounting, construction, insurance, limitation-period, or other legal requirements. Access remains restricted during that period.</li>
+            <li>Security logs are retained only as long as reasonably necessary to detect, investigate, and document security events and enforce the Service.</li>
+        </ul>
+        <p>
+            To request deletion, an authorized administrator should email
+            <a href="mailto:{{ legal_contact_email }}">{{ legal_contact_email }}</a>.
+            We will verify identity and authority, identify any records that must be
+            retained, and confirm completion or explain an applicable exception.
+        </p>
+    </section>
+
+    <section>
+        <h2>7. Security</h2>
+        <p>
+            We use administrative, technical, and organizational safeguards designed
+            for the nature of the information, including access controls, project-level
+            authorization, password hashing, transport encryption, private document
+            storage, login-abuse controls, audit records, and restricted operational
+            access. No method of storage or transmission is completely secure. Please
+            promptly report suspected unauthorized access to
+            <a href="mailto:{{ legal_contact_email }}">{{ legal_contact_email }}</a>.
+        </p>
+    </section>
+
+    <section>
+        <h2>8. Your choices and privacy rights</h2>
+        <p>
+            Depending on your location and relationship with the organization using the
+            Service, you may have rights to request access, correction, deletion,
+            restriction, objection, portability, or withdrawal of consent. Many project
+            details can be corrected through an authorized organization administrator.
+            You may also contact us using the information below. We may verify your
+            identity, authority, and jurisdiction before acting. You may appeal a denial
+            by replying to our decision. You will not be discriminated against for
+            exercising applicable privacy rights.
+        </p>
+        <p>
+            If your account is managed by an employer, contractor, or other customer,
+            that organization may control the relevant project records. We may direct
+            your request to that organization or assist it in responding.
+        </p>
+    </section>
+
+    <section>
+        <h2>9. International processing</h2>
+        <p>
+            The Service and its providers may process information in the United States
+            and other countries where they operate. Where required, we use contractual
+            and other safeguards intended to protect information transferred across
+            borders.
+        </p>
+    </section>
+
+    <section>
+        <h2>10. Children</h2>
+        <p>
+            The Service is intended for business and project use by adults and is not
+            directed to children under 13. We do not knowingly collect personal
+            information from children under 13. Contact us if you believe a child has
+            submitted information so we can investigate and take appropriate action.
+        </p>
+    </section>
+
+    <section>
+        <h2>11. External services and links</h2>
+        <p>
+            Third-party services, including Intuit, operate under their own privacy
+            policies. This policy does not govern a third party’s independent handling
+            of information after you choose to interact with that service.
+        </p>
+    </section>
+
+    <section>
+        <h2>12. Changes to this policy</h2>
+        <p>
+            We may update this policy to reflect changes in law, technology, providers,
+            or the Service. We will post the revised effective date and provide
+            additional notice of material changes when required. We will request new
+            consent before materially expanding use of information when applicable law
+            requires it.
+        </p>
+    </section>
+
+    <section>
+        <h2>13. Contact us</h2>
+        <p>Send privacy, security, access, correction, export, or deletion requests to:</p>
+        <address>
+            {{ legal_business_name }}
+            {% if legal_business_address %}{{ legal_business_address }}
+            {% endif %}<a href="mailto:{{ legal_contact_email }}">{{ legal_contact_email }}</a>
+        </address>
+    </section>
+</article>
+{% endblock %}

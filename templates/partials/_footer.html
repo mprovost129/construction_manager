@@ -1,1 +1,9 @@
-<footer class="app-footer container-xl"></footer>
+<footer class="app-footer">
+    <div class="container-xl app-footer__inner">
+        <p class="app-footer__copyright">&copy; {% now "Y" %} Construction Manager</p>
+        <nav class="app-footer__links" aria-label="Legal">
+            <a href="{% url 'core:eula' %}">Terms &amp; EULA</a>
+            <a href="{% url 'core:privacy' %}">Privacy Policy</a>
+        </nav>
+    </div>
+</footer>
