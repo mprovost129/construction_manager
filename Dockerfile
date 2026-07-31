@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Static assets are built without runtime secrets or service connections.
-RUN DJANGO_SETTINGS_MODULE=config.Settings.build python manage.py collectstatic --noinput
+RUN DJANGO_SETTINGS_MODULE=config.settings.build python manage.py collectstatic --noinput
 RUN chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 8000
