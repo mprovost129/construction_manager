@@ -1,10 +1,12 @@
 import uuid
 from datetime import timedelta
+from decimal import Decimal
 from pathlib import Path
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import F, Sum
 from django.db.models.functions import Lower
 from django.utils import timezone
 
@@ -452,6 +454,23 @@ class ActivityEvent(models.Model):
         CHANGE_ORDER_SUBMITTED = 'change_order_submitted', 'Change order submitted'
         CHANGE_ORDER_DECIDED = 'change_order_decided', 'Change order decided'
         CHANGE_ORDER_VOIDED = 'change_order_voided', 'Change order voided'
+        CHANGE_ORDER_REVISED = 'change_order_revised', 'Change order revised'
+        CHANGE_ORDER_REPLACEMENT_CREATED = (
+            'change_order_replacement_created',
+            'Change order replacement created',
+        )
+        CHANGE_ORDER_LINE_ITEM_ADDED = (
+            'change_order_line_item_added',
+            'Change order line item added',
+        )
+        CHANGE_ORDER_LINE_ITEM_UPDATED = (
+            'change_order_line_item_updated',
+            'Change order line item updated',
+        )
+        CHANGE_ORDER_LINE_ITEM_REMOVED = (
+            'change_order_line_item_removed',
+            'Change order line item removed',
+        )
         SELECTION_CREATED = 'selection_created', 'Selection created'
         SELECTION_UPDATED = 'selection_updated', 'Selection updated'
         SELECTION_OPTION_ADDED = 'selection_option_added', 'Selection option added'
@@ -604,6 +623,7 @@ class ProjectDocument(models.Model):
     )
     client_visible = models.BooleanField(default=True)
     requires_client_approval = models.BooleanField(default=False)
+    required_approvals = models.PositiveSmallIntegerField(default=1)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -628,6 +648,10 @@ class ProjectDocument(models.Model):
                         'A document requiring client approval must be client-visible.'
                     )
                 }
+            )
+        if self.required_approvals < 1:
+            raise ValidationError(
+                {'required_approvals': 'At least one approval must be required.'}
             )
 
     def __str__(self):
@@ -757,6 +781,16 @@ class ChangeOrder(models.Model):
         related_name='change_orders_voided',
     )
     voided_at = models.DateTimeField(blank=True, null=True)
+    void_reason = models.TextField(blank=True)
+    requires_financial_reversal = models.BooleanField(default=False)
+    required_approvals = models.PositiveSmallIntegerField(default=1)
+    replaces = models.OneToOneField(
+        'self',
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name='replaced_by',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -812,6 +846,13 @@ class ChangeOrder(models.Model):
                 ),
                 name='projects_change_order_void_matches_status',
             ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(status='voided')
+                    | models.Q(requires_financial_reversal=False)
+                ),
+                name='projects_change_order_reversal_requires_voided',
+            ),
         ]
 
     @property
@@ -828,17 +869,35 @@ class ChangeOrder(models.Model):
             return 'Send to QuickBooks when invoiced'
         return 'Not ready for QuickBooks'
 
+    def recalculate_from_line_items(self):
+        totals = self.line_items.aggregate(
+            price=Sum(
+                F('quantity') * F('unit_price'),
+                output_field=models.DecimalField(max_digits=14, decimal_places=2),
+            ),
+            cost=Sum(
+                F('quantity') * F('unit_cost'),
+                output_field=models.DecimalField(max_digits=14, decimal_places=2),
+            ),
+        )
+        self.price_delta = totals['price'] or Decimal('0')
+        self.cost_delta = totals['cost'] or Decimal('0')
+        self.save(update_fields=('price_delta', 'cost_delta', 'updated_at'))
+
     def clean(self):
         super().clean()
         self.title = self.title.strip()
         self.description = self.description.strip()
         self.reason = self.reason.strip()
         self.client_comment = self.client_comment.strip()
+        self.void_reason = self.void_reason.strip()
         errors = {}
         if not self.title:
             errors['title'] = 'Title cannot be blank.'
         if not self.description:
             errors['description'] = 'Describe the work covered by this change order.'
+        if self.required_approvals < 1:
+            errors['required_approvals'] = 'At least one approval must be required.'
         if self.status in (self.Status.APPROVED, self.Status.DECLINED):
             if not self.decided_by_id or not self.decided_at:
                 errors['status'] = 'A completed decision requires an authenticated client.'
@@ -852,13 +911,116 @@ class ChangeOrder(models.Model):
         if self.status == self.Status.VOIDED:
             if not self.voided_by_id or not self.voided_at:
                 errors['status'] = 'Voided change orders require an authenticated actor.'
-        elif self.voided_by_id or self.voided_at:
-            errors['status'] = 'Only voided change orders can have void details.'
+        else:
+            if self.voided_by_id or self.voided_at:
+                errors['status'] = 'Only voided change orders can have void details.'
+            if self.requires_financial_reversal:
+                errors['status'] = 'Only voided change orders require a financial reversal.'
         if errors:
             raise ValidationError(errors)
 
     def __str__(self):
         return f'{self.project}: {self.display_number} {self.title}'
+
+
+class ChangeOrderLineItem(models.Model):
+    class Category(models.TextChoices):
+        PRODUCT = 'product', 'Product'
+        MATERIAL = 'material', 'Material'
+        LABOR = 'labor', 'Labor'
+        SUBCONTRACTOR = 'subcontractor', 'Subcontractor'
+        COMMISSION = 'commission', 'Commission/markup'
+        TAX = 'tax', 'Tax'
+        ALLOWANCE = 'allowance', 'Allowance'
+        OTHER = 'other', 'Other'
+
+    change_order = models.ForeignKey(
+        ChangeOrder,
+        on_delete=models.CASCADE,
+        related_name='line_items',
+    )
+    category = models.CharField(
+        max_length=20,
+        choices=Category.choices,
+        default=Category.OTHER,
+    )
+    cost_code = models.CharField(max_length=50, blank=True)
+    description = models.CharField(max_length=200)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1)
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    unit_cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('sort_order', 'pk')
+
+    @property
+    def total_price(self):
+        return self.quantity * self.unit_price
+
+    @property
+    def total_cost(self):
+        return self.quantity * self.unit_cost
+
+    @property
+    def total_margin(self):
+        return self.total_price - self.total_cost
+
+    def clean(self):
+        super().clean()
+        self.description = self.description.strip()
+        self.cost_code = self.cost_code.strip()
+        errors = {}
+        if not self.description:
+            errors['description'] = 'Describe this line item.'
+        if self.quantity <= 0:
+            errors['quantity'] = 'Quantity must be greater than zero.'
+        if self.unit_price < 0:
+            errors['unit_price'] = 'Unit price cannot be negative.'
+        if self.unit_cost < 0:
+            errors['unit_cost'] = 'Unit cost cannot be negative.'
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f'{self.change_order.display_number}: {self.description}'
+
+
+class ChangeOrderDecision(models.Model):
+    class Decision(models.TextChoices):
+        APPROVED = 'approved', 'Approved'
+        DECLINED = 'declined', 'Declined'
+
+    change_order = models.ForeignKey(
+        ChangeOrder,
+        on_delete=models.CASCADE,
+        related_name='decisions',
+    )
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='change_order_decisions',
+    )
+    decision = models.CharField(max_length=10, choices=Decision.choices)
+    comment = models.TextField(blank=True)
+    decided_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('decided_at', 'pk')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('change_order', 'decided_by'),
+                name='projects_unique_change_order_decision_per_user',
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f'{self.decided_by.email} {self.get_decision_display().lower()} '
+            f'{self.change_order.display_number}'
+        )
 
 
 class FinishSelection(models.Model):

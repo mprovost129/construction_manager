@@ -2,6 +2,11 @@
 
 ## Buildertrend Replacement - Outstanding Client Interview Questions
 
+> **Historical document:** These questions were answered in
+> [Construction Manager.md](./Construction%20Manager.md). Implementation status and
+> remaining work are tracked in
+> [implementation_roadmap.md](./implementation_roadmap.md).
+
 **Pilot project:** Duvally Residence  
 **Purpose:** Resolve the remaining workflow and integration decisions before building the next major modules.
 

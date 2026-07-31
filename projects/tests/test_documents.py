@@ -389,6 +389,46 @@ class ProjectDocumentTests(TestCase):
         self.assertEqual(DocumentDecision.objects.count(), 1)
         self.assertEqual(len(mail.outbox), 1)
 
+    def test_required_approvals_threshold_needs_multiple_distinct_clients(self):
+        second_client = get_user_model().objects.create_user(
+            'second-client@example.com', 'password'
+        )
+        OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=second_client,
+            role=OrganizationMembership.Role.CLIENT,
+        )
+        ProjectMembership.objects.create(
+            project=self.project,
+            user=second_client,
+            role=OrganizationMembership.Role.CLIENT,
+        )
+        document, _version = self.create_document()
+        document.required_approvals = 2
+        document.save(update_fields=['required_approvals'])
+        decision_url = reverse(
+            'projects:document_decision', args=(self.project.pk, document.pk)
+        )
+        list_url = reverse('projects:document_list', args=(self.project.pk,))
+
+        self.client.force_login(self.client_user)
+        self.client.post(decision_url, {'decision': DocumentDecision.Decision.APPROVED})
+        self.client.force_login(self.staff_user)
+        listed = next(
+            d for d in self.client.get(list_url).context['documents']
+            if d.pk == document.pk
+        )
+        self.assertIn('1 of 2', listed.approval_status)
+
+        self.client.force_login(second_client)
+        self.client.post(decision_url, {'decision': DocumentDecision.Decision.APPROVED})
+        self.client.force_login(self.staff_user)
+        listed = next(
+            d for d in self.client.get(list_url).context['documents']
+            if d.pk == document.pk
+        )
+        self.assertEqual(listed.approval_status, 'Approved')
+
     def test_internal_user_cannot_record_client_decision(self):
         document, _ = self.create_document()
         self.client.force_login(self.staff_user)

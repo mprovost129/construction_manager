@@ -123,6 +123,31 @@ urlpatterns = [
         name='change_order_void',
     ),
     path(
+        'projects/<int:pk>/change-orders/<int:change_order_pk>/revise/',
+        views.ChangeOrderReviseView.as_view(),
+        name='change_order_revise',
+    ),
+    path(
+        'projects/<int:pk>/change-orders/<int:change_order_pk>/replace/',
+        views.ChangeOrderReplaceView.as_view(),
+        name='change_order_replace',
+    ),
+    path(
+        'projects/<int:pk>/change-orders/<int:change_order_pk>/line-items/add/',
+        views.ChangeOrderLineItemCreateView.as_view(),
+        name='change_order_line_item_create',
+    ),
+    path(
+        'projects/<int:pk>/change-orders/<int:change_order_pk>/line-items/<int:line_item_pk>/edit/',
+        views.ChangeOrderLineItemUpdateView.as_view(),
+        name='change_order_line_item_edit',
+    ),
+    path(
+        'projects/<int:pk>/change-orders/<int:change_order_pk>/line-items/<int:line_item_pk>/delete/',
+        views.ChangeOrderLineItemDeleteView.as_view(),
+        name='change_order_line_item_delete',
+    ),
+    path(
         'projects/<int:pk>/selections/',
         views.FinishSelectionListView.as_view(),
         name='selection_list',

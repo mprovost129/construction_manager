@@ -1,3 +1,6 @@
+> **Requirements source:** Implementation status and remaining work are tracked in
+> [implementation_roadmap.md](./implementation_roadmap.md).
+
 I. QuickBooks Online Integration
 
 1\. Which records must the app exchange with QuickBooks Online?  

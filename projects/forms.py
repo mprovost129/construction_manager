@@ -7,6 +7,7 @@ from django.contrib.auth.forms import UserCreationForm
 
 from .models import (
     ChangeOrder,
+    ChangeOrderLineItem,
     ConversationMessage,
     DocumentDecision,
     FinishSelection,
@@ -55,6 +56,13 @@ class ProjectDocumentCreateForm(forms.ModelForm):
         required=False,
         widget=forms.Textarea(attrs={'rows': 3}),
     )
+    required_approvals = forms.IntegerField(
+        required=False,
+        min_value=1,
+        initial=1,
+        label='Required client approvals',
+        help_text='Number of distinct client approvals needed when approval is required.',
+    )
 
     class Meta:
         model = ProjectDocument
@@ -69,6 +77,9 @@ class ProjectDocumentCreateForm(forms.ModelForm):
 
     def clean_file(self):
         return validate_document_file(self.cleaned_data['file'])
+
+    def clean_required_approvals(self):
+        return self.cleaned_data['required_approvals'] or 1
 
 
 class ProjectDocumentVersionForm(forms.Form):
@@ -105,6 +116,14 @@ class DocumentDecisionForm(forms.ModelForm):
 
 
 class ChangeOrderForm(forms.ModelForm):
+    required_approvals = forms.IntegerField(
+        required=False,
+        min_value=1,
+        initial=1,
+        label='Required client approvals',
+        help_text='Number of distinct client approvals needed before this is approved.',
+    )
+
     class Meta:
         model = ChangeOrder
         fields = (
@@ -114,6 +133,7 @@ class ChangeOrderForm(forms.ModelForm):
             'price_delta',
             'cost_delta',
             'schedule_delta_days',
+            'required_approvals',
         )
         labels = {
             'price_delta': 'Client price change',
@@ -131,6 +151,55 @@ class ChangeOrderForm(forms.ModelForm):
             'price_delta': forms.NumberInput(attrs={'step': '0.01'}),
             'cost_delta': forms.NumberInput(attrs={'step': '0.01'}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk and self.instance.line_items.exists():
+            for field_name in ('price_delta', 'cost_delta'):
+                self.fields[field_name].disabled = True
+                self.fields[field_name].help_text = (
+                    'Computed automatically from line items below.'
+                )
+
+    def clean_required_approvals(self):
+        return self.cleaned_data['required_approvals'] or 1
+
+
+class ChangeOrderLineItemForm(forms.ModelForm):
+    class Meta:
+        model = ChangeOrderLineItem
+        fields = (
+            'category',
+            'cost_code',
+            'description',
+            'quantity',
+            'unit_price',
+            'unit_cost',
+            'sort_order',
+        )
+        labels = {
+            'unit_price': 'Client unit price',
+            'unit_cost': 'Estimated unit cost',
+            'cost_code': 'Cost code',
+            'sort_order': 'Display order',
+        }
+        help_texts = {
+            'unit_cost': 'Internal only and never shown to clients.',
+            'cost_code': 'Optional job-costing code.',
+            'sort_order': 'Lower numbers appear first.',
+        }
+        widgets = {
+            'quantity': forms.NumberInput(attrs={'step': '0.01'}),
+            'unit_price': forms.NumberInput(attrs={'step': '0.01'}),
+            'unit_cost': forms.NumberInput(attrs={'step': '0.01'}),
+        }
+
+
+class ChangeOrderVoidForm(forms.Form):
+    reason = forms.CharField(
+        label='Reason for voiding',
+        widget=forms.Textarea(attrs={'rows': 3}),
+    )
 
 
 class ChangeOrderDecisionForm(forms.Form):

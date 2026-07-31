@@ -35,6 +35,8 @@ from .action_center import build_project_action_center
 from .forms import (
     ChangeOrderDecisionForm,
     ChangeOrderForm,
+    ChangeOrderLineItemForm,
+    ChangeOrderVoidForm,
     ClientInvitationForm,
     ClientProjectUploadForm,
     ConversationReplyForm,
@@ -55,9 +57,10 @@ from .forms import (
 from .models import (
     ActivityEvent,
     ChangeOrder,
+    ChangeOrderDecision,
+    ChangeOrderLineItem,
     ConversationMessage,
     ConversationThread,
-    DocumentDecision,
     FinishSelection,
     Organization,
     OrganizationInvitation,
@@ -80,6 +83,7 @@ from .services import (
     accept_organization_invitation,
     accept_project_invitation,
     document_client_recipients,
+    evaluate_approval_progress,
     record_activity,
     send_change_order_decision_notification,
     send_change_order_review_notification,
@@ -566,19 +570,28 @@ class ProjectDocumentListView(LoginRequiredMixin, TemplateView):
             version = document.latest_version
             document.current_version = version
             document.current_decisions = list(version.decisions.all()) if version else []
-            decisions = {decision.decision for decision in document.current_decisions}
             if not document.requires_client_approval:
                 document.approval_status = 'Not required'
                 document.approval_status_class = ''
-            elif DocumentDecision.Decision.DECLINED in decisions:
-                document.approval_status = 'Declined'
-                document.approval_status_class = 'status-pill--declined'
-            elif DocumentDecision.Decision.APPROVED in decisions:
-                document.approval_status = 'Approved'
-                document.approval_status_class = 'status-pill--active'
             else:
-                document.approval_status = 'Awaiting decision'
-                document.approval_status_class = 'status-pill--on_hold'
+                progress = evaluate_approval_progress(
+                    document.current_decisions, document.required_approvals
+                )
+                if progress['outcome'] == 'declined':
+                    document.approval_status = 'Declined'
+                    document.approval_status_class = 'status-pill--declined'
+                elif progress['outcome'] == 'approved':
+                    document.approval_status = 'Approved'
+                    document.approval_status_class = 'status-pill--active'
+                elif progress['approved_count']:
+                    document.approval_status = (
+                        f"Awaiting decision ({progress['approved_count']} of "
+                        f"{progress['required_approvals']} approvals)"
+                    )
+                    document.approval_status_class = 'status-pill--on_hold'
+                else:
+                    document.approval_status = 'Awaiting decision'
+                    document.approval_status_class = 'status-pill--on_hold'
         query_params = {}
         if document_search:
             query_params['q'] = document_search
@@ -625,6 +638,7 @@ class ProjectDocumentCreateView(LoginRequiredMixin, FormView):
             document = form.save(commit=False)
             document.project = self.project
             document.created_by = self.request.user
+            document.required_approvals = form.cleaned_data['required_approvals']
             document.full_clean()
             document.save()
             version = ProjectDocumentVersion.objects.create(
@@ -1074,18 +1088,38 @@ class ChangeOrderDetailView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         viewer_is_client = is_project_client(self.request.user, self.project)
+        can_manage = can_manage_project(self.request.user, self.project)
+        decisions = list(
+            self.change_order.decisions.select_related('decided_by')
+        )
+        progress = evaluate_approval_progress(
+            decisions, self.change_order.required_approvals
+        )
+        viewer_already_decided = any(
+            decision.decided_by_id == self.request.user.pk for decision in decisions
+        )
         context.update(
             {
                 'project': self.project,
                 'change_order': self.change_order,
-                'can_manage_project': can_manage_project(
-                    self.request.user, self.project
-                ),
+                'can_manage_project': can_manage,
                 'can_decide': bool(
                     viewer_is_client
                     and self.change_order.status == ChangeOrder.Status.PENDING
+                    and not viewer_already_decided
                 ),
                 'decision_form': ChangeOrderDecisionForm(),
+                'decisions': decisions,
+                'approval_progress': progress,
+                'line_items': self.change_order.line_items.all(),
+                'replacement': getattr(self.change_order, 'replaced_by', None),
+                'void_form': (
+                    ChangeOrderVoidForm()
+                    if can_manage
+                    and self.change_order.status
+                    in (ChangeOrder.Status.PENDING, ChangeOrder.Status.APPROVED)
+                    else None
+                ),
             }
         )
         return context
@@ -1181,41 +1215,83 @@ class ChangeOrderDecisionView(LoginRequiredMixin, View):
                     pk=project.pk,
                     change_order_pk=change_order.pk,
                 )
-            change_order.status = form.cleaned_data['decision']
-            change_order.client_comment = form.cleaned_data['comment']
-            change_order.decided_by = request.user
-            change_order.decided_at = timezone.now()
-            change_order.full_clean()
-            change_order.save(
-                update_fields=(
-                    'status',
-                    'client_comment',
-                    'decided_by',
-                    'decided_at',
-                    'updated_at',
+            if change_order.decisions.filter(decided_by=request.user).exists():
+                messages.info(
+                    request, 'Your decision for this change order is already recorded.'
                 )
+                return redirect(
+                    'projects:change_order_detail',
+                    pk=project.pk,
+                    change_order_pk=change_order.pk,
+                )
+            decision = ChangeOrderDecision.objects.create(
+                change_order=change_order,
+                decided_by=request.user,
+                decision=form.cleaned_data['decision'],
+                comment=form.cleaned_data['comment'],
             )
+            progress = evaluate_approval_progress(
+                change_order.decisions.all(), change_order.required_approvals
+            )
+            resolved = progress['resolved']
+            if resolved:
+                change_order.status = (
+                    ChangeOrder.Status.APPROVED
+                    if progress['outcome'] == 'approved'
+                    else ChangeOrder.Status.DECLINED
+                )
+                change_order.client_comment = decision.comment
+                change_order.decided_by = decision.decided_by
+                change_order.decided_at = decision.decided_at
+                change_order.full_clean()
+                change_order.save(
+                    update_fields=(
+                        'status',
+                        'client_comment',
+                        'decided_by',
+                        'decided_at',
+                        'updated_at',
+                    )
+                )
+                summary = (
+                    f'{request.user.email} {change_order.get_status_display().lower()} '
+                    f'{change_order.display_number} - "{change_order.title}".'
+                )
+            else:
+                summary = (
+                    f'{request.user.email} {decision.get_decision_display().lower()} '
+                    f'{change_order.display_number} - "{change_order.title}" '
+                    f"({progress['approved_count']} of "
+                    f"{progress['required_approvals']} approvals recorded)."
+                )
             record_activity(
                 organization=project.organization,
                 project=project,
                 actor=request.user,
                 event_type=ActivityEvent.Type.CHANGE_ORDER_DECIDED,
-                summary=(
-                    f'{request.user.email} {change_order.get_status_display().lower()} '
-                    f'{change_order.display_number} - "{change_order.title}".'
-                ),
+                summary=summary,
                 metadata={
                     'change_order_id': change_order.pk,
                     'number': change_order.number,
-                    'decision': change_order.status,
+                    'decision': decision.decision,
+                    'resolved': resolved,
+                    'approved_count': progress['approved_count'],
+                    'required_approvals': progress['required_approvals'],
                 },
             )
-        delivery_result = send_change_order_decision_notification(
-            request,
-            change_order,
-        )
-        warn_if_notification_failed(request, delivery_result)
-        messages.success(request, 'Your change order decision was recorded.')
+        if resolved:
+            delivery_result = send_change_order_decision_notification(
+                request,
+                change_order,
+            )
+            warn_if_notification_failed(request, delivery_result)
+            messages.success(request, 'Your change order decision was recorded.')
+        else:
+            remaining = progress['required_approvals'] - progress['approved_count']
+            messages.success(
+                request,
+                f'Your approval was recorded. {remaining} more approval(s) needed.',
+            )
         return redirect(
             'projects:change_order_detail',
             pk=project.pk,
@@ -1228,25 +1304,48 @@ class ChangeOrderVoidView(LoginRequiredMixin, View):
 
     def post(self, request, pk, change_order_pk):
         project = managed_project_or_404(request.user, pk)
+        form = ChangeOrderVoidForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, 'Provide a reason before voiding this change order.')
+            return redirect(
+                'projects:change_order_detail',
+                pk=project.pk,
+                change_order_pk=change_order_pk,
+            )
         with transaction.atomic():
             change_order = get_object_or_404(
                 ChangeOrder.objects.select_for_update(),
                 project=project,
                 pk=change_order_pk,
             )
-            if change_order.status != ChangeOrder.Status.PENDING:
+            if change_order.status not in (
+                ChangeOrder.Status.PENDING,
+                ChangeOrder.Status.APPROVED,
+            ):
                 raise PermissionDenied(
-                    'Only change orders awaiting a client decision can be voided.'
+                    'Only pending or approved change orders can be voided.'
                 )
+            was_approved = change_order.status == ChangeOrder.Status.APPROVED
             change_order.status = ChangeOrder.Status.VOIDED
             change_order.voided_by = request.user
             change_order.voided_at = timezone.now()
+            change_order.void_reason = form.cleaned_data['reason']
+            change_order.requires_financial_reversal = was_approved
+            # The decision-matches-status constraint requires decided_by/at to be
+            # null outside approved/declined; the full history stays on
+            # ChangeOrderDecision rows and the change order's activity log.
+            change_order.decided_by = None
+            change_order.decided_at = None
             change_order.full_clean()
             change_order.save(
                 update_fields=(
                     'status',
                     'voided_by',
                     'voided_at',
+                    'void_reason',
+                    'requires_financial_reversal',
+                    'decided_by',
+                    'decided_at',
                     'updated_at',
                 )
             )
@@ -1258,10 +1357,17 @@ class ChangeOrderVoidView(LoginRequiredMixin, View):
                 summary=(
                     f'{request.user.email} voided {change_order.display_number} '
                     f'- "{change_order.title}".'
+                    + (
+                        ' A manual QuickBooks reversal may be required.'
+                        if was_approved
+                        else ''
+                    )
                 ),
                 metadata={
                     'change_order_id': change_order.pk,
                     'number': change_order.number,
+                    'was_approved': was_approved,
+                    'requires_financial_reversal': change_order.requires_financial_reversal,
                 },
             )
         delivery_result = send_change_order_voided_notification(
@@ -1269,7 +1375,344 @@ class ChangeOrderVoidView(LoginRequiredMixin, View):
             change_order,
         )
         warn_if_notification_failed(request, delivery_result)
-        messages.success(request, 'The change order was voided.')
+        if was_approved:
+            messages.warning(
+                request,
+                'The approved change order was voided. Confirm no invoice was issued, '
+                'or record a manual reversal in QuickBooks.',
+            )
+        else:
+            messages.success(request, 'The change order was voided.')
+        return redirect(
+            'projects:change_order_detail',
+            pk=project.pk,
+            change_order_pk=change_order.pk,
+        )
+
+
+class ChangeOrderReviseView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, change_order_pk):
+        project = managed_project_or_404(request.user, pk)
+        with transaction.atomic():
+            change_order = get_object_or_404(
+                ChangeOrder.objects.select_for_update(),
+                project=project,
+                pk=change_order_pk,
+            )
+            if change_order.status != ChangeOrder.Status.DECLINED:
+                raise PermissionDenied('Only declined change orders can be revised.')
+            change_order.status = ChangeOrder.Status.DRAFT
+            change_order.submitted_by = None
+            change_order.submitted_at = None
+            change_order.decided_by = None
+            change_order.decided_at = None
+            change_order.client_comment = ''
+            change_order.full_clean()
+            change_order.save(
+                update_fields=(
+                    'status',
+                    'submitted_by',
+                    'submitted_at',
+                    'decided_by',
+                    'decided_at',
+                    'client_comment',
+                    'updated_at',
+                )
+            )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.CHANGE_ORDER_REVISED,
+                summary=(
+                    f'{request.user.email} reopened {change_order.display_number} '
+                    f'- "{change_order.title}" for revision.'
+                ),
+                metadata={
+                    'change_order_id': change_order.pk,
+                    'number': change_order.number,
+                },
+            )
+        messages.success(
+            request, f'{change_order.display_number} was reopened as a draft.'
+        )
+        return redirect(
+            'projects:change_order_edit',
+            pk=project.pk,
+            change_order_pk=change_order.pk,
+        )
+
+
+class ChangeOrderReplaceView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, change_order_pk):
+        project = managed_project_or_404(request.user, pk)
+        with transaction.atomic():
+            original = get_object_or_404(
+                ChangeOrder.objects.select_for_update(),
+                project=project,
+                pk=change_order_pk,
+            )
+            if original.status != ChangeOrder.Status.DECLINED:
+                raise PermissionDenied(
+                    'Only declined change orders can be replaced.'
+                )
+            if getattr(original, 'replaced_by', None):
+                raise PermissionDenied(
+                    'This change order already has a replacement.'
+                )
+            Project.objects.select_for_update().get(pk=project.pk)
+            current_number = project.change_orders.aggregate(
+                maximum=Max('number')
+            )['maximum']
+            replacement = ChangeOrder(
+                project=project,
+                number=(current_number or 0) + 1,
+                title=original.title,
+                description=original.description,
+                reason=original.reason,
+                price_delta=original.price_delta,
+                cost_delta=original.cost_delta,
+                schedule_delta_days=original.schedule_delta_days,
+                required_approvals=original.required_approvals,
+                created_by=request.user,
+                replaces=original,
+            )
+            replacement.full_clean()
+            replacement.save()
+            for line_item in original.line_items.all():
+                ChangeOrderLineItem.objects.create(
+                    change_order=replacement,
+                    category=line_item.category,
+                    cost_code=line_item.cost_code,
+                    description=line_item.description,
+                    quantity=line_item.quantity,
+                    unit_price=line_item.unit_price,
+                    unit_cost=line_item.unit_cost,
+                    sort_order=line_item.sort_order,
+                )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.CHANGE_ORDER_REPLACEMENT_CREATED,
+                summary=(
+                    f'{request.user.email} created {replacement.display_number} '
+                    f'to replace {original.display_number}.'
+                ),
+                metadata={
+                    'change_order_id': replacement.pk,
+                    'replaces_change_order_id': original.pk,
+                    'number': replacement.number,
+                },
+            )
+        messages.success(
+            request,
+            f'{replacement.display_number} was created to replace '
+            f'{original.display_number}.',
+        )
+        return redirect(
+            'projects:change_order_edit',
+            pk=project.pk,
+            change_order_pk=replacement.pk,
+        )
+
+
+class ChangeOrderLineItemCreateView(LoginRequiredMixin, FormView):
+    form_class = ChangeOrderLineItemForm
+    template_name = 'projects/change_order_line_item_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        self.change_order = get_object_or_404(
+            ChangeOrder,
+            project=self.project,
+            pk=kwargs['change_order_pk'],
+        )
+        if self.change_order.status != ChangeOrder.Status.DRAFT:
+            raise PermissionDenied(
+                'Line items can only be added to draft change orders.'
+            )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'project': self.project,
+                'change_order': self.change_order,
+                'line_item': None,
+            }
+        )
+        return context
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['instance'] = ChangeOrderLineItem(change_order=self.change_order)
+        return kwargs
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            change_order = get_object_or_404(
+                ChangeOrder.objects.select_for_update(),
+                project=self.project,
+                pk=self.change_order.pk,
+            )
+            if change_order.status != ChangeOrder.Status.DRAFT:
+                raise PermissionDenied(
+                    'Line items can only be added to draft change orders.'
+                )
+            line_item = form.save(commit=False)
+            line_item.change_order = change_order
+            line_item.full_clean()
+            line_item.save()
+            change_order.recalculate_from_line_items()
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.CHANGE_ORDER_LINE_ITEM_ADDED,
+                summary=(
+                    f'{self.request.user.email} added line item '
+                    f'"{line_item.description}" to {change_order.display_number}.'
+                ),
+                metadata={
+                    'change_order_id': change_order.pk,
+                    'line_item_id': line_item.pk,
+                    'total_price': str(line_item.total_price),
+                    'total_cost': str(line_item.total_cost),
+                },
+            )
+        messages.success(self.request, f'{line_item.description} was added.')
+        return redirect(
+            'projects:change_order_detail',
+            pk=self.project.pk,
+            change_order_pk=self.change_order.pk,
+        )
+
+
+class ChangeOrderLineItemUpdateView(LoginRequiredMixin, FormView):
+    form_class = ChangeOrderLineItemForm
+    template_name = 'projects/change_order_line_item_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        self.change_order = get_object_or_404(
+            ChangeOrder,
+            project=self.project,
+            pk=kwargs['change_order_pk'],
+        )
+        self.line_item = get_object_or_404(
+            ChangeOrderLineItem,
+            change_order=self.change_order,
+            pk=kwargs['line_item_pk'],
+        )
+        if self.change_order.status != ChangeOrder.Status.DRAFT:
+            raise PermissionDenied(
+                'Line items can only be edited in draft change orders.'
+            )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['instance'] = self.line_item
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'project': self.project,
+                'change_order': self.change_order,
+                'line_item': self.line_item,
+            }
+        )
+        return context
+
+    def form_valid(self, form):
+        editable_fields = tuple(ChangeOrderLineItemForm.Meta.fields)
+        with transaction.atomic():
+            change_order = get_object_or_404(
+                ChangeOrder.objects.select_for_update(),
+                project=self.project,
+                pk=self.change_order.pk,
+            )
+            if change_order.status != ChangeOrder.Status.DRAFT:
+                raise PermissionDenied(
+                    'Line items can only be edited in draft change orders.'
+                )
+            line_item = get_object_or_404(
+                ChangeOrderLineItem.objects.select_for_update(),
+                change_order=change_order,
+                pk=self.line_item.pk,
+            )
+            for field_name in editable_fields:
+                setattr(line_item, field_name, form.cleaned_data[field_name])
+            line_item.full_clean()
+            line_item.save(update_fields=editable_fields + ('updated_at',))
+            change_order.recalculate_from_line_items()
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.CHANGE_ORDER_LINE_ITEM_UPDATED,
+                summary=(
+                    f'{self.request.user.email} updated line item '
+                    f'"{line_item.description}" in {change_order.display_number}.'
+                ),
+                metadata={
+                    'change_order_id': change_order.pk,
+                    'line_item_id': line_item.pk,
+                    'total_price': str(line_item.total_price),
+                    'total_cost': str(line_item.total_cost),
+                },
+            )
+        messages.success(self.request, f'{line_item.description} was updated.')
+        return redirect(
+            'projects:change_order_detail',
+            pk=self.project.pk,
+            change_order_pk=self.change_order.pk,
+        )
+
+
+class ChangeOrderLineItemDeleteView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, change_order_pk, line_item_pk):
+        project = managed_project_or_404(request.user, pk)
+        with transaction.atomic():
+            change_order = get_object_or_404(
+                ChangeOrder.objects.select_for_update(),
+                project=project,
+                pk=change_order_pk,
+            )
+            if change_order.status != ChangeOrder.Status.DRAFT:
+                raise PermissionDenied('Line items can only be removed from drafts.')
+            line_item = get_object_or_404(
+                ChangeOrderLineItem, change_order=change_order, pk=line_item_pk
+            )
+            description = line_item.description
+            line_item_id = line_item.pk
+            line_item.delete()
+            change_order.recalculate_from_line_items()
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.CHANGE_ORDER_LINE_ITEM_REMOVED,
+                summary=(
+                    f'{request.user.email} removed line item "{description}" from '
+                    f'{change_order.display_number}.'
+                ),
+                metadata={
+                    'change_order_id': change_order.pk,
+                    'line_item_id': line_item_id,
+                },
+            )
+        messages.success(request, f'{description} was removed.')
         return redirect(
             'projects:change_order_detail',
             pk=project.pk,

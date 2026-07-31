@@ -19,6 +19,40 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+def evaluate_approval_progress(decisions, required_approvals):
+    """Resolve an outcome from a set of per-user 'approved'/'declined' votes.
+
+    Works for both DocumentDecision and ChangeOrderDecision querysets/lists,
+    since both use the same 'approved'/'declined' string values. Any decline
+    resolves the outcome immediately; approvals resolve once distinct
+    approving users reach the required threshold.
+    """
+    decisions = list(decisions)
+    declined = any(decision.decision == 'declined' for decision in decisions)
+    approved_count = len(
+        {
+            decision.decided_by_id
+            for decision in decisions
+            if decision.decision == 'approved'
+        }
+    )
+    if declined:
+        outcome = 'declined'
+        resolved = True
+    elif approved_count >= required_approvals:
+        outcome = 'approved'
+        resolved = True
+    else:
+        outcome = None
+        resolved = False
+    return {
+        'outcome': outcome,
+        'resolved': resolved,
+        'approved_count': approved_count,
+        'required_approvals': required_approvals,
+    }
+
+
 def send_notification_email(*, subject, message, recipient_list):
     try:
         sent_count = send_mail(

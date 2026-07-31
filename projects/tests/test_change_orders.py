@@ -302,13 +302,16 @@ class ChangeOrderTests(TestCase):
             reverse(
                 'projects:change_order_void',
                 args=(self.project.pk, change_order.pk),
-            )
+            ),
+            {'reason': 'Client asked to hold off.'},
         )
         change_order.refresh_from_db()
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(change_order.status, ChangeOrder.Status.VOIDED)
         self.assertEqual(change_order.voided_by, self.admin_user)
+        self.assertEqual(change_order.void_reason, 'Client asked to hold off.')
+        self.assertFalse(change_order.requires_financial_reversal)
         self.assertEqual(
             mail.outbox[0].to,
             ['client@example.com', 'second-client@example.com'],
@@ -325,3 +328,177 @@ class ChangeOrderTests(TestCase):
         change_order.refresh_from_db()
         self.assertEqual(change_order.status, ChangeOrder.Status.VOIDED)
         self.assertEqual(len(mail.outbox), 1)
+
+    def test_void_without_reason_is_rejected(self):
+        change_order = self.create_change_order(status=ChangeOrder.Status.PENDING)
+        self.client.force_login(self.admin_user)
+        response = self.client.post(
+            reverse(
+                'projects:change_order_void',
+                args=(self.project.pk, change_order.pk),
+            ),
+            {'reason': ''},
+        )
+        change_order.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(change_order.status, ChangeOrder.Status.PENDING)
+
+    def test_approved_change_order_can_be_voided_with_reversal_flag(self):
+        change_order = self.create_change_order(status=ChangeOrder.Status.APPROVED)
+        self.client.force_login(self.admin_user)
+        response = self.client.post(
+            reverse(
+                'projects:change_order_void',
+                args=(self.project.pk, change_order.pk),
+            ),
+            {'reason': 'Scope removed after approval.'},
+        )
+        change_order.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(change_order.status, ChangeOrder.Status.VOIDED)
+        self.assertTrue(change_order.requires_financial_reversal)
+        self.assertEqual(change_order.void_reason, 'Scope removed after approval.')
+
+    def test_draft_change_order_cannot_be_voided(self):
+        change_order = self.create_change_order(status=ChangeOrder.Status.DRAFT)
+        self.client.force_login(self.admin_user)
+        response = self.client.post(
+            reverse(
+                'projects:change_order_void',
+                args=(self.project.pk, change_order.pk),
+            ),
+            {'reason': 'Not applicable.'},
+        )
+        self.assertEqual(response.status_code, 403)
+        change_order.refresh_from_db()
+        self.assertEqual(change_order.status, ChangeOrder.Status.DRAFT)
+
+    def test_line_items_recalculate_totals_and_lock_fields(self):
+        self.client.force_login(self.admin_user)
+        change_order = self.create_change_order(status=ChangeOrder.Status.DRAFT)
+        add_url = reverse(
+            'projects:change_order_line_item_create',
+            args=(self.project.pk, change_order.pk),
+        )
+        response = self.client.post(
+            add_url,
+            {
+                'category': 'material',
+                'cost_code': '06-100',
+                'description': 'Cedar decking',
+                'quantity': '10',
+                'unit_price': '25.00',
+                'unit_cost': '15.00',
+                'sort_order': '0',
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        change_order.refresh_from_db()
+        self.assertEqual(change_order.price_delta, Decimal('250.00'))
+        self.assertEqual(change_order.cost_delta, Decimal('150.00'))
+        self.assertEqual(change_order.line_items.count(), 1)
+
+        edit_response = self.client.get(
+            reverse('projects:change_order_edit', args=(self.project.pk, change_order.pk))
+        )
+        self.assertContains(edit_response, 'Computed automatically from line items below.')
+
+        line_item = change_order.line_items.get()
+        delete_response = self.client.post(
+            reverse(
+                'projects:change_order_line_item_delete',
+                args=(self.project.pk, change_order.pk, line_item.pk),
+            )
+        )
+        self.assertEqual(delete_response.status_code, 302)
+        change_order.refresh_from_db()
+        self.assertEqual(change_order.price_delta, Decimal('0'))
+        self.assertEqual(change_order.cost_delta, Decimal('0'))
+
+    def test_declined_change_order_can_be_revised_in_place(self):
+        change_order = self.create_change_order(status=ChangeOrder.Status.DECLINED)
+        self.client.force_login(self.admin_user)
+        response = self.client.post(
+            reverse(
+                'projects:change_order_revise',
+                args=(self.project.pk, change_order.pk),
+            )
+        )
+        self.assertEqual(response.status_code, 302)
+        change_order.refresh_from_db()
+        self.assertEqual(change_order.status, ChangeOrder.Status.DRAFT)
+        self.assertIsNone(change_order.submitted_by)
+        self.assertIsNone(change_order.decided_by)
+        self.assertTrue(
+            ActivityEvent.objects.filter(
+                event_type=ActivityEvent.Type.CHANGE_ORDER_REVISED,
+            ).exists()
+        )
+
+    def test_declined_change_order_can_be_replaced_preserving_chain(self):
+        change_order = self.create_change_order(status=ChangeOrder.Status.DECLINED)
+        self.client.force_login(self.admin_user)
+        response = self.client.post(
+            reverse(
+                'projects:change_order_replace',
+                args=(self.project.pk, change_order.pk),
+            )
+        )
+        self.assertEqual(response.status_code, 302)
+        change_order.refresh_from_db()
+        self.assertEqual(change_order.status, ChangeOrder.Status.DECLINED)
+        replacement = ChangeOrder.objects.get(replaces=change_order)
+        self.assertEqual(replacement.status, ChangeOrder.Status.DRAFT)
+        self.assertEqual(replacement.number, change_order.number + 1)
+        self.assertEqual(change_order.replaced_by, replacement)
+
+        second_attempt = self.client.post(
+            reverse(
+                'projects:change_order_replace',
+                args=(self.project.pk, change_order.pk),
+            )
+        )
+        self.assertEqual(second_attempt.status_code, 403)
+
+    def test_multi_approval_threshold_requires_distinct_client_votes(self):
+        change_order = self.create_change_order(status=ChangeOrder.Status.PENDING)
+        change_order.required_approvals = 2
+        change_order.save(update_fields=['required_approvals'])
+        decision_url = reverse(
+            'projects:change_order_decision',
+            args=(self.project.pk, change_order.pk),
+        )
+
+        self.client.force_login(self.client_user)
+        self.client.post(decision_url, {'decision': ChangeOrder.Status.APPROVED})
+        change_order.refresh_from_db()
+        self.assertEqual(change_order.status, ChangeOrder.Status.PENDING)
+        self.assertEqual(change_order.decisions.count(), 1)
+
+        duplicate_vote = self.client.post(
+            decision_url, {'decision': ChangeOrder.Status.APPROVED}
+        )
+        self.assertEqual(duplicate_vote.status_code, 302)
+        self.assertEqual(change_order.decisions.count(), 1)
+
+        self.client.force_login(self.second_client)
+        self.client.post(decision_url, {'decision': ChangeOrder.Status.APPROVED})
+        change_order.refresh_from_db()
+        self.assertEqual(change_order.status, ChangeOrder.Status.APPROVED)
+        self.assertEqual(change_order.decisions.count(), 2)
+
+    def test_multi_approval_threshold_declined_by_a_single_vote(self):
+        change_order = self.create_change_order(status=ChangeOrder.Status.PENDING)
+        change_order.required_approvals = 3
+        change_order.save(update_fields=['required_approvals'])
+        decision_url = reverse(
+            'projects:change_order_decision',
+            args=(self.project.pk, change_order.pk),
+        )
+
+        self.client.force_login(self.client_user)
+        self.client.post(decision_url, {'decision': ChangeOrder.Status.DECLINED})
+        change_order.refresh_from_db()
+        self.assertEqual(change_order.status, ChangeOrder.Status.DECLINED)
