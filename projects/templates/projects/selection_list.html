@@ -11,9 +11,22 @@
 </section>
 
 {% if selections %}
-<section class="document-list">
-    {% for selection in selections %}<a class="document-row" href="{% url 'projects:selection_detail' project.pk selection.pk %}"><div class="document-row__icon"><i class="bi bi-palette"></i></div><div class="document-row__body"><h2>{{ selection.display_number }} · {{ selection.title }}</h2><p>{% if selection.location %}{{ selection.location }} · {% endif %}Allowance: ${{ selection.allowance_amount|floatformat:2 }}{% if selection.due_date %} · Due {{ selection.due_date|date:"M j, Y" }}{% endif %}{% if selection.chosen_option %} · Chosen: {{ selection.chosen_option.name }}{% endif %}</p></div><div class="document-row__meta"><span class="status-pill {% if selection.status == 'selected' %}status-pill--active{% elif selection.status == 'open' %}status-pill--on_hold{% endif %}">{{ selection.get_status_display }}</span><i class="bi bi-chevron-right"></i></div></a>{% endfor %}
+{% for package, package_selections in package_groups %}
+<section class="admin-panel">
+    <div class="section-heading"><div><p class="eyebrow">Package</p><h2><a href="{% url 'projects:selection_package_detail' project.pk package.pk %}">{{ package.title }}</a></h2></div></div>
+    <section class="document-list">
+        {% for selection in package_selections %}<a class="document-row" href="{% url 'projects:selection_detail' project.pk selection.pk %}"><div class="document-row__icon"><i class="bi bi-palette"></i></div><div class="document-row__body"><h2>{{ selection.display_number }} · {{ selection.title }}</h2><p>{% if selection.location %}{{ selection.location }} · {% endif %}Allowance: ${{ selection.allowance_amount|floatformat:2 }}{% if selection.due_date %} · Due {{ selection.due_date|date:"M j, Y" }}{% endif %}{% if selection.chosen_option %} · Chosen: {{ selection.chosen_option.name }}{% endif %}</p></div><div class="document-row__meta"><span class="status-pill {% if selection.status == 'selected' %}status-pill--active{% elif selection.status == 'open' %}status-pill--on_hold{% endif %}">{{ selection.get_status_display }}</span><i class="bi bi-chevron-right"></i></div></a>{% endfor %}
+    </section>
 </section>
+{% endfor %}
+{% if standalone_selections %}
+<section class="admin-panel">
+    {% if package_groups %}<div class="section-heading"><div><p class="eyebrow">Ungrouped</p><h2>Standalone selections</h2></div></div>{% endif %}
+    <section class="document-list">
+        {% for selection in standalone_selections %}<a class="document-row" href="{% url 'projects:selection_detail' project.pk selection.pk %}"><div class="document-row__icon"><i class="bi bi-palette"></i></div><div class="document-row__body"><h2>{{ selection.display_number }} · {{ selection.title }}</h2><p>{% if selection.location %}{{ selection.location }} · {% endif %}Allowance: ${{ selection.allowance_amount|floatformat:2 }}{% if selection.due_date %} · Due {{ selection.due_date|date:"M j, Y" }}{% endif %}{% if selection.chosen_option %} · Chosen: {{ selection.chosen_option.name }}{% endif %}</p></div><div class="document-row__meta"><span class="status-pill {% if selection.status == 'selected' %}status-pill--active{% elif selection.status == 'open' %}status-pill--on_hold{% endif %}">{{ selection.get_status_display }}</span><i class="bi bi-chevron-right"></i></div></a>{% endfor %}
+    </section>
+</section>
+{% endif %}
 {% else %}
 <div class="empty-state"><i class="bi bi-palette"></i><h2>No selections yet</h2><p>{% if can_manage_project %}Create a selection package and add finish options for the client.{% else %}There are no finish selections ready for you yet.{% endif %}</p>{% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:selection_create' project.pk %}">New selection</a>{% endif %}</div>
 {% endif %}

@@ -18,7 +18,9 @@ from .models import (
     ProjectInternalAccess,
     ProjectInvitation,
     ScheduleMilestone,
+    SelectionCustomRequest,
     SelectionOption,
+    SelectionPackage,
 )
 
 ALLOWED_DOCUMENT_EXTENSIONS = {
@@ -38,12 +40,25 @@ ALLOWED_DOCUMENT_EXTENSIONS = {
     '.xlsx',
 }
 
+ALLOWED_IMAGE_EXTENSIONS = {'.heic', '.jpeg', '.jpg', '.png', '.webp'}
+
 
 def validate_document_file(uploaded_file):
     extension = Path(uploaded_file.name).suffix.lower()
     if extension not in ALLOWED_DOCUMENT_EXTENSIONS:
         allowed = ', '.join(sorted(ALLOWED_DOCUMENT_EXTENSIONS))
         raise forms.ValidationError(f'Unsupported file type. Allowed types: {allowed}.')
+    if uploaded_file.size > settings.DOCUMENT_MAX_UPLOAD_SIZE:
+        maximum_mb = settings.DOCUMENT_MAX_UPLOAD_SIZE // (1024 * 1024)
+        raise forms.ValidationError(f'File must be {maximum_mb} MB or smaller.')
+    return uploaded_file
+
+
+def validate_image_file(uploaded_file):
+    extension = Path(uploaded_file.name).suffix.lower()
+    if extension not in ALLOWED_IMAGE_EXTENSIONS:
+        allowed = ', '.join(sorted(ALLOWED_IMAGE_EXTENSIONS))
+        raise forms.ValidationError(f'Unsupported image type. Allowed types: {allowed}.')
     if uploaded_file.size > settings.DOCUMENT_MAX_UPLOAD_SIZE:
         maximum_mb = settings.DOCUMENT_MAX_UPLOAD_SIZE // (1024 * 1024)
         raise forms.ValidationError(f'File must be {maximum_mb} MB or smaller.')
@@ -216,27 +231,61 @@ class ChangeOrderDecisionForm(forms.Form):
     )
 
 
+class SelectionPackageForm(forms.ModelForm):
+    class Meta:
+        model = SelectionPackage
+        fields = ('title', 'description')
+        widgets = {'description': forms.Textarea(attrs={'rows': 4})}
+
+
 class FinishSelectionForm(forms.ModelForm):
+    new_package_title = forms.CharField(
+        required=False,
+        label='New package name',
+        help_text=(
+            'Group this choice with others due together, e.g. "Kitchen." '
+            'Leave blank to keep it standalone.'
+        ),
+    )
+
     class Meta:
         model = FinishSelection
         fields = (
+            'package',
             'title',
             'description',
             'location',
             'allowance_amount',
             'due_date',
         )
-        labels = {'allowance_amount': 'Client allowance'}
+        labels = {'allowance_amount': 'Client allowance', 'package': 'Existing package'}
         help_texts = {
             'allowance_amount': (
                 'Clients will see each option as over, under, or within this allowance.'
-            )
+            ),
+            'package': 'Choose an existing package instead of naming a new one below.',
         }
         widgets = {
             'description': forms.Textarea(attrs={'rows': 4}),
             'allowance_amount': forms.NumberInput(attrs={'step': '0.01'}),
             'due_date': forms.DateInput(attrs={'type': 'date'}),
         }
+
+    def __init__(self, *args, project, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.project = project
+        self.fields['package'].queryset = project.selection_packages.all()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        package = cleaned_data.get('package')
+        new_package_title = cleaned_data.get('new_package_title', '').strip()
+        if package and new_package_title:
+            raise forms.ValidationError(
+                'Choose an existing package or name a new one, not both.'
+            )
+        cleaned_data['new_package_title'] = new_package_title
+        return cleaned_data
 
 
 class SelectionOptionForm(forms.ModelForm):
@@ -249,21 +298,46 @@ class SelectionOptionForm(forms.ModelForm):
             'cost',
             'is_recommended',
             'sort_order',
+            'vendor_name',
+            'product_url',
+            'specification',
+            'lead_time',
+            'image',
+            'attachment',
         )
         labels = {
             'price': 'Client option price',
             'cost': 'Estimated project cost',
             'sort_order': 'Display order',
+            'vendor_name': 'Vendor',
+            'product_url': 'Product link',
         }
         help_texts = {
             'cost': 'Internal only and never shown to clients.',
             'sort_order': 'Lower numbers appear first.',
+            'product_url': "Link to the vendor's product page.",
+            'lead_time': 'Free text, e.g. "6-8 weeks" or "In stock."',
+            'image': 'Photo of this option shown to the client.',
+            'attachment': 'Optional spec sheet or other document.',
         }
         widgets = {
             'description': forms.Textarea(attrs={'rows': 4}),
+            'specification': forms.Textarea(attrs={'rows': 4}),
             'price': forms.NumberInput(attrs={'step': '0.01'}),
             'cost': forms.NumberInput(attrs={'step': '0.01'}),
         }
+
+    def clean_image(self):
+        image = self.cleaned_data.get('image')
+        if image and hasattr(image, 'content_type'):
+            return validate_image_file(image)
+        return image
+
+    def clean_attachment(self):
+        attachment = self.cleaned_data.get('attachment')
+        if attachment and hasattr(attachment, 'content_type'):
+            return validate_document_file(attachment)
+        return attachment
 
 
 class SelectionDecisionForm(forms.Form):
@@ -280,6 +354,29 @@ class SelectionDecisionForm(forms.Form):
     def __init__(self, *args, selection, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['option'].queryset = selection.options.all()
+
+
+class SelectionCustomRequestForm(forms.ModelForm):
+    class Meta:
+        model = SelectionCustomRequest
+        fields = ('description', 'target_price')
+        labels = {'target_price': 'Target price (optional)'}
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 4}),
+            'target_price': forms.NumberInput(attrs={'step': '0.01'}),
+        }
+
+
+class SelectionCreditDispositionForm(forms.Form):
+    credit_disposition = forms.ChoiceField(
+        choices=[
+            choice
+            for choice in FinishSelection.CreditDisposition.choices
+            if choice[0] != FinishSelection.CreditDisposition.UNDETERMINED
+        ],
+        widget=forms.RadioSelect,
+        label='Credit disposition',
+    )
 
 
 class ScheduleMilestoneForm(forms.ModelForm):

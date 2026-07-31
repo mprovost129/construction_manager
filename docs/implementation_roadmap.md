@@ -27,7 +27,7 @@ implemented and verified.
 | Project and client portal foundation | Complete | Projects, scoped access, dashboard/action center, messaging, activity history, and client invitations exist. |
 | Documents and client uploads | Complete | Private documents, versions, downloads, configurable-approval-count decisions, client uploads, and email notifications exist. |
 | Change orders | Partial | Draft, submission, configurable multi-approval decisions, edit, optional line items, revise/replace with a revision chain, and void (including approved orders) exist; automated financial reversal on void and a formal cost-code catalog do not (blocked on APP-1/APP-2). |
-| Finish selections | Partial | Core options, allowance math, publishing, client choice, overage flag, and reopening exist; advanced option metadata and multi-choice workflows do not. |
+| Finish selections | Complete | Options, allowance math, publishing, client choice, overage flag, reopening, package grouping for multi-area choices, vendor/link/spec/image/lead-time option metadata, client custom-option requests routed to a change order, credit disposition tracking, and manual + scheduler-driven overdue reminders exist. |
 | Schedule | Partial | Internal milestone/calendar workflow exists; dependencies, recurrence, and external calendar integration do not. |
 | Notifications | Partial | Transactional email exists with project-level recipient preferences; per-event settings, reminders, and digest delivery do not. |
 | Project pricing and financials | Not started | No product/material/labor/commission pricing engine, job-costing ledger, estimate, proposal, or project financial rollup exists. |
@@ -114,6 +114,18 @@ These decisions govern remaining implementation work:
 - Client-facing allowance variance with internal-only estimated cost and margin.
 - Overage flag and prefilled change-order call to action.
 - Reopening by an authorized internal user with client re-notification.
+- Optional `SelectionPackage` grouping so related area choices (e.g. all Kitchen selections)
+  share a package view, mirroring Buildertrend's Group-of-Choices structure; each choice keeps
+  its own allowance, options, and client pick.
+- Option vendor, product link, specification, lead time, image, and attachment fields, served
+  through authenticated download/inline views scoped to selection visibility.
+- Client custom-option requests, with staff review routing directly into a prefilled change-order
+  draft (no change order is created automatically).
+- Credit disposition tracking (apply elsewhere, return at closing, retain as margin) for
+  under-allowance choices, settable by authorized internal users and reset on reopen.
+- Manual "Send reminder" action plus a `send_overdue_selection_reminders` management command for
+  overdue open selections; the command needs an external scheduler in production (see Production
+  blockers).
 
 ### Schedule
 
@@ -127,7 +139,7 @@ These decisions govern remaining implementation work:
 - Environment-driven legal entity, contact, address, governing law, and effective date.
 - Development/production environment examples, production HTTPS controls, database SSL option, and console-first logging.
 - Docker static build settings, runtime migrations, and superuser bootstrap.
-- Current automated baseline: 146 passing tests, Ruff clean, Django checks clean, and `collectstatic` passing as of this update.
+- Current automated baseline: 155 passing tests, Ruff clean, Django checks clean, and `collectstatic` passing as of this update.
 
 ## Partial feature gaps
 

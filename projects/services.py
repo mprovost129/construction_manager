@@ -427,6 +427,63 @@ def send_selection_voided_notification(request, selection):
     )
 
 
+def selection_detail_url(selection, request=None):
+    path = reverse(
+        'projects:selection_detail',
+        args=(selection.project_id, selection.pk),
+    )
+    if request is not None:
+        return request.build_absolute_uri(path)
+    return f'{settings.SITE_BASE_URL.rstrip("/")}{path}'
+
+
+def send_selection_custom_request_notification(request, custom_request):
+    selection = custom_request.selection
+    recipients = document_internal_recipients(
+        selection.project, exclude_user=custom_request.requested_by
+    )
+    if not recipients:
+        return 0
+    detail_url = selection_detail_url(selection, request)
+    target_price_copy = (
+        f'Target price: ${custom_request.target_price:,.2f}\n'
+        if custom_request.target_price is not None
+        else ''
+    )
+    return send_notification_email(
+        subject=(
+            f'Custom option requested - {selection.project.name}: '
+            f'{selection.display_number}'
+        ),
+        message=(
+            f'{custom_request.requested_by.email} requested a custom option for '
+            f'{selection.display_number} - {selection.title}.\n\n'
+            f'{custom_request.description}\n\n'
+            f'{target_price_copy}\nReview and respond: {detail_url}'
+        ),
+        recipient_list=recipients,
+    )
+
+
+def send_selection_overdue_reminder(selection, request=None):
+    recipients = document_client_recipients(selection.project)
+    if not recipients:
+        return 0
+    detail_url = selection_detail_url(selection, request)
+    return send_notification_email(
+        subject=(
+            f'Reminder: finish selection overdue - {selection.project.name}: '
+            f'{selection.display_number}'
+        ),
+        message=(
+            f'{selection.display_number} - {selection.title} was due on '
+            f'{selection.due_date:%B %d, %Y} and still needs your selection for '
+            f'{selection.project.name}.\n\nReview options and choose: {detail_url}'
+        ),
+        recipient_list=recipients,
+    )
+
+
 def send_schedule_milestone_notification(request, milestone, *, withdrawn=False):
     recipients = document_client_recipients(milestone.project)
     if not recipients:

@@ -1,4 +1,5 @@
 import mimetypes
+from pathlib import Path
 from urllib.parse import urlencode
 
 from django.contrib import messages
@@ -9,7 +10,7 @@ from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Max, OuterRef, Q, Subquery, Value
 from django.db.models.functions import Coalesce
-from django.http import FileResponse
+from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -49,8 +50,11 @@ from .forms import (
     ProjectForm,
     ProjectInternalAccessForm,
     ScheduleMilestoneForm,
+    SelectionCreditDispositionForm,
+    SelectionCustomRequestForm,
     SelectionDecisionForm,
     SelectionOptionForm,
+    SelectionPackageForm,
     TeamInvitationForm,
     TeamMembershipForm,
 )
@@ -72,7 +76,9 @@ from .models import (
     ProjectInvitation,
     ProjectMembership,
     ScheduleMilestone,
+    SelectionCustomRequest,
     SelectionOption,
+    SelectionPackage,
 )
 from .schedule_calendar import (
     build_month_calendar,
@@ -94,6 +100,8 @@ from .services import (
     send_message_notifications,
     send_project_invitation,
     send_selection_chosen_notification,
+    send_selection_custom_request_notification,
+    send_selection_overdue_reminder,
     send_selection_review_notification,
     send_selection_voided_notification,
     send_team_invitation,
@@ -179,6 +187,28 @@ def visible_selection_or_404(user, project, selection_pk):
     if is_project_client(user, project):
         queryset = queryset.exclude(status=FinishSelection.Status.DRAFT)
     return get_object_or_404(queryset, pk=selection_pk)
+
+
+def resolve_selection_package(project, user, form):
+    """Resolve the package chosen in a FinishSelectionForm, creating a new one if named."""
+    new_package_title = form.cleaned_data.get('new_package_title', '')
+    if not new_package_title:
+        return form.cleaned_data.get('package')
+    existing = project.selection_packages.filter(title__iexact=new_package_title).first()
+    if existing:
+        return existing
+    package = SelectionPackage(project=project, title=new_package_title, created_by=user)
+    package.full_clean()
+    package.save()
+    record_activity(
+        organization=project.organization,
+        project=project,
+        actor=user,
+        event_type=ActivityEvent.Type.SELECTION_PACKAGE_CREATED,
+        summary=f'{user.email} created selection package "{package.title}".',
+        metadata={'package_id': package.pk},
+    )
+    return package
 
 
 def schedule_project_or_404(user, pk):
@@ -954,6 +984,25 @@ class ChangeOrderCreateView(LoginRequiredMixin, FormView):
     def get_initial(self):
         initial = super().get_initial()
         selection_id = self.request.GET.get('selection')
+        custom_request_id = self.request.GET.get('custom_request')
+        if custom_request_id:
+            custom_request = SelectionCustomRequest.objects.filter(
+                pk=custom_request_id,
+                selection__project=self.project,
+            ).select_related('selection').first()
+            if custom_request:
+                initial.update(
+                    {
+                        'title': f'{custom_request.selection.title} custom option',
+                        'description': custom_request.description,
+                        'reason': (
+                            'Client requested a custom option for '
+                            f'{custom_request.selection.display_number}.'
+                        ),
+                        'price_delta': custom_request.target_price or 0,
+                    }
+                )
+            return initial
         if not selection_id:
             return initial
         selection = self.project.finish_selections.select_related(
@@ -1730,14 +1779,26 @@ class FinishSelectionListView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         selections = self.project.finish_selections.select_related(
-            'chosen_option', 'selected_by'
+            'chosen_option', 'selected_by', 'package'
         )
         if is_project_client(self.request.user, self.project):
             selections = selections.exclude(status=FinishSelection.Status.DRAFT)
+        packages = {}
+        standalone = []
+        for selection in selections:
+            if selection.package_id:
+                packages.setdefault(selection.package, []).append(selection)
+            else:
+                standalone.append(selection)
+        package_groups = sorted(
+            packages.items(), key=lambda item: item[0].title.lower()
+        )
         context.update(
             {
                 'project': self.project,
                 'selections': selections,
+                'package_groups': package_groups,
+                'standalone_selections': standalone,
                 'can_manage_project': can_manage_project(
                     self.request.user, self.project
                 ),
@@ -1754,6 +1815,18 @@ class FinishSelectionCreateView(LoginRequiredMixin, FormView):
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['project'] = self.project
+        return kwargs
+
+    def get_initial(self):
+        initial = super().get_initial()
+        package_id = self.request.GET.get('package')
+        if package_id and self.project.selection_packages.filter(pk=package_id).exists():
+            initial['package'] = package_id
+        return initial
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context.update({'project': self.project, 'selection': None})
@@ -1767,6 +1840,9 @@ class FinishSelectionCreateView(LoginRequiredMixin, FormView):
             )['maximum']
             selection = form.save(commit=False)
             selection.project = self.project
+            selection.package = resolve_selection_package(
+                self.project, self.request.user, form
+            )
             selection.number = (current_number or 0) + 1
             selection.created_by = self.request.user
             selection.full_clean()
@@ -1815,6 +1891,7 @@ class FinishSelectionUpdateView(LoginRequiredMixin, FormView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['instance'] = self.selection
+        kwargs['project'] = self.project
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -1833,7 +1910,12 @@ class FinishSelectionUpdateView(LoginRequiredMixin, FormView):
             if selection.status != FinishSelection.Status.DRAFT:
                 raise PermissionDenied('Only draft selections can be edited.')
             for field_name in editable_fields:
+                if field_name == 'package':
+                    continue
                 setattr(selection, field_name, form.cleaned_data[field_name])
+            selection.package = resolve_selection_package(
+                self.project, self.request.user, form
+            )
             selection.full_clean()
             selection.save(update_fields=editable_fields + ('updated_at',))
             record_activity(
@@ -1872,19 +1954,34 @@ class FinishSelectionDetailView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         viewer_is_client = is_project_client(self.request.user, self.project)
+        can_manage = can_manage_project(self.request.user, self.project)
+        can_choose = bool(
+            viewer_is_client and self.selection.status == FinishSelection.Status.OPEN
+        )
         context.update(
             {
                 'project': self.project,
                 'selection': self.selection,
                 'selection_options': self.selection.options.all(),
-                'can_manage_project': can_manage_project(
-                    self.request.user, self.project
+                'can_manage_project': can_manage,
+                'can_choose': can_choose,
+                'decision_form': SelectionDecisionForm(selection=self.selection),
+                'can_request_custom': can_choose,
+                'custom_request_form': SelectionCustomRequestForm(),
+                'custom_requests': self.selection.custom_requests.select_related(
+                    'requested_by', 'reviewed_by'
                 ),
-                'can_choose': bool(
-                    viewer_is_client
+                'can_set_credit_disposition': bool(
+                    can_manage
+                    and self.selection.has_credit
+                    and self.selection.credit_disposition
+                    == FinishSelection.CreditDisposition.UNDETERMINED
+                ),
+                'credit_disposition_form': SelectionCreditDispositionForm(),
+                'can_send_reminder': bool(
+                    can_manage
                     and self.selection.status == FinishSelection.Status.OPEN
                 ),
-                'decision_form': SelectionDecisionForm(selection=self.selection),
             }
         )
         return context
@@ -2006,7 +2103,13 @@ class SelectionOptionUpdateView(LoginRequiredMixin, FormView):
                 pk=self.option.pk,
             )
             for field_name in editable_fields:
-                setattr(option, field_name, form.cleaned_data[field_name])
+                if field_name in ('image', 'attachment'):
+                    # ClearableFileInput yields the existing FieldFile (unchanged),
+                    # False (cleared), or a new UploadedFile - never None here, so
+                    # this mirrors FileField.save_form_data()'s own handling.
+                    setattr(option, field_name, form.cleaned_data[field_name] or '')
+                else:
+                    setattr(option, field_name, form.cleaned_data[field_name])
             option.full_clean()
             option.save(update_fields=editable_fields + ('updated_at',))
             record_activity(
@@ -2230,6 +2333,9 @@ class FinishSelectionReopenView(LoginRequiredMixin, View):
             selection.selected_by = None
             selection.selected_at = None
             selection.client_comment = ''
+            selection.credit_disposition = FinishSelection.CreditDisposition.UNDETERMINED
+            selection.credit_disposition_set_by = None
+            selection.credit_disposition_set_at = None
             selection.full_clean()
             selection.save(
                 update_fields=(
@@ -2238,6 +2344,9 @@ class FinishSelectionReopenView(LoginRequiredMixin, View):
                     'selected_by',
                     'selected_at',
                     'client_comment',
+                    'credit_disposition',
+                    'credit_disposition_set_by',
+                    'credit_disposition_set_at',
                     'updated_at',
                 )
             )
@@ -2300,6 +2409,313 @@ class FinishSelectionVoidView(LoginRequiredMixin, View):
         delivery_result = send_selection_voided_notification(request, selection)
         warn_if_notification_failed(request, delivery_result)
         messages.success(request, 'The selection request was voided.')
+        return redirect(
+            'projects:selection_detail', pk=project.pk, selection_pk=selection.pk
+        )
+
+
+class SelectionPackageDetailView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/selection_package_detail.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = selections_project_or_404(request.user, kwargs['pk'])
+        self.package = get_object_or_404(
+            SelectionPackage, project=self.project, pk=kwargs['package_pk']
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        choices = self.package.choices.select_related('chosen_option', 'selected_by')
+        if is_project_client(self.request.user, self.project):
+            choices = choices.exclude(status=FinishSelection.Status.DRAFT)
+        choices = list(choices)
+        context.update(
+            {
+                'project': self.project,
+                'package': self.package,
+                'choices': choices,
+                'chosen_count': sum(
+                    1 for choice in choices
+                    if choice.status == FinishSelection.Status.SELECTED
+                ),
+                'can_manage_project': can_manage_project(
+                    self.request.user, self.project
+                ),
+            }
+        )
+        return context
+
+
+class SelectionPackageUpdateView(LoginRequiredMixin, FormView):
+    form_class = SelectionPackageForm
+    template_name = 'projects/selection_package_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        self.package = get_object_or_404(
+            SelectionPackage, project=self.project, pk=kwargs['package_pk']
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['instance'] = self.package
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({'project': self.project, 'package': self.package})
+        return context
+
+    def form_valid(self, form):
+        editable_fields = tuple(SelectionPackageForm.Meta.fields)
+        with transaction.atomic():
+            package = get_object_or_404(
+                SelectionPackage.objects.select_for_update(),
+                project=self.project,
+                pk=self.package.pk,
+            )
+            for field_name in editable_fields:
+                setattr(package, field_name, form.cleaned_data[field_name])
+            package.full_clean()
+            package.save(update_fields=editable_fields + ('updated_at',))
+        messages.success(self.request, f'{package.title} was updated.')
+        return redirect(
+            'projects:selection_package_detail',
+            pk=self.project.pk,
+            package_pk=package.pk,
+        )
+
+
+class SelectionOptionImageView(LoginRequiredMixin, View):
+    def get(self, request, pk, selection_pk, option_pk):
+        project = selections_project_or_404(request.user, pk)
+        selection = visible_selection_or_404(request.user, project, selection_pk)
+        option = get_object_or_404(SelectionOption, selection=selection, pk=option_pk)
+        if not option.image:
+            raise Http404
+        filename = Path(option.image.name).name
+        content_type, _ = mimetypes.guess_type(filename)
+        return FileResponse(
+            option.image.open('rb'),
+            as_attachment=False,
+            filename=filename,
+            content_type=content_type or 'application/octet-stream',
+        )
+
+
+class SelectionOptionAttachmentView(LoginRequiredMixin, View):
+    def get(self, request, pk, selection_pk, option_pk):
+        project = selections_project_or_404(request.user, pk)
+        selection = visible_selection_or_404(request.user, project, selection_pk)
+        option = get_object_or_404(SelectionOption, selection=selection, pk=option_pk)
+        if not option.attachment:
+            raise Http404
+        filename = Path(option.attachment.name).name
+        content_type, _ = mimetypes.guess_type(filename)
+        return FileResponse(
+            option.attachment.open('rb'),
+            as_attachment=True,
+            filename=filename,
+            content_type=content_type or 'application/octet-stream',
+        )
+
+
+class SelectionCustomRequestCreateView(LoginRequiredMixin, FormView):
+    form_class = SelectionCustomRequestForm
+    http_method_names = ('post',)
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = selections_project_or_404(request.user, kwargs['pk'])
+        if not is_project_client(request.user, self.project):
+            raise PermissionDenied('Only assigned clients can request a custom option.')
+        self.selection = visible_selection_or_404(
+            request.user, self.project, kwargs['selection_pk']
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_invalid(self, form):
+        messages.error(self.request, 'Describe the custom option before submitting.')
+        return redirect(
+            'projects:selection_detail',
+            pk=self.project.pk,
+            selection_pk=self.selection.pk,
+        )
+
+    def form_valid(self, form):
+        if self.selection.status != FinishSelection.Status.OPEN:
+            messages.error(self.request, 'This selection is no longer awaiting a choice.')
+            return redirect(
+                'projects:selection_detail',
+                pk=self.project.pk,
+                selection_pk=self.selection.pk,
+            )
+        with transaction.atomic():
+            custom_request = form.save(commit=False)
+            custom_request.selection = self.selection
+            custom_request.requested_by = self.request.user
+            custom_request.full_clean()
+            custom_request.save()
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.SELECTION_CUSTOM_REQUEST_SUBMITTED,
+                summary=(
+                    f'{self.request.user.email} requested a custom option for '
+                    f'{self.selection.display_number}.'
+                ),
+                metadata={
+                    'selection_id': self.selection.pk,
+                    'custom_request_id': custom_request.pk,
+                },
+            )
+        delivery_result = send_selection_custom_request_notification(
+            self.request, custom_request
+        )
+        warn_if_notification_failed(self.request, delivery_result)
+        messages.success(self.request, 'Your custom option request was submitted.')
+        return redirect(
+            'projects:selection_detail',
+            pk=self.project.pk,
+            selection_pk=self.selection.pk,
+        )
+
+
+class SelectionCustomRequestReviewView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, selection_pk, custom_request_pk):
+        project = managed_project_or_404(request.user, pk)
+        with transaction.atomic():
+            custom_request = get_object_or_404(
+                SelectionCustomRequest.objects.select_for_update(),
+                selection__project=project,
+                selection_id=selection_pk,
+                pk=custom_request_pk,
+            )
+            if custom_request.status != SelectionCustomRequest.Status.PENDING:
+                messages.info(request, 'This request has already been reviewed.')
+                return redirect(
+                    'projects:selection_detail',
+                    pk=project.pk,
+                    selection_pk=selection_pk,
+                )
+            custom_request.status = SelectionCustomRequest.Status.REVIEWED
+            custom_request.reviewed_by = request.user
+            custom_request.reviewed_at = timezone.now()
+            custom_request.full_clean()
+            custom_request.save(
+                update_fields=('status', 'reviewed_by', 'reviewed_at')
+            )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.SELECTION_CUSTOM_REQUEST_REVIEWED,
+                summary=(
+                    f'{request.user.email} reviewed a custom option request for '
+                    f'{custom_request.selection.display_number}.'
+                ),
+                metadata={
+                    'selection_id': selection_pk,
+                    'custom_request_id': custom_request.pk,
+                },
+            )
+        change_order_create_url = reverse(
+            'projects:change_order_create', args=(project.pk,)
+        )
+        return redirect(f'{change_order_create_url}?custom_request={custom_request.pk}')
+
+
+class SelectionCreditDispositionView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, selection_pk):
+        project = managed_project_or_404(request.user, pk)
+        form = SelectionCreditDispositionForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, 'Choose a credit disposition before submitting.')
+            return redirect(
+                'projects:selection_detail', pk=project.pk, selection_pk=selection_pk
+            )
+        with transaction.atomic():
+            selection = get_object_or_404(
+                FinishSelection.objects.select_for_update(),
+                project=project,
+                pk=selection_pk,
+            )
+            if not selection.has_credit:
+                raise PermissionDenied('This selection has no credit to disposition.')
+            if (
+                selection.credit_disposition
+                != FinishSelection.CreditDisposition.UNDETERMINED
+            ):
+                messages.info(request, 'A disposition is already recorded.')
+                return redirect(
+                    'projects:selection_detail',
+                    pk=project.pk,
+                    selection_pk=selection.pk,
+                )
+            selection.credit_disposition = form.cleaned_data['credit_disposition']
+            selection.credit_disposition_set_by = request.user
+            selection.credit_disposition_set_at = timezone.now()
+            selection.full_clean()
+            selection.save(
+                update_fields=(
+                    'credit_disposition',
+                    'credit_disposition_set_by',
+                    'credit_disposition_set_at',
+                    'updated_at',
+                )
+            )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.SELECTION_CREDIT_DISPOSITION_SET,
+                summary=(
+                    f'{request.user.email} set the credit disposition for '
+                    f'{selection.display_number} to '
+                    f'{selection.get_credit_disposition_display()}.'
+                ),
+                metadata={
+                    'selection_id': selection.pk,
+                    'credit_disposition': selection.credit_disposition,
+                },
+            )
+        messages.success(request, 'The credit disposition was recorded.')
+        return redirect(
+            'projects:selection_detail', pk=project.pk, selection_pk=selection.pk
+        )
+
+
+class FinishSelectionReminderView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, selection_pk):
+        project = managed_project_or_404(request.user, pk)
+        selection = get_object_or_404(
+            FinishSelection, project=project, pk=selection_pk
+        )
+        if selection.status != FinishSelection.Status.OPEN:
+            raise PermissionDenied('Only selections awaiting a choice can get a reminder.')
+        delivery_result = send_selection_overdue_reminder(selection, request)
+        warn_if_notification_failed(request, delivery_result)
+        if delivery_result:
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.SELECTION_REMINDER_SENT,
+                summary=(
+                    f'{request.user.email} sent a reminder for '
+                    f'{selection.display_number}.'
+                ),
+                metadata={'selection_id': selection.pk},
+            )
+        messages.success(request, 'A reminder was sent to the client.')
         return redirect(
             'projects:selection_detail', pk=project.pk, selection_pk=selection.pk
         )

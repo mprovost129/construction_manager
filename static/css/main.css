@@ -975,6 +975,17 @@ input:focus {
 .selection-option__description { color: var(--color-muted); font-size: 0.9rem; }
 .selection-option__description p:last-child { margin-bottom: 0; }
 
+.selection-option__image { border-radius: 10px; overflow: hidden; }
+.selection-option__image img { display: block; width: 100%; max-height: 180px; object-fit: cover; }
+
+.selection-option__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.9rem;
+    color: var(--color-muted);
+    font-size: 0.82rem;
+}
+
 .selection-option__variance {
     padding: 0.6rem 0.75rem;
     border-radius: 8px;

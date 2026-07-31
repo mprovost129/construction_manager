@@ -185,6 +185,10 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'webmaster@localhost')
 
+# Base URL used to build absolute links in emails sent outside of a request
+# context (e.g. management commands run by an external scheduler).
+SITE_BASE_URL = os.environ.get('SITE_BASE_URL', 'http://localhost:8000')
+
 # Public legal policy details. Set these to the operating legal entity's details
 # before requesting production access from third-party platforms.
 LEGAL_BUSINESS_NAME = os.environ.get('LEGAL_BUSINESS_NAME', 'Construction Manager')

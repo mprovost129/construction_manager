@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ package.title }} | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:selection_list' project.pk %}">Selections</a><i class="bi bi-chevron-right"></i><span>{{ package.title }}</span></nav>
+
+<section class="page-heading">
+    <div><p class="eyebrow">Selection package</p><h1>{{ package.title }}</h1>{% if package.description %}<p class="text-secondary mb-0">{{ package.description }}</p>{% endif %}</div>
+    {% if can_manage_project %}<div class="button-row"><a class="btn btn-outline-secondary" href="{% url 'projects:selection_package_edit' project.pk package.pk %}"><i class="bi bi-pencil"></i> Edit package</a><a class="btn btn-primary" href="{% url 'projects:selection_create' project.pk %}?package={{ package.pk }}"><i class="bi bi-plus-lg"></i> Add choice</a></div>{% endif %}
+</section>
+
+<section class="change-order-summary"><article><span>Choices in this package</span><strong>{{ choices|length }}</strong></article><article><span>Client has chosen</span><strong>{{ chosen_count }} of {{ choices|length }}</strong></article></section>
+
+{% if choices %}
+<section class="document-list">
+    {% for selection in choices %}<a class="document-row" href="{% url 'projects:selection_detail' project.pk selection.pk %}"><div class="document-row__icon"><i class="bi bi-palette"></i></div><div class="document-row__body"><h2>{{ selection.display_number }} · {{ selection.title }}</h2><p>{% if selection.location %}{{ selection.location }} · {% endif %}Allowance: ${{ selection.allowance_amount|floatformat:2 }}{% if selection.due_date %} · Due {{ selection.due_date|date:"M j, Y" }}{% endif %}{% if selection.chosen_option %} · Chosen: {{ selection.chosen_option.name }}{% endif %}</p></div><div class="document-row__meta"><span class="status-pill {% if selection.status == 'selected' %}status-pill--active{% elif selection.status == 'open' %}status-pill--on_hold{% endif %}">{{ selection.get_status_display }}</span><i class="bi bi-chevron-right"></i></div></a>{% endfor %}
+</section>
+{% else %}
+<div class="empty-state"><i class="bi bi-palette"></i><h2>No choices yet</h2><p>{% if can_manage_project %}Add the first choice for this package.{% else %}There are no finish selections ready for you yet in this package.{% endif %}</p>{% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:selection_create' project.pk %}?package={{ package.pk }}">Add choice</a>{% endif %}</div>
+{% endif %}
+{% endblock %}

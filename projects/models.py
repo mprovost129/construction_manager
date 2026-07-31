@@ -27,6 +27,16 @@ def project_document_upload_path(instance, filename):
     )
 
 
+def selection_option_upload_path(instance, filename):
+    safe_name = Path(filename).name
+    unique_name = f'{uuid.uuid4().hex}_{safe_name}'
+    selection = instance.selection
+    return (
+        f'selection_options/{selection.project.organization_id}/'
+        f'{selection.project_id}/{selection.pk}/{unique_name}'
+    )
+
+
 class Organization(models.Model):
     name = models.CharField(max_length=200)
     slug = models.SlugField(unique=True)
@@ -486,6 +496,26 @@ class ActivityEvent(models.Model):
         SELECTION_CHOSEN = 'selection_chosen', 'Selection chosen'
         SELECTION_REOPENED = 'selection_reopened', 'Selection reopened'
         SELECTION_VOIDED = 'selection_voided', 'Selection voided'
+        SELECTION_PACKAGE_CREATED = (
+            'selection_package_created',
+            'Selection package created',
+        )
+        SELECTION_CUSTOM_REQUEST_SUBMITTED = (
+            'selection_custom_request_submitted',
+            'Selection custom request submitted',
+        )
+        SELECTION_CUSTOM_REQUEST_REVIEWED = (
+            'selection_custom_request_reviewed',
+            'Selection custom request reviewed',
+        )
+        SELECTION_CREDIT_DISPOSITION_SET = (
+            'selection_credit_disposition_set',
+            'Selection credit disposition set',
+        )
+        SELECTION_REMINDER_SENT = (
+            'selection_reminder_sent',
+            'Selection reminder sent',
+        )
         SCHEDULE_MILESTONE_CREATED = (
             'schedule_milestone_created',
             'Schedule milestone created',
@@ -1023,6 +1053,43 @@ class ChangeOrderDecision(models.Model):
         )
 
 
+class SelectionPackage(models.Model):
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='selection_packages',
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='selection_packages_created',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('title', 'pk')
+        constraints = [
+            models.UniqueConstraint(
+                Lower('title'),
+                'project',
+                name='projects_unique_selection_package_title',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        self.title = self.title.strip()
+        self.description = self.description.strip()
+        if not self.title:
+            raise ValidationError({'title': 'Title cannot be blank.'})
+
+    def __str__(self):
+        return f'{self.project}: {self.title}'
+
+
 class FinishSelection(models.Model):
     class Status(models.TextChoices):
         DRAFT = 'draft', 'Draft'
@@ -1030,10 +1097,23 @@ class FinishSelection(models.Model):
         SELECTED = 'selected', 'Selected'
         VOIDED = 'voided', 'Voided'
 
+    class CreditDisposition(models.TextChoices):
+        UNDETERMINED = 'undetermined', 'Undetermined'
+        APPLY_ELSEWHERE = 'apply_elsewhere', 'Apply to another selection'
+        RETURN_AT_CLOSING = 'return_at_closing', 'Return at closing'
+        RETAIN_AS_MARGIN = 'retain_as_margin', 'Retain as project margin'
+
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
         related_name='finish_selections',
+    )
+    package = models.ForeignKey(
+        SelectionPackage,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name='choices',
     )
     number = models.PositiveIntegerField()
     title = models.CharField(max_length=200)
@@ -1087,6 +1167,19 @@ class FinishSelection(models.Model):
         related_name='finish_selections_voided',
     )
     voided_at = models.DateTimeField(blank=True, null=True)
+    credit_disposition = models.CharField(
+        max_length=20,
+        choices=CreditDisposition.choices,
+        default=CreditDisposition.UNDETERMINED,
+    )
+    credit_disposition_set_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='finish_selection_credit_dispositions_set',
+    )
+    credit_disposition_set_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1096,6 +1189,25 @@ class FinishSelection(models.Model):
             models.UniqueConstraint(
                 fields=('project', 'number'),
                 name='projects_unique_selection_number_per_project',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        credit_disposition='undetermined',
+                        credit_disposition_set_by__isnull=True,
+                        credit_disposition_set_at__isnull=True,
+                    )
+                    | models.Q(
+                        credit_disposition__in=(
+                            'apply_elsewhere',
+                            'return_at_closing',
+                            'retain_as_margin',
+                        ),
+                        credit_disposition_set_by__isnull=False,
+                        credit_disposition_set_at__isnull=False,
+                    )
+                ),
+                name='projects_selection_credit_disposition_matches_actor',
             ),
             models.CheckConstraint(
                 condition=(
@@ -1160,6 +1272,10 @@ class FinishSelection(models.Model):
     def requires_change_order(self):
         return bool(self.selected_variance is not None and self.selected_variance > 0)
 
+    @property
+    def has_credit(self):
+        return bool(self.selected_variance is not None and self.selected_variance < 0)
+
     def clean(self):
         super().clean()
         self.title = self.title.strip()
@@ -1188,6 +1304,10 @@ class FinishSelection(models.Model):
                 errors['status'] = 'Voided selections require an authenticated actor.'
         elif self.voided_by_id or self.voided_at:
             errors['status'] = 'Only voided selections can have void details.'
+        if self.credit_disposition != self.CreditDisposition.UNDETERMINED and not self.has_credit:
+            errors['credit_disposition'] = (
+                'A disposition can only be set when the selection has a credit.'
+            )
         if errors:
             raise ValidationError(errors)
 
@@ -1207,6 +1327,22 @@ class SelectionOption(models.Model):
     cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     is_recommended = models.BooleanField(default=False)
     sort_order = models.PositiveIntegerField(default=0)
+    vendor_name = models.CharField(max_length=200, blank=True)
+    product_url = models.URLField(blank=True)
+    specification = models.TextField(blank=True)
+    lead_time = models.CharField(max_length=100, blank=True)
+    image = models.FileField(
+        storage=private_document_storage,
+        upload_to=selection_option_upload_path,
+        blank=True,
+        null=True,
+    )
+    attachment = models.FileField(
+        storage=private_document_storage,
+        upload_to=selection_option_upload_path,
+        blank=True,
+        null=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1236,6 +1372,10 @@ class SelectionOption(models.Model):
         super().clean()
         self.name = self.name.strip()
         self.description = self.description.strip()
+        self.vendor_name = self.vendor_name.strip()
+        self.product_url = self.product_url.strip()
+        self.specification = self.specification.strip()
+        self.lead_time = self.lead_time.strip()
         if not self.name:
             raise ValidationError({'name': 'Option name cannot be blank.'})
         if self.price < 0:
@@ -1245,6 +1385,75 @@ class SelectionOption(models.Model):
 
     def __str__(self):
         return f'{self.selection.display_number}: {self.name}'
+
+
+class SelectionCustomRequest(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending review'
+        REVIEWED = 'reviewed', 'Reviewed'
+
+    selection = models.ForeignKey(
+        FinishSelection,
+        on_delete=models.CASCADE,
+        related_name='custom_requests',
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='selection_custom_requests_made',
+    )
+    description = models.TextField()
+    target_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        blank=True,
+        null=True,
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='selection_custom_requests_reviewed',
+    )
+    reviewed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at', '-pk')
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        status='pending',
+                        reviewed_by__isnull=True,
+                        reviewed_at__isnull=True,
+                    )
+                    | models.Q(
+                        status='reviewed',
+                        reviewed_by__isnull=False,
+                        reviewed_at__isnull=False,
+                    )
+                ),
+                name='projects_selection_custom_request_review_matches_status',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        self.description = self.description.strip()
+        if not self.description:
+            raise ValidationError({'description': 'Describe the requested option.'})
+        if self.target_price is not None and self.target_price < 0:
+            raise ValidationError({'target_price': 'Target price cannot be negative.'})
+
+    def __str__(self):
+        return f'{self.selection.display_number}: custom request by {self.requested_by.email}'
 
 
 class ScheduleMilestone(models.Model):

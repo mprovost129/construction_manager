@@ -203,6 +203,46 @@ urlpatterns = [
         name='selection_void',
     ),
     path(
+        'projects/<int:pk>/selections/<int:selection_pk>/remind/',
+        views.FinishSelectionReminderView.as_view(),
+        name='selection_remind',
+    ),
+    path(
+        'projects/<int:pk>/selections/<int:selection_pk>/custom-request/',
+        views.SelectionCustomRequestCreateView.as_view(),
+        name='selection_custom_request_create',
+    ),
+    path(
+        'projects/<int:pk>/selections/<int:selection_pk>/custom-request/<int:custom_request_pk>/review/',
+        views.SelectionCustomRequestReviewView.as_view(),
+        name='selection_custom_request_review',
+    ),
+    path(
+        'projects/<int:pk>/selections/<int:selection_pk>/credit-disposition/',
+        views.SelectionCreditDispositionView.as_view(),
+        name='selection_credit_disposition',
+    ),
+    path(
+        'projects/<int:pk>/selections/<int:selection_pk>/options/<int:option_pk>/image/',
+        views.SelectionOptionImageView.as_view(),
+        name='selection_option_image',
+    ),
+    path(
+        'projects/<int:pk>/selections/<int:selection_pk>/options/<int:option_pk>/attachment/',
+        views.SelectionOptionAttachmentView.as_view(),
+        name='selection_option_attachment',
+    ),
+    path(
+        'projects/<int:pk>/selection-packages/<int:package_pk>/',
+        views.SelectionPackageDetailView.as_view(),
+        name='selection_package_detail',
+    ),
+    path(
+        'projects/<int:pk>/selection-packages/<int:package_pk>/edit/',
+        views.SelectionPackageUpdateView.as_view(),
+        name='selection_package_edit',
+    ),
+    path(
         'projects/<int:pk>/schedule/',
         views.ProjectScheduleView.as_view(),
         name='schedule',
