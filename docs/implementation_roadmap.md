@@ -32,7 +32,7 @@ implemented and verified.
 | Notifications | Partial | Transactional email exists with project-level recipient preferences; per-event settings, reminders, and digest delivery do not. |
 | Project pricing and financials | Not started | No product/material/labor/commission pricing engine, job-costing ledger, estimate, proposal, or project financial rollup exists. |
 | Invoices and payment visibility | Not started | No application invoice model, client invoice portal, balance view, or payment-status workflow exists. Online payment is deferred. |
-| QuickBooks Online | Partial | Company-scoped OAuth connect/reconnect/disconnect, encrypted token storage, refresh/revoke services, state validation, audit events, and customer-facing routes exist. Sandbox acceptance and all accounting synchronization remain. |
+| QuickBooks Online | Partial | Company-scoped OAuth, encrypted tokens, capability/subscription discovery, stable project-to-customer mappings, refresh/revoke services, audit events, and management UI exist. Sandbox acceptance and accounting entity synchronization remain. |
 | Tasks and punch lists | Not started | Confirmed as required, but no models or workflow exist. |
 | Two-factor authentication | Not started | Confirmed as optional per user/admin policy, but not implemented. |
 | Public legal pages | Complete with launch action | Public EULA and privacy pages exist; real legal entity values and counsel review are still required before production submission. |
@@ -142,7 +142,11 @@ These decisions govern remaining implementation work:
 - Company-scoped QuickBooks OAuth foundation with rotatable Fernet token encryption,
   one-time state validation, authorization-code exchange, serialized token refresh,
   revoke-before-disconnect behavior, connection-state UI, and audit events.
-- Current automated baseline: 175 passing tests, Ruff clean, Django checks clean, migration check clean, and `collectstatic` passing as of this update.
+- Live `CompanyInfo` and Preferences discovery, subscription-aware read/write capability
+  flags, stable Project-to-QuickBooks-Customer mappings, sync tokens, last-known values,
+  tombstones, and explicit entity ownership/conflict policies. QuickBooks Projects/Jobs
+  are rejected as mapping targets.
+- Current automated baseline: 191 passing tests, Ruff clean, Django checks clean, migration check clean, and `collectstatic` passing as of this update.
 
 ## Partial feature gaps
 
@@ -199,8 +203,8 @@ Current questionnaire truth as of this update:
 
 | Question | Accurate answer today |
 | --- | --- |
-| API calls per customer | Zero QuickBooks Accounting API calls. OAuth makes one token exchange per connect/reconnect, refreshes only when an API operation needs an expired access token, and makes one revoke call per in-app disconnect. |
-| Handles QBO edition feature gains/losses | No |
+| API calls per customer | No scheduled calls yet. OAuth makes one token exchange per connect/reconnect and one revoke per disconnect. Each administrator-triggered company refresh makes two Accounting API reads (`CompanyInfo` and Preferences); each mapping validation/refresh makes one Customer read. An expired access token adds one token-refresh call. |
+| Handles QBO edition feature gains/losses | Not yet a portal “Yes.” Subscription/preference capability changes and feature-not-supported errors are handled without deleting data, but the sandbox edition matrix remains. |
 | Uses webhooks | No |
 | Uses CDC | No |
 | Operational connect/reconnect URL | Implemented and automated-tested; HTTPS deployment verification remains. |
@@ -231,17 +235,22 @@ Acceptance gate:
 
 ### Phase QB-2: Capability and mapping layer - P0
 
-- Read company/subscription information and detect supported capabilities without hard-coding an edition assumption.
-- Re-evaluate capabilities after reconnect and relevant API errors.
-- Gracefully disable unsupported operations while preserving existing local data.
-- Define stable mappings for Organization/Project to QuickBooks company/customer without using QuickBooks Jobs.
-- Define external IDs, sync tokens, tombstones, last-synced values, and ownership for every synchronized entity.
-- Define conflict rules that preserve QuickBooks as accounting source of truth while allowing local invoice origination.
+- [x] Read company/subscription information and detect supported capabilities without hard-coding an edition assumption.
+- [x] Mark capability data stale after reconnect and re-evaluate through an administrator action; record observed feature-not-supported errors.
+- [x] Gracefully disable unsupported/write-restricted operations while preserving existing local data.
+- [x] Define stable mappings for Organization/Project to QuickBooks company/customer without using QuickBooks Jobs.
+- [x] Persist customer external IDs, sync tokens, tombstones, last-synced values, ownership, and conflict policy. Define ownership/deletion policies for future invoice, credit-memo, and payment sync records.
+- [x] Preserve QuickBooks as accounting source of truth while allowing invoices to originate only as local drafts before first sync.
 
 Acceptance gate:
 
-- Sandbox tests cover Simple Start, Essentials, Plus, and Advanced capability differences or representative error simulations.
-- A downgrade never deletes local data or traps the user in a failing sync loop.
+- Automated tests cover active/read-only subscription states, preference differences,
+  feature-not-supported errors, mapping conflicts, QuickBooks Project/Job rejection,
+  external deletion/tombstones, and history-preserving unlink.
+- Still required: exercise representative Simple Start, Essentials, Plus, and Advanced
+  sandbox companies and confirm gain/loss behavior against live responses.
+- The implemented downgrade/error paths preserve local data and avoid automatic retry loops;
+  scheduled synchronization is not enabled yet.
 
 ### Phase QB-3: Entity synchronization - P0
 

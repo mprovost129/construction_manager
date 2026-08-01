@@ -7,11 +7,20 @@ from django.utils import timezone
 from projects.models import ActivityEvent
 from projects.services import record_activity
 
-from .models import QuickBooksConnection
-from .quickbooks import QuickBooksOAuthClient, QuickBooksOAuthError
+from .models import QuickBooksConnection, QuickBooksProjectCustomerMapping
+from .quickbooks import (
+    QuickBooksAccountingClient,
+    QuickBooksAPIError,
+    QuickBooksOAuthClient,
+    QuickBooksOAuthError,
+)
 
 
 class QuickBooksRealmConflict(Exception):
+    pass
+
+
+class QuickBooksMappingError(Exception):
     pass
 
 
@@ -60,6 +69,7 @@ def save_authorized_connection(*, organization, realm_id, token_response, actor)
     connection.organization = organization
     connection.connected_by = actor
     connection.connected_at = timezone.now()
+    connection.capabilities_checked_at = None
     _apply_token_response(connection, token_response)
     connection.save()
 
@@ -80,6 +90,310 @@ def save_authorized_connection(*, organization, realm_id, token_response, actor)
         },
     )
     return connection
+
+
+def _name_values(payload):
+    values = {}
+    for item in payload.get('NameValue') or []:
+        if isinstance(item, dict) and item.get('Name'):
+            values[str(item['Name']).casefold()] = item.get('Value', '')
+    return values
+
+
+def _nested(payload, *keys, default=None):
+    current = payload
+    for key in keys:
+        if not isinstance(current, dict):
+            return default
+        current = current.get(key)
+    return default if current is None else current
+
+
+def build_capability_profile(company_info, preferences):
+    name_values = _name_values(company_info)
+    subscription_status = str(
+        company_info.get('SubscriptionStatus')
+        or name_values.get('subscriptionstatus')
+        or 'UNKNOWN'
+    ).upper()
+    write_enabled = subscription_status in {'TRIAL', 'TRIALOPTIN', 'SUBSCRIBED'}
+    read_enabled = subscription_status != 'UNKNOWN'
+    return {
+        'accounting_read': read_enabled,
+        'accounting_write': write_enabled,
+        'customers': {'read': read_enabled, 'write': write_enabled},
+        'invoices': {'read': read_enabled, 'write': write_enabled},
+        'credit_memos': {'read': read_enabled, 'write': write_enabled},
+        'payments': {'read': read_enabled, 'write': write_enabled},
+        'custom_transaction_numbers': bool(
+            _nested(preferences, 'SalesFormsPrefs', 'CustomTxnNumbers', default=False)
+        ),
+        'progress_invoicing': bool(
+            _nested(
+                preferences,
+                'SalesFormsPrefs',
+                'UsingProgressInvoicing',
+                default=False,
+            )
+        ),
+        'multicurrency': bool(
+            _nested(
+                preferences,
+                'CurrencyPrefs',
+                'MultiCurrencyEnabled',
+                default=False,
+            )
+        ),
+        'class_tracking': bool(
+            _nested(preferences, 'AccountingInfoPrefs', 'ClassTrackingPerTxn')
+            or _nested(preferences, 'AccountingInfoPrefs', 'ClassTrackingPerTxnLine')
+        ),
+        'location_tracking': bool(
+            _nested(
+                preferences,
+                'AccountingInfoPrefs',
+                'TrackDepartments',
+                default=False,
+            )
+        ),
+        'observed_unsupported': {},
+    }
+
+
+def _save_api_error(connection_id, error):
+    connection = QuickBooksConnection.objects.get(pk=connection_id)
+    connection.last_error_code = error.code
+    connection.last_error_message = error.public_message
+    if error.status_code == 401:
+        connection.status = QuickBooksConnection.Status.REAUTHORIZATION_REQUIRED
+    elif not error.retryable and not error.is_feature_unsupported:
+        connection.status = QuickBooksConnection.Status.ERROR
+    connection.save(
+        update_fields=(
+            'status',
+            'last_error_code',
+            'last_error_message',
+            'updated_at',
+        )
+    )
+
+
+def refresh_company_capabilities(connection_id, *, actor, api_client=None):
+    connection = QuickBooksConnection.objects.select_related('organization').get(
+        pk=connection_id
+    )
+    api_client = api_client or QuickBooksAccountingClient()
+    try:
+        company_info = api_client.get_company_info(connection)
+        preferences = api_client.get_preferences(connection)
+    except QuickBooksAPIError as exc:
+        _save_api_error(connection.pk, exc)
+        raise
+
+    name_values = _name_values(company_info)
+    now = timezone.now()
+    with transaction.atomic():
+        connection = QuickBooksConnection.objects.select_for_update().select_related(
+            'organization'
+        ).get(pk=connection_id)
+        connection.company_name = str(company_info.get('CompanyName') or '')[:255]
+        connection.legal_name = str(company_info.get('LegalName') or '')[:255]
+        connection.country = str(company_info.get('Country') or '')[:10]
+        connection.subscription_status = str(
+            company_info.get('SubscriptionStatus')
+            or name_values.get('subscriptionstatus')
+            or 'UNKNOWN'
+        ).upper()[:30]
+        connection.offering_sku = str(name_values.get('offeringsku') or '')[:100]
+        connection.capabilities = build_capability_profile(company_info, preferences)
+        connection.capabilities_checked_at = now
+        connection.status = QuickBooksConnection.Status.CONNECTED
+        connection.clear_error()
+        connection.save()
+        record_activity(
+            organization=connection.organization,
+            actor=actor,
+            event_type=ActivityEvent.Type.QUICKBOOKS_CAPABILITIES_REFRESHED,
+            summary=f'QuickBooks capabilities refreshed for {connection.display_name}.',
+            metadata={
+                'realm_id': connection.realm_id,
+                'subscription_status': connection.subscription_status,
+                'offering_sku': connection.offering_sku,
+            },
+        )
+    return connection
+
+
+def record_capability_unavailable(connection_id, capability, error):
+    with transaction.atomic():
+        connection = QuickBooksConnection.objects.select_for_update().get(
+            pk=connection_id
+        )
+        capabilities = dict(connection.capabilities)
+        unsupported = dict(capabilities.get('observed_unsupported') or {})
+        unsupported[capability] = {
+            'code': error.code,
+            'observed_at': timezone.now().isoformat(),
+        }
+        capabilities['observed_unsupported'] = unsupported
+        capabilities[capability] = False
+        connection.capabilities = capabilities
+        connection.last_error_code = error.code
+        connection.last_error_message = error.public_message
+        connection.save(
+            update_fields=(
+                'capabilities',
+                'last_error_code',
+                'last_error_message',
+                'updated_at',
+            )
+        )
+    return connection
+
+
+def _customer_snapshot(customer):
+    return {
+        key: customer.get(key)
+        for key in (
+            'Id',
+            'SyncToken',
+            'DisplayName',
+            'FullyQualifiedName',
+            'Active',
+            'IsProject',
+            'ParentRef',
+        )
+        if key in customer
+    }
+
+
+@transaction.atomic
+def save_project_customer_mapping(*, project, connection, customer, actor):
+    if project.organization_id != connection.organization_id:
+        raise QuickBooksMappingError(
+            'The project and QuickBooks connection must belong to the same company.'
+        )
+    if connection.status != QuickBooksConnection.Status.CONNECTED:
+        raise QuickBooksMappingError(
+            'Reconnect the QuickBooks company before saving a customer mapping.'
+        )
+    if customer.get('IsProject'):
+        raise QuickBooksMappingError(
+            'Choose a QuickBooks customer, not a QuickBooks Project or Job.'
+        )
+    customer_id = str(customer.get('Id') or '')
+    display_name = str(
+        customer.get('DisplayName') or customer.get('FullyQualifiedName') or ''
+    )
+    if not customer_id or not display_name:
+        raise QuickBooksMappingError(
+            'QuickBooks returned incomplete customer information.'
+        )
+    conflict = QuickBooksProjectCustomerMapping.objects.filter(
+        connection=connection,
+        quickbooks_customer_id=customer_id,
+        status=QuickBooksProjectCustomerMapping.Status.ACTIVE,
+    ).exclude(project=project)
+    if conflict.exists():
+        raise QuickBooksMappingError(
+            'That QuickBooks customer is already mapped to another project.'
+        )
+
+    now = timezone.now()
+    mapping, _ = QuickBooksProjectCustomerMapping.objects.select_for_update().get_or_create(
+        project=project,
+        defaults={
+            'connection': connection,
+            'quickbooks_customer_id': customer_id,
+            'quickbooks_display_name': display_name,
+        },
+    )
+    mapping.connection = connection
+    mapping.quickbooks_customer_id = customer_id
+    mapping.quickbooks_sync_token = str(customer.get('SyncToken') or '')
+    mapping.quickbooks_display_name = display_name[:255]
+    mapping.status = QuickBooksProjectCustomerMapping.Status.ACTIVE
+    mapping.external_active = bool(customer.get('Active', True))
+    mapping.last_synced_values = _customer_snapshot(customer)
+    mapping.last_synced_at = now
+    mapping.last_seen_at = now
+    mapping.tombstoned_at = None
+    mapping.unlinked_at = None
+    mapping.save()
+    record_activity(
+        organization=project.organization,
+        project=project,
+        actor=actor,
+        event_type=ActivityEvent.Type.QUICKBOOKS_PROJECT_MAPPED,
+        summary=f'{project.name} was mapped to QuickBooks customer {display_name}.',
+        metadata={
+            'realm_id': connection.realm_id,
+            'quickbooks_customer_id': customer_id,
+        },
+    )
+    return mapping
+
+
+def refresh_project_customer_mapping(mapping_id, *, actor, api_client=None):
+    mapping = QuickBooksProjectCustomerMapping.objects.select_related(
+        'connection', 'project__organization'
+    ).get(pk=mapping_id)
+    api_client = api_client or QuickBooksAccountingClient()
+    try:
+        customer = api_client.get_customer(
+            mapping.connection,
+            mapping.quickbooks_customer_id,
+        )
+    except QuickBooksAPIError as exc:
+        if not exc.is_not_found:
+            raise
+        with transaction.atomic():
+            mapping = QuickBooksProjectCustomerMapping.objects.select_for_update().get(
+                pk=mapping_id
+            )
+            mapping.mark_tombstoned()
+            mapping.save()
+            record_activity(
+                organization=mapping.project.organization,
+                project=mapping.project,
+                actor=actor,
+                event_type=ActivityEvent.Type.QUICKBOOKS_PROJECT_MAPPING_TOMBSTONED,
+                summary=(
+                    f'QuickBooks customer {mapping.quickbooks_display_name} '
+                    'is no longer available; the mapping was preserved.'
+                ),
+                metadata={
+                    'quickbooks_customer_id': mapping.quickbooks_customer_id,
+                },
+            )
+        return mapping
+    return save_project_customer_mapping(
+        project=mapping.project,
+        connection=mapping.connection,
+        customer=customer,
+        actor=actor,
+    )
+
+
+@transaction.atomic
+def unlink_project_customer_mapping(mapping_id, *, actor):
+    mapping = QuickBooksProjectCustomerMapping.objects.select_for_update().select_related(
+        'project__organization'
+    ).get(pk=mapping_id)
+    mapping.mark_unlinked()
+    mapping.save()
+    record_activity(
+        organization=mapping.project.organization,
+        project=mapping.project,
+        actor=actor,
+        event_type=ActivityEvent.Type.QUICKBOOKS_PROJECT_UNLINKED,
+        summary=(
+            f'{mapping.project.name} was unlinked from QuickBooks customer '
+            f'{mapping.quickbooks_display_name}.'
+        ),
+        metadata={'quickbooks_customer_id': mapping.quickbooks_customer_id},
+    )
+    return mapping
 
 
 def refresh_connection(connection_id, *, client=None):

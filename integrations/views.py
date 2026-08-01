@@ -12,14 +12,26 @@ from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
 from projects.access import can_manage_organization
-from projects.models import Organization, OrganizationMembership
+from projects.models import Organization, OrganizationMembership, Project
 
-from .models import QuickBooksConnection
-from .quickbooks import QuickBooksOAuthClient, QuickBooksOAuthError
+from .forms import QuickBooksProjectCustomerMappingForm
+from .models import QuickBooksConnection, QuickBooksProjectCustomerMapping
+from .quickbooks import (
+    QuickBooksAccountingClient,
+    QuickBooksAPIError,
+    QuickBooksOAuthClient,
+    QuickBooksOAuthError,
+)
 from .services import (
+    QuickBooksMappingError,
     QuickBooksRealmConflict,
     disconnect_connection,
+    record_capability_unavailable,
+    refresh_company_capabilities,
+    refresh_project_customer_mapping,
     save_authorized_connection,
+    save_project_customer_mapping,
+    unlink_project_customer_mapping,
 )
 
 OAUTH_SESSION_KEY = 'quickbooks_oauth_request'
@@ -57,8 +69,16 @@ def quickbooks_connect(request):
         selected_organization = organizations.first()
 
     connections = QuickBooksConnection.objects.none()
+    projects = Project.objects.none()
+    mapping_form = None
     if selected_organization:
         connections = selected_organization.quickbooks_connections.all()
+        projects = selected_organization.projects.select_related(
+            'quickbooks_customer_mapping__connection'
+        )
+        mapping_form = QuickBooksProjectCustomerMappingForm(
+            organization=selected_organization
+        )
     return render(
         request,
         'integrations/quickbooks_connect.html',
@@ -66,6 +86,8 @@ def quickbooks_connect(request):
             'organizations': organizations,
             'selected_organization': selected_organization,
             'connections': connections,
+            'projects': projects,
+            'mapping_form': mapping_form,
             'quickbooks_configured': settings.QUICKBOOKS_CONFIGURED,
             'quickbooks_environment': settings.QUICKBOOKS_ENVIRONMENT,
         },
@@ -190,6 +212,120 @@ def quickbooks_disconnect(request, connection_id):
         return _connect_redirect(connection.organization)
     messages.success(request, 'QuickBooks access was revoked and disconnected.')
     return _connect_redirect(connection.organization)
+
+
+@login_required
+@require_POST
+def quickbooks_capabilities_refresh(request, connection_id):
+    connection = get_object_or_404(
+        QuickBooksConnection.objects.select_related('organization'),
+        pk=connection_id,
+    )
+    if not can_manage_organization(request.user, connection.organization):
+        raise PermissionDenied('Only company administrators can inspect QuickBooks.')
+    try:
+        connection = refresh_company_capabilities(
+            connection.pk,
+            actor=request.user,
+        )
+    except QuickBooksAPIError as exc:
+        messages.error(request, exc.public_message)
+    else:
+        messages.success(
+            request,
+            f'Capabilities refreshed for {connection.display_name}.',
+        )
+    return _connect_redirect(connection.organization)
+
+
+@login_required
+@require_POST
+def quickbooks_mapping_save(request):
+    organization = get_object_or_404(
+        Organization,
+        slug=request.POST.get('organization', ''),
+    )
+    if not can_manage_organization(request.user, organization):
+        raise PermissionDenied('Only company administrators can map QuickBooks customers.')
+    form = QuickBooksProjectCustomerMappingForm(
+        request.POST,
+        organization=organization,
+    )
+    if not form.is_valid():
+        error = next(iter(form.errors.values()))[0]
+        messages.error(request, str(error))
+        return _connect_redirect(organization)
+
+    connection = form.cleaned_data['connection']
+    customer_id = form.cleaned_data['quickbooks_customer_id']
+    try:
+        customer = QuickBooksAccountingClient().get_customer(
+            connection,
+            customer_id,
+        )
+        mapping = save_project_customer_mapping(
+            project=form.cleaned_data['project'],
+            connection=connection,
+            customer=customer,
+            actor=request.user,
+        )
+    except QuickBooksAPIError as exc:
+        if exc.is_feature_unsupported:
+            record_capability_unavailable(connection.pk, 'customer_read', exc)
+        messages.error(request, exc.public_message)
+        return _connect_redirect(organization)
+    except QuickBooksMappingError as exc:
+        messages.error(request, str(exc))
+        return _connect_redirect(organization)
+
+    messages.success(
+        request,
+        f'{mapping.project.name} is mapped to {mapping.quickbooks_display_name}.',
+    )
+    return _connect_redirect(organization)
+
+
+def _mapping_for_admin(request, mapping_id):
+    mapping = get_object_or_404(
+        QuickBooksProjectCustomerMapping.objects.select_related(
+            'project__organization', 'connection'
+        ),
+        pk=mapping_id,
+    )
+    if not can_manage_organization(request.user, mapping.project.organization):
+        raise PermissionDenied('Only company administrators can manage this mapping.')
+    return mapping
+
+
+@login_required
+@require_POST
+def quickbooks_mapping_refresh(request, mapping_id):
+    mapping = _mapping_for_admin(request, mapping_id)
+    try:
+        mapping = refresh_project_customer_mapping(
+            mapping.pk,
+            actor=request.user,
+        )
+    except (QuickBooksAPIError, QuickBooksMappingError) as exc:
+        messages.error(request, getattr(exc, 'public_message', str(exc)))
+    else:
+        if mapping.status == QuickBooksProjectCustomerMapping.Status.TOMBSTONED:
+            messages.warning(
+                request,
+                'The QuickBooks customer no longer exists. The mapping history was preserved.',
+            )
+        else:
+            messages.success(request, 'QuickBooks customer details were refreshed.')
+    return _connect_redirect(mapping.project.organization)
+
+
+@login_required
+@require_POST
+def quickbooks_mapping_unlink(request, mapping_id):
+    mapping = _mapping_for_admin(request, mapping_id)
+    mapping = unlink_project_customer_mapping(mapping.pk, actor=request.user)
+    messages.success(request, 'The project was unlinked; mapping history was preserved.')
+    return _connect_redirect(mapping.project.organization)
 
 
 @require_GET

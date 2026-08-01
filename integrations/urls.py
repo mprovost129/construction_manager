@@ -26,6 +26,26 @@ urlpatterns = [
         name='quickbooks_disconnect',
     ),
     path(
+        'quickbooks/connections/<int:connection_id>/capabilities/refresh/',
+        views.quickbooks_capabilities_refresh,
+        name='quickbooks_capabilities_refresh',
+    ),
+    path(
+        'quickbooks/mappings/save/',
+        views.quickbooks_mapping_save,
+        name='quickbooks_mapping_save',
+    ),
+    path(
+        'quickbooks/mappings/<int:mapping_id>/refresh/',
+        views.quickbooks_mapping_refresh,
+        name='quickbooks_mapping_refresh',
+    ),
+    path(
+        'quickbooks/mappings/<int:mapping_id>/unlink/',
+        views.quickbooks_mapping_unlink,
+        name='quickbooks_mapping_unlink',
+    ),
+    path(
         'quickbooks/disconnected/',
         views.quickbooks_disconnected,
         name='quickbooks_disconnected',

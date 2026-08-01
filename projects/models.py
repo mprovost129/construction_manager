@@ -527,6 +527,22 @@ class ActivityEvent(models.Model):
         QUICKBOOKS_CONNECTED = 'quickbooks_connected', 'QuickBooks connected'
         QUICKBOOKS_RECONNECTED = 'quickbooks_reconnected', 'QuickBooks reconnected'
         QUICKBOOKS_DISCONNECTED = 'quickbooks_disconnected', 'QuickBooks disconnected'
+        QUICKBOOKS_CAPABILITIES_REFRESHED = (
+            'quickbooks_capabilities_refreshed',
+            'QuickBooks capabilities refreshed',
+        )
+        QUICKBOOKS_PROJECT_MAPPED = (
+            'quickbooks_project_mapped',
+            'Project mapped to QuickBooks customer',
+        )
+        QUICKBOOKS_PROJECT_UNLINKED = (
+            'quickbooks_project_unlinked',
+            'Project unlinked from QuickBooks customer',
+        )
+        QUICKBOOKS_PROJECT_MAPPING_TOMBSTONED = (
+            'quickbooks_project_mapping_tombstoned',
+            'QuickBooks customer mapping tombstoned',
+        )
 
     organization = models.ForeignKey(
         Organization,
