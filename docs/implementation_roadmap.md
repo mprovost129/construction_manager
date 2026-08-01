@@ -33,6 +33,7 @@ implemented and verified.
 | Project pricing and financials | Not started | No product/material/labor/commission pricing engine, job-costing ledger, estimate, proposal, or project financial rollup exists. |
 | Invoices and payment visibility | Partial | Local drafts, approved-change-order conversion, immutable company numbering, line items, totals, client-visible issued invoices, authenticated PDF downloads, balances, status fields, notification, questions, and unpaid voiding exist. Selection-origin rules, QuickBooks synchronization, and payment import remain. Online payment is deferred. |
 | QuickBooks Online | Partial | Company-scoped OAuth, encrypted tokens, capability/subscription discovery, stable customer/invoice mappings, customer sync, and tested Invoice API primitives exist. Live sandbox acceptance plus invoice orchestration, Item mapping, credit-memo, payment, and change-detection work remain. |
+| SaaS subscription billing | Partial | Organization-level Stripe Billing, hosted Checkout, Customer Portal, signed webhook reconciliation, audit records, grace-period access rules, and staged entitlement enforcement exist. The Sandbox Product, monthly/yearly Prices, default Portal, and webhook are configured; a real end-to-end Sandbox test plus live-mode setup and validation remain. |
 | Tasks and punch lists | Not started | Confirmed as required, but no models or workflow exist. |
 | Two-factor authentication | Not started | Confirmed as optional per user/admin policy, but not implemented. |
 | Public legal pages | Complete with launch action | Public EULA and privacy pages exist; real legal entity values and counsel review are still required before production submission. |
@@ -43,6 +44,8 @@ implemented and verified.
 These decisions govern remaining implementation work:
 
 - QuickBooks is the accounting source of truth.
+- Stripe bills construction companies for access to Construction Manager; one subscription belongs to one Organization and its users inherit that entitlement.
+- A tenant's Stripe subscription is separate from its connected QuickBooks company. Homeowner invoices and payments do not flow through the platform Stripe account.
 - Exchange customers, invoices, credit memos, and payments in both directions.
 - Invoices may originate in Construction Manager.
 - An approved change order is sent or marked ready for QuickBooks when invoiced, not merely when approved.
@@ -155,6 +158,11 @@ These decisions govern remaining implementation work:
 - Environment-driven legal entity, contact, address, governing law, and effective date.
 - Development/production environment examples, production HTTPS controls, database SSL option, and console-first logging.
 - Docker static build settings, runtime migrations, and superuser bootstrap.
+- Organization-level Stripe subscription records, hosted subscription Checkout, hosted Customer
+  Portal sessions, signed/replay-safe webhook processing, current-state Subscription refresh,
+  test/live isolation, configurable past-due grace, and project entitlement filtering. Enforcement
+  is staged behind `STRIPE_ENFORCE_SUBSCRIPTIONS` so existing companies can be migrated before the
+  production gate is enabled.
 - Company-scoped QuickBooks OAuth foundation with rotatable Fernet token encryption,
   one-time state validation, authorization-code exchange, serialized token refresh,
   revoke-before-disconnect behavior, connection-state UI, and audit events.
@@ -172,7 +180,7 @@ These decisions govern remaining implementation work:
   balance, date, currency, and linked-transaction snapshots. Read, create, sparse-update, and void
   API primitives enforce required references, stable request IDs, and current external identity;
   no live invoice orchestration or automatic local issue-time call is enabled yet.
-- Current automated baseline: 249 passing tests, Ruff clean, no pending migrations,
+- Current automated baseline: 254 passing tests plus 6 passing subtests, Ruff clean, no pending migrations,
   and build-settings `collectstatic` passing as of this update. Django's expected
   development warning remains when QuickBooks credentials are intentionally unset.
 
@@ -227,6 +235,9 @@ The following must be resolved before representing the application as production
 - Schedule `retry_quickbooks_syncs` on a persistent production worker or cron service; the
   Render free web service does not run this command automatically.
 - Add production error monitoring, health checks, alerting, and an incident-response procedure.
+- Complete an end-to-end Stripe Sandbox subscription, configure and test Smart Retries, then create
+  the equivalent live Prices, Customer Portal, and `/subscriptions/stripe/webhook/` endpoint. Enable
+  subscription enforcement only after existing-company migration and live-mode validation.
 - Establish an operational privacy-request, data-export, QuickBooks-disconnect, and deletion procedure matching the published Privacy Policy.
 
 ### Security and legal

@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+
+{% block title %}Subscription | {{ organization.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:company_list' %}">Company</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:company_team' organization.slug %}">{{ organization.name }}</a><i class="bi bi-chevron-right"></i><span>Subscription</span></nav>
+
+<section class="page-heading">
+    <div><p class="eyebrow">Company billing</p><h1>{{ organization.name }}</h1><p class="text-secondary mb-0">Manage this company&rsquo;s Construction Manager subscription. Project invoices and accounting remain in the company&rsquo;s connected QuickBooks account.</p></div>
+    {% if subscription %}<span class="status-pill status-pill--{% if subscription.access_allowed %}active{% elif subscription.needs_attention %}declined{% endif %}">{{ subscription.get_status_display }}</span>{% endif %}
+</section>
+
+{% if checkout_message %}<div class="role-banner"><i class="bi bi-credit-card"></i><span>{{ checkout_message }}</span></div>{% endif %}
+
+<section class="admin-panel">
+    <div class="section-heading"><div><p class="eyebrow">SaaS access</p><h2>Subscription status</h2></div><div class="button-row">{% if stripe_configured and subscription.stripe_customer_id %}<form method="post" action="{% url 'subscriptions:portal_create' organization.slug %}">{% csrf_token %}<button class="btn btn-outline-secondary" type="submit">Manage billing</button></form>{% endif %}</div></div>
+    {% if not stripe_configured %}<p class="empty-copy">Stripe subscription billing is not configured. Add the Stripe environment credentials and webhook secret before starting checkout.</p>
+    {% elif subscription %}<div class="summary-strip" aria-label="Subscription details"><article><span>Plan</span><strong>{{ subscription.plan_display }}</strong></article><article><span>Status</span><strong>{{ subscription.get_status_display }}</strong></article><article><span>Access</span><strong>{% if subscription.access_allowed %}Allowed{% else %}Restricted{% endif %}</strong></article><article><span>Period end</span><strong>{{ subscription.current_period_end|date:"M j, Y"|default:"—" }}</strong></article><article><span>Renewal</span><strong>{% if subscription.cancel_at_period_end %}Cancels at period end{% else %}Automatic{% endif %}</strong></article></div>{% if subscription.status == 'past_due' %}<p class="text-danger">Payment is past due. Stripe&rsquo;s recovery flow is active; company access follows the configured grace period.</p>{% elif subscription.needs_attention %}<p class="text-danger">Billing needs attention. Open Stripe billing management to review payment, plan, or cancellation details.</p>{% endif %}
+    {% else %}<p class="empty-copy">No subscription has been started for this company.</p>{% endif %}
+
+    {% if stripe_configured and can_start_checkout %}
+    <div class="summary-strip" aria-label="Available subscription plans">
+        {% for plan in subscription_plans %}<article><span>{{ plan.interval_label }}</span><strong>{{ plan.price_display }}</strong><p class="text-secondary">{{ plan.description }}</p><form method="post" action="{% url 'subscriptions:checkout_create' organization.slug %}">{% csrf_token %}<input type="hidden" name="plan_key" value="{{ plan.key }}"><button class="btn {% if plan.key == 'standard_yearly' %}btn-primary{% else %}btn-outline-secondary{% endif %}" type="submit">Choose {{ plan.label }}</button></form></article>{% endfor %}
+    </div>
+    {% endif %}
+</section>
+
+<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Separation of responsibilities</p><h2>Stripe and QuickBooks</h2></div></div><p><strong>Stripe</strong> bills {{ organization.name }} for access to Construction Manager. <strong>QuickBooks</strong> remains the company&rsquo;s system for homeowner invoices, payments, and project financial records. No homeowner funds flow through this Stripe subscription.</p></section>
+{% endblock %}

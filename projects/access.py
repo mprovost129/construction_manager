@@ -24,7 +24,7 @@ def projects_for_user(user):
         is_active=True,
         role=OrganizationMembership.Role.ADMIN,
     ).values('organization_id')
-    return Project.objects.filter(
+    projects = Project.objects.filter(
         Q(organization_id__in=admin_organization_ids)
         | Q(
             internal_access__membership__user=user,
@@ -33,6 +33,12 @@ def projects_for_user(user):
         )
         | Q(project_memberships__user=user, project_memberships__is_active=True)
     ).distinct()
+    from subscriptions.entitlements import entitled_organization_ids
+
+    allowed_organization_ids = entitled_organization_ids()
+    if allowed_organization_ids is not None:
+        projects = projects.filter(organization_id__in=allowed_organization_ids)
+    return projects
 
 
 def organization_membership_for(user, organization):

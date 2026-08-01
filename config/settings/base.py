@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'projects',
     'integrations',
     'billing',
+    'subscriptions',
 ]
 
 AUTH_USER_MODEL = 'users.User'
@@ -242,3 +243,36 @@ QUICKBOOKS_CONFIGURED = all(
         QUICKBOOKS_TOKEN_ENCRYPTION_KEYS,
     )
 )
+
+# Stripe Billing charges construction companies for access to this SaaS. Each
+# company's connected QuickBooks account remains separate and continues to own
+# that company's homeowner invoices and accounting data.
+STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
+STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
+STRIPE_MONTHLY_SUBSCRIPTION_PRICE_ID = os.environ.get(
+    'STRIPE_MONTHLY_SUBSCRIPTION_PRICE_ID', ''
+)
+STRIPE_YEARLY_SUBSCRIPTION_PRICE_ID = os.environ.get(
+    'STRIPE_YEARLY_SUBSCRIPTION_PRICE_ID', ''
+)
+STRIPE_SUBSCRIPTION_PRICE_IDS = {
+    'standard_monthly': STRIPE_MONTHLY_SUBSCRIPTION_PRICE_ID,
+    'standard_yearly': STRIPE_YEARLY_SUBSCRIPTION_PRICE_ID,
+}
+STRIPE_CHECKOUT_SESSION_MINUTES = int(
+    os.environ.get('STRIPE_CHECKOUT_SESSION_MINUTES', '30')
+)
+STRIPE_PAST_DUE_GRACE_DAYS = int(
+    os.environ.get('STRIPE_PAST_DUE_GRACE_DAYS', '7')
+)
+STRIPE_AUTOMATIC_TAX_ENABLED = env_bool('STRIPE_AUTOMATIC_TAX_ENABLED', False)
+STRIPE_ENFORCE_SUBSCRIPTIONS = env_bool('STRIPE_ENFORCE_SUBSCRIPTIONS', False)
+STRIPE_SUBSCRIPTIONS_CONFIGURED = all(
+    (
+        STRIPE_SECRET_KEY,
+        STRIPE_WEBHOOK_SECRET,
+        STRIPE_MONTHLY_SUBSCRIPTION_PRICE_ID,
+        STRIPE_YEARLY_SUBSCRIPTION_PRICE_ID,
+    )
+)
+STRIPE_LIVE_MODE = STRIPE_SECRET_KEY.startswith('sk_live_')
