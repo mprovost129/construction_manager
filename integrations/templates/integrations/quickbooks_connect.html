@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+
+{% block title %}QuickBooks | Construction Manager{% endblock %}
+{% block meta_description %}Connect and manage QuickBooks Online companies for Construction Manager.{% endblock %}
+
+{% block content %}
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">Company integration</p>
+        <h1>QuickBooks Online</h1>
+        <p class="text-secondary mb-0">Connect accounting companies and manage their authorization.</p>
+    </div>
+    <span class="status-pill status-pill--{% if quickbooks_environment == 'production' %}active{% else %}on_hold{% endif %}">
+        {{ quickbooks_environment|title }}
+    </span>
+</section>
+
+{% if not quickbooks_configured %}
+<div class="message message--warning" role="status">
+    QuickBooks connections are disabled until the client credentials, redirect URI, and token-encryption key are configured.
+</div>
+{% endif %}
+
+{% if organizations|length > 1 %}
+<section class="integration-panel" aria-labelledby="company-heading">
+    <h2 id="company-heading">Choose a company</h2>
+    <div class="button-row">
+        {% for organization in organizations %}
+        <a class="btn {% if selected_organization.pk == organization.pk %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="{% url 'integrations:quickbooks_connect' %}?organization={{ organization.slug|urlencode }}">{{ organization.name }}</a>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{% if selected_organization %}
+<section class="integration-panel" aria-labelledby="connection-heading">
+    <div class="integration-panel__heading">
+        <div>
+            <p class="eyebrow">{{ selected_organization.name }}</p>
+            <h2 id="connection-heading">Connected QuickBooks companies</h2>
+        </div>
+        <form method="post" action="{% url 'integrations:quickbooks_authorize' %}">
+            {% csrf_token %}
+            <input type="hidden" name="organization" value="{{ selected_organization.slug }}">
+            <button class="btn btn-primary" type="submit" {% if not quickbooks_configured %}disabled{% endif %}>
+                <i class="bi bi-link-45deg" aria-hidden="true"></i> Connect another company
+            </button>
+        </form>
+    </div>
+
+    <div class="integration-list">
+        {% for connection in connections %}
+        <article class="integration-row">
+            <div>
+                <h3>QuickBooks company {{ connection.realm_id }}</h3>
+                <p>{{ connection.get_environment_display }} · Connected {{ connection.connected_at|date:"M j, Y g:i A" }}</p>
+                {% if connection.access_token_expires_at %}<p>Current access authorization expires {{ connection.access_token_expires_at|date:"M j, Y g:i A" }} and is refreshed as needed.</p>{% endif %}
+                {% if connection.last_error_message %}<p class="text-danger">{{ connection.last_error_message }}</p>{% endif %}
+            </div>
+            <span class="status-pill status-pill--{% if connection.status == 'connected' %}active{% elif connection.status == 'disconnected' %}completed{% else %}declined{% endif %}">{{ connection.get_status_display }}</span>
+            <div class="button-row">
+                {% if connection.status != 'connected' %}
+                <form method="post" action="{% url 'integrations:quickbooks_authorize' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="organization" value="{{ selected_organization.slug }}">
+                    <button class="btn btn-sm btn-primary" type="submit" {% if not quickbooks_configured %}disabled{% endif %}>Reconnect</button>
+                </form>
+                {% endif %}
+                {% if connection.status != 'disconnected' %}
+                <form method="post" action="{% url 'integrations:quickbooks_disconnect' connection.pk %}">
+                    {% csrf_token %}
+                    <button class="btn btn-sm btn-outline-danger" type="submit" {% if not quickbooks_configured %}disabled{% endif %}>Disconnect</button>
+                </form>
+                {% endif %}
+            </div>
+        </article>
+        {% empty %}
+        <div class="empty-state">
+            <i class="bi bi-journal-text" aria-hidden="true"></i>
+            <h2>No QuickBooks company connected</h2>
+            <p>Authorize a QuickBooks Online company to prepare for accounting synchronization.</p>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% elif organizations %}
+<div class="empty-state"><h2>Choose a company</h2><p>Select the company whose QuickBooks connections you want to manage.</p></div>
+{% else %}
+<div class="empty-state"><h2>Administrator access required</h2><p>Only company administrators can manage QuickBooks connections.</p></div>
+{% endif %}
+{% endblock %}

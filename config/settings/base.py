@@ -10,6 +10,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 # Load .env from project root
 load_dotenv(BASE_DIR / '.env')
 
+APP_ENVIRONMENT = os.environ.get('APP_ENVIRONMENT', 'development').lower()
+
 
 def env_bool(name, default=False):
     return os.environ.get(name, str(default)).strip().lower() in {
@@ -36,6 +38,7 @@ INSTALLED_APPS = [
     'users',
     'core',
     'projects',
+    'integrations',
 ]
 
 AUTH_USER_MODEL = 'users.User'
@@ -199,20 +202,35 @@ LEGAL_GOVERNING_LAW = os.environ.get(
 )
 LEGAL_EFFECTIVE_DATE = os.environ.get('LEGAL_EFFECTIVE_DATE', 'July 31, 2026')
 
-# QuickBooks Online. OAuth remains disabled until all required credentials exist.
-QUICKBOOKS_ENVIRONMENT = os.environ.get('QUICKBOOKS_ENVIRONMENT', 'sandbox')
+# QuickBooks Online. Sandbox credentials are development-only. Realm/company IDs
+# are captured per organization during OAuth rather than configured globally.
+QUICKBOOKS_ENVIRONMENT = os.environ.get('QUICKBOOKS_ENVIRONMENT', 'sandbox').lower()
 QUICKBOOKS_CLIENT_ID = os.environ.get('QUICKBOOKS_CLIENT_ID', '')
 QUICKBOOKS_CLIENT_SECRET = os.environ.get('QUICKBOOKS_CLIENT_SECRET', '')
 QUICKBOOKS_REDIRECT_URI = os.environ.get('QUICKBOOKS_REDIRECT_URI', '')
-QUICKBOOKS_REALM_ID = os.environ.get('QUICKBOOKS_REALM_ID', '')
+QUICKBOOKS_TOKEN_ENCRYPTION_KEYS = tuple(
+    key.strip()
+    for key in os.environ.get('QUICKBOOKS_TOKEN_ENCRYPTION_KEYS', '').split(',')
+    if key.strip()
+)
 QUICKBOOKS_WEBHOOK_VERIFIER_TOKEN = os.environ.get(
     'QUICKBOOKS_WEBHOOK_VERIFIER_TOKEN', ''
+)
+QUICKBOOKS_AUTHORIZATION_URL = 'https://appcenter.intuit.com/connect/oauth2'
+QUICKBOOKS_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
+QUICKBOOKS_REVOKE_URL = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke'
+QUICKBOOKS_SCOPES = ('com.intuit.quickbooks.accounting',)
+QUICKBOOKS_HTTP_TIMEOUT_SECONDS = int(
+    os.environ.get('QUICKBOOKS_HTTP_TIMEOUT_SECONDS', '15')
+)
+QUICKBOOKS_OAUTH_STATE_TTL_SECONDS = int(
+    os.environ.get('QUICKBOOKS_OAUTH_STATE_TTL_SECONDS', '600')
 )
 QUICKBOOKS_CONFIGURED = all(
     (
         QUICKBOOKS_CLIENT_ID,
         QUICKBOOKS_CLIENT_SECRET,
         QUICKBOOKS_REDIRECT_URI,
-        QUICKBOOKS_REALM_ID,
+        QUICKBOOKS_TOKEN_ENCRYPTION_KEYS,
     )
 )

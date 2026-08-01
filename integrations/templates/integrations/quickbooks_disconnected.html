@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+
+{% block title %}QuickBooks disconnected | Construction Manager{% endblock %}
+{% block meta_description %}QuickBooks Online disconnection information for Construction Manager.{% endblock %}
+
+{% block content %}
+<section class="form-shell">
+    <article class="form-card integration-disconnected">
+        <i class="bi bi-link-45deg integration-disconnected__icon" aria-hidden="true"></i>
+        <p class="eyebrow">QuickBooks Online</p>
+        <h1>Connection ended</h1>
+        <p>
+            QuickBooks access has been disconnected. Construction Manager will not make new accounting API requests for this connection.
+        </p>
+        {% if realm_id %}<p class="text-secondary">QuickBooks company: {{ realm_id }}</p>{% endif %}
+        <p>
+            A company administrator can reconnect at any time. Reconnecting requires signing in to Intuit and granting access again.
+        </p>
+        <a class="btn btn-primary" href="{% url 'integrations:quickbooks_connect' %}">Manage QuickBooks connections</a>
+    </article>
+</section>
+{% endblock %}

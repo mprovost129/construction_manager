@@ -524,6 +524,9 @@ class ActivityEvent(models.Model):
             'schedule_milestone_updated',
             'Schedule milestone updated',
         )
+        QUICKBOOKS_CONNECTED = 'quickbooks_connected', 'QuickBooks connected'
+        QUICKBOOKS_RECONNECTED = 'quickbooks_reconnected', 'QuickBooks reconnected'
+        QUICKBOOKS_DISCONNECTED = 'quickbooks_disconnected', 'QuickBooks disconnected'
 
     organization = models.ForeignKey(
         Organization,

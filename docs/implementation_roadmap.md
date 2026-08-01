@@ -1,6 +1,6 @@
 # Construction Manager Implementation Roadmap
 
-Last updated: July 31, 2026
+Last updated: August 1, 2026
 
 This is the authoritative implementation-status document for Construction Manager.
 It translates the answers in [Construction Manager.md](./Construction%20Manager.md)
@@ -32,7 +32,7 @@ implemented and verified.
 | Notifications | Partial | Transactional email exists with project-level recipient preferences; per-event settings, reminders, and digest delivery do not. |
 | Project pricing and financials | Not started | No product/material/labor/commission pricing engine, job-costing ledger, estimate, proposal, or project financial rollup exists. |
 | Invoices and payment visibility | Not started | No application invoice model, client invoice portal, balance view, or payment-status workflow exists. Online payment is deferred. |
-| QuickBooks Online | Blocked | Environment configuration and policy language exist, but no OAuth, tokens, API calls, synchronization, webhooks, or CDC exists. |
+| QuickBooks Online | Partial | Company-scoped OAuth connect/reconnect/disconnect, encrypted token storage, refresh/revoke services, state validation, audit events, and customer-facing routes exist. Sandbox acceptance and all accounting synchronization remain. |
 | Tasks and punch lists | Not started | Confirmed as required, but no models or workflow exist. |
 | Two-factor authentication | Not started | Confirmed as optional per user/admin policy, but not implemented. |
 | Public legal pages | Complete with launch action | Public EULA and privacy pages exist; real legal entity values and counsel review are still required before production submission. |
@@ -139,7 +139,10 @@ These decisions govern remaining implementation work:
 - Environment-driven legal entity, contact, address, governing law, and effective date.
 - Development/production environment examples, production HTTPS controls, database SSL option, and console-first logging.
 - Docker static build settings, runtime migrations, and superuser bootstrap.
-- Current automated baseline: 155 passing tests, Ruff clean, Django checks clean, migration check clean, and `collectstatic` passing as of this update.
+- Company-scoped QuickBooks OAuth foundation with rotatable Fernet token encryption,
+  one-time state validation, authorization-code exchange, serialized token refresh,
+  revoke-before-disconnect behavior, connection-state UI, and audit events.
+- Current automated baseline: 175 passing tests, Ruff clean, Django checks clean, migration check clean, and `collectstatic` passing as of this update.
 
 ## Partial feature gaps
 
@@ -152,14 +155,6 @@ These decisions govern remaining implementation work:
   after invoicing can be rejected or trigger a credit memo instead of only a flag.
 - Change order line items use a free-text cost-code tag, not a formal pricing/cost-code catalog;
   that catalog is also APP-1 scope.
-
-### Finish selections
-
-- Support multiple choices for different areas within one selection package.
-- Add vendor, product URL, specification, image/attachment, and lead-time fields.
-- Support client custom-option requests that route to a proposed change order.
-- Add credit disposition: apply elsewhere, return at closing, or retain as project margin.
-- Add overdue reminders with automatic and authorized manual email actions.
 
 ### Schedule and notifications
 
@@ -192,7 +187,8 @@ The following must be resolved before representing the application as production
 ### Security and legal
 
 - Implement optional two-factor authentication, authenticator-app enrollment, recovery codes, admin enforcement, and audit events.
-- Store QuickBooks OAuth tokens encrypted at rest and keep production secrets only in the Render secret store.
+- Provision a production-only QuickBooks token-encryption key in the Render secret store,
+  document key rotation, and retain old keys during rotation until all stored tokens are re-encrypted.
 - Configure real `LEGAL_*` values and obtain legal review of the EULA and Privacy Policy.
 - Add a public support/help route and documented response process.
 - Perform dependency, vulnerability, access-control, upload, and authorization testing before external users are admitted.
@@ -203,32 +199,35 @@ Current questionnaire truth as of this update:
 
 | Question | Accurate answer today |
 | --- | --- |
-| API calls per customer | Zero |
+| API calls per customer | Zero QuickBooks Accounting API calls. OAuth makes one token exchange per connect/reconnect, refreshes only when an API operation needs an expired access token, and makes one revoke call per in-app disconnect. |
 | Handles QBO edition feature gains/losses | No |
 | Uses webhooks | No |
 | Uses CDC | No |
-| Operational connect/reconnect URL | No |
-| Operational disconnect URL | No |
-| Operational OAuth callback | No |
+| Operational connect/reconnect URL | Implemented and automated-tested; HTTPS deployment verification remains. |
+| Operational disconnect URL | Implemented and automated-tested; HTTPS deployment verification remains. |
+| Operational OAuth callback | Implemented and automated-tested; Intuit sandbox verification remains. |
 
 Do not change an answer to "Yes" until the corresponding acceptance criteria below pass.
 
 ### Phase QB-1: Connection and security foundation - P0
 
-- Add one or more QuickBooks company connections per organization, including realm ID, environment, connection status, granted scopes, token expiry, and audit timestamps.
-- Encrypt access and refresh tokens at rest and prevent them from appearing in logs, admin pages, exceptions, or exports.
-- Implement OAuth state generation/validation and authorization-code exchange.
-- Implement authenticated connect/reconnect and callback routes.
-- Implement in-app disconnect through Intuit's revoke endpoint.
-- Implement a public disconnect landing page that confirms disconnection and explains reconnection.
+- [x] Add one or more QuickBooks company connections per organization, including realm ID, environment, connection status, granted scopes, token expiry, and audit timestamps.
+- [x] Encrypt access and refresh tokens at rest and prevent them from appearing in logs, admin pages, exceptions, or exports.
+- [x] Implement OAuth state generation/validation and authorization-code exchange.
+- [x] Implement authenticated connect/reconnect and callback routes.
+- [x] Implement in-app disconnect through Intuit's revoke endpoint.
+- [x] Implement a public disconnect landing page that confirms disconnection and explains reconnection.
 - Add the exact production URLs to Intuit only after they return the intended response over HTTPS.
-- Prevent sandbox credentials or realm IDs from operating under production settings.
+- [x] Prevent sandbox credentials or realm IDs from operating when `APP_ENVIRONMENT=production`.
 
 Acceptance gate:
 
-- Connect, reconnect, token refresh, revoke, expired-token, denied-consent, invalid-state, and multiple-company scenarios pass automated and sandbox tests.
-- No token or client secret is exposed in logs or responses.
-- The UI clearly displays connection state and the connected QuickBooks company.
+- Automated coverage passes for connect, token refresh, revoke, failed refresh/revoke,
+  denied consent, expired/invalid state, key rotation, role enforcement, and realm conflicts.
+- Still required: complete the same matrix with real Intuit sandbox companies, then verify
+  the final HTTPS URLs after deployment.
+- The UI displays environment, realm ID, connection state, timestamps, expiration, and
+  safe error copy. Displaying the QuickBooks company name requires the QB-2 company-info read.
 
 ### Phase QB-2: Capability and mapping layer - P0
 
