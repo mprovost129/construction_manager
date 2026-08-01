@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'core',
     'projects',
     'integrations',
+    'billing',
 ]
 
 AUTH_USER_MODEL = 'users.User'

@@ -31,7 +31,7 @@ implemented and verified.
 | Schedule | Partial | Internal milestone/calendar workflow exists; dependencies, recurrence, and external calendar integration do not. |
 | Notifications | Partial | Transactional email exists with project-level recipient preferences; per-event settings, reminders, and digest delivery do not. |
 | Project pricing and financials | Not started | No product/material/labor/commission pricing engine, job-costing ledger, estimate, proposal, or project financial rollup exists. |
-| Invoices and payment visibility | Not started | No application invoice model, client invoice portal, balance view, or payment-status workflow exists. Online payment is deferred. |
+| Invoices and payment visibility | Partial | Local drafts, approved-change-order conversion, immutable company numbering, line items, totals, client-visible issued invoices, balances, status fields, notification, questions, and unpaid voiding exist. PDF download, selection-origin rules, QuickBooks synchronization, and payment import remain. Online payment is deferred. |
 | QuickBooks Online | Partial | Company-scoped OAuth, encrypted tokens, capability/subscription discovery, stable project-to-customer mappings, and the first customer-sync slice exist. Live sandbox acceptance plus invoice, credit-memo, payment, and change-detection work remain. |
 | Tasks and punch lists | Not started | Confirmed as required, but no models or workflow exist. |
 | Two-factor authentication | Not started | Confirmed as optional per user/admin policy, but not implemented. |
@@ -133,6 +133,20 @@ These decisions govern remaining implementation work:
 - Start/end dates, status, notes, ordering, create, and update workflows.
 - Schedule is unavailable to clients, accountants, and subcontractors.
 
+### Invoices
+
+- Local invoice drafts with due dates, client notes, itemized quantities/prices, tax, totals,
+  amount paid, and balance due.
+- Explicit conversion of an approved positive change order into a draft invoice, copying its line
+  items and preserving a one-to-one source link. Zero/negative changes are reserved for the future
+  credit-memo workflow.
+- Company-wide sequential numbering assigned only at issue, with database uniqueness and
+  application-level immutability for issued details, totals, and line items.
+- Client-safe invoice list/detail views, issue email, payment-status display, and a prefilled
+  invoice-question conversation link. No online-payment action is exposed.
+- Unpaid issued-invoice voiding and draft disposal with audit events. A referenced change order
+  cannot be voided until its draft is discarded or its unpaid issued invoice is voided.
+
 ### Legal and deployment
 
 - Public `/legal/eula/` and `/legal/privacy/` pages with footer links.
@@ -152,7 +166,7 @@ These decisions govern remaining implementation work:
   throttling-aware retry scheduling; inactive-record tombstones; and an administrator
   retry/resolution queue. Deferred retries are exposed through the
   `retry_quickbooks_syncs` management command.
-- Current automated baseline: 218 passing tests, Ruff clean, no pending migrations,
+- Current automated baseline: 235 passing tests, Ruff clean, no pending migrations,
   and build-settings `collectstatic` passing as of this update. Django's expected
   development warning remains when QuickBooks credentials are intentionally unset.
 
@@ -181,6 +195,17 @@ These decisions govern remaining implementation work:
 
 - Complete a phone-size workflow audit for client approvals, uploads, messaging, selections, and field use.
 - Define whether offline access is required; the interview answer does not provide a testable offline requirement.
+
+### Invoices and payment visibility
+
+- Add downloadable invoice PDFs; the current portal provides authenticated HTML details only.
+- Define the billable amount and credit behavior for selected finishes after APP-1 establishes the
+  base-contract and allowance ledger. Approved positive change orders are the only automated
+  invoice source today; staff can also create manual drafts.
+- Add QuickBooks Invoice identity/sync-token mapping and both-direction synchronization before
+  treating local payment-status fields as live accounting data.
+- Import QuickBooks payments and credit applications. Until then, locally issued invoices display
+  their full balance as due.
 
 ## Production blockers
 
@@ -213,7 +238,7 @@ Current questionnaire truth as of this update:
 
 | Question | Accurate answer today |
 | --- | --- |
-| API calls per customer | There is no periodic customer polling. Initial manual sync makes one exact-name Customer query plus, only when no match exists, one Customer create. A mapped manual refresh makes one Customer read. The separate outbound name update makes one Customer read and, only when the names differ, one sparse Customer update. A retry repeats the applicable operation; writes reuse the same Intuit `requestid`. Due retryable failures run only when `retry_quickbooks_syncs` is scheduled. Company refresh makes two reads (`CompanyInfo` and Preferences), and an expired access token adds one token-refresh call. |
+| API calls per customer | There is no periodic customer polling. Initial manual sync makes one exact-name Customer query plus, only when no match exists, one Customer create. A mapped manual refresh makes one Customer read. The separate outbound name update makes one Customer read and, only when the names differ, one sparse Customer update. A retry repeats the applicable operation; writes reuse the same Intuit `requestid`. Due retryable failures run only when `retry_quickbooks_syncs` is scheduled. Company refresh makes two reads (`CompanyInfo` and Preferences), and an expired access token adds one token-refresh call. Local invoice draft, issue, discard, and void actions currently make zero Intuit calls because Invoice synchronization is deliberately disabled. |
 | Handles QBO edition feature gains/losses | Not yet a portal “Yes.” Subscription/preference capability changes and feature-not-supported errors are handled without deleting data, but the sandbox edition matrix remains. |
 | Uses webhooks | No |
 | Uses CDC | No |
@@ -294,6 +319,15 @@ Customer slice delivered:
 - [ ] Implement invoices, credit memos, and payments. These remain disabled until their local
   accounting models and reconciliation rules exist.
 
+Invoice synchronization preparation:
+
+- [x] Add a local Invoice and InvoiceLineItem foundation with immutable issue numbering, totals,
+  source links, client visibility, balance/status fields, and safe draft/void lifecycles.
+- [x] Require a client and at least one positive line before issue; preserve draft isolation and
+  prevent source change-order reversal while an active invoice exists.
+- [ ] Add QuickBooks Invoice mappings and create/read/update/void API operations. External Invoice
+  writes remain disabled pending sandbox credentials and product/service Item mapping.
+
 For each entity:
 
 - Implement both-direction create/update behavior where supported by the confirmed workflow.
@@ -333,9 +367,13 @@ Acceptance gate:
 
 ### Phase APP-2: Invoices and client visibility - P0
 
-- Add local invoice drafts originating from approved selections or change orders.
-- Add invoice status, immutable numbering rules, line items, totals, balances, credit application, and QuickBooks mapping.
-- Let clients view invoice details, download invoice documents, see balances/payment status, and ask questions.
+- [x] Add local manual invoice drafts and drafts originating from approved positive change orders.
+- [ ] Add selected-finish invoice origination after APP-1 defines whether to bill full option value,
+  allowance variance, or an approved change order.
+- [x] Add invoice status, immutable organization-wide numbering, line items, totals, and balances.
+- [ ] Add credit application and QuickBooks mapping.
+- [x] Let clients view invoice details, balances/payment status, and ask questions.
+- [ ] Add authenticated downloadable invoice PDFs.
 - Do not add online payment collection in this release.
 
 ### Phase APP-3: Tasks and punch lists - P1

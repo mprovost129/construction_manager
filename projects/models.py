@@ -555,6 +555,16 @@ class ActivityEvent(models.Model):
             'quickbooks_sync_resolved',
             'QuickBooks sync issue resolved',
         )
+        INVOICE_DRAFT_CREATED = (
+            'invoice_draft_created',
+            'Invoice draft created',
+        )
+        INVOICE_DRAFT_DISCARDED = (
+            'invoice_draft_discarded',
+            'Invoice draft discarded',
+        )
+        INVOICE_ISSUED = 'invoice_issued', 'Invoice issued'
+        INVOICE_VOIDED = 'invoice_voided', 'Invoice voided'
 
     organization = models.ForeignKey(
         Organization,

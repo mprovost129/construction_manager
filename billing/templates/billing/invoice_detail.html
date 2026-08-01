@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ invoice.display_number }} | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><a href="{% url 'billing:invoice_list' project.pk %}">Invoices</a><i class="bi bi-chevron-right"></i><span>{{ invoice.display_number }}</span></nav>
+
+<section class="page-heading">
+    <div><p class="eyebrow">{{ invoice.display_number }}</p><h1>{{ invoice.title }}</h1><p class="text-secondary mb-0">{% if invoice.issue_date %}Issued {{ invoice.issue_date|date:"F j, Y" }} &middot; Due {{ invoice.due_date|date:"F j, Y" }}{% else %}Internal draft &middot; Not visible to clients{% endif %}</p></div>
+    <div class="button-row"><span class="status-pill status-pill--{% if invoice.status == 'paid' %}active{% elif invoice.status == 'voided' %}declined{% elif invoice.status == 'issued' or invoice.status == 'partially_paid' %}on_hold{% endif %}">{{ invoice.get_status_display }}</span>{% if can_manage_invoices and invoice.is_editable %}<a class="btn btn-outline-secondary" href="{% url 'billing:invoice_edit' project.pk invoice.pk %}">Edit draft</a>{% endif %}</div>
+</section>
+
+{% if invoice.status == 'voided' %}<div class="role-banner"><i class="bi bi-slash-circle"></i><span>Voided {{ invoice.voided_at|date:"M j, Y g:i A" }}. Reason: {{ invoice.void_reason }}</span></div>{% endif %}
+
+<section class="summary-strip" aria-label="Invoice totals">
+    <article><span>Subtotal</span><strong>${{ invoice.subtotal_amount|floatformat:2 }}</strong></article>
+    <article><span>Tax</span><strong>${{ invoice.tax_amount|floatformat:2 }}</strong></article>
+    <article><span>Total</span><strong>${{ invoice.total_amount|floatformat:2 }}</strong></article>
+    <article><span>Paid</span><strong>${{ invoice.amount_paid|floatformat:2 }}</strong></article>
+    <article><span>Balance due</span><strong>${{ invoice.balance_due|floatformat:2 }}</strong></article>
+</section>
+
+<section class="admin-panel">
+    <div class="section-heading"><div><p class="eyebrow">Invoice details</p><h2>Line items</h2></div>{% if can_manage_invoices and invoice.is_editable %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'billing:invoice_line_create' project.pk invoice.pk %}"><i class="bi bi-plus-lg"></i> Add line item</a>{% endif %}</div>
+    {% if line_items %}<div class="table-responsive"><table class="admin-table"><thead><tr><th>Category</th><th>Description</th><th>Qty</th><th>Unit price</th><th>Total</th>{% if can_manage_invoices and invoice.is_editable %}<th class="text-end">Actions</th>{% endif %}</tr></thead><tbody>{% for line in line_items %}<tr><td>{{ line.get_category_display }}</td><td>{{ line.description }}</td><td>{{ line.quantity }}</td><td>${{ line.unit_price|floatformat:2 }}</td><td>${{ line.total_amount|floatformat:2 }}</td>{% if can_manage_invoices and invoice.is_editable %}<td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'billing:invoice_line_edit' project.pk invoice.pk line.pk %}">Edit</a> <form class="inline-form" method="post" action="{% url 'billing:invoice_line_delete' project.pk invoice.pk line.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit">Remove</button></form></td>{% endif %}</tr>{% endfor %}</tbody></table></div>{% else %}<p class="empty-copy">No invoice lines have been added.</p>{% endif %}
+</section>
+
+{% if invoice.notes %}<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Customer notes</p><h2>Notes</h2></div></div><p>{{ invoice.notes|linebreaksbr }}</p></section>{% endif %}
+
+{% if can_manage_invoices and invoice.is_editable %}<section class="decision-panel"><div><p class="eyebrow">Issue invoice</p><h2>Make this invoice permanent and client-visible</h2><p>Issuing assigns the next company invoice number and locks its details and line items. QuickBooks synchronization is not performed yet.</p></div><div class="button-row"><form method="post" action="{% url 'billing:invoice_discard' project.pk invoice.pk %}">{% csrf_token %}<button class="btn btn-outline-danger" type="submit">Discard draft</button></form><form method="post" action="{% url 'billing:invoice_issue' project.pk invoice.pk %}">{% csrf_token %}<button class="btn btn-primary" type="submit">Issue invoice</button></form></div></section>{% endif %}
+
+{% if void_form %}<section class="decision-panel"><div><p class="eyebrow">Void invoice</p><h2>Void {{ invoice.display_number }}</h2><p>Only unpaid invoices can be voided locally. The number and audit history will be preserved.</p></div><form method="post" action="{% url 'billing:invoice_void' project.pk invoice.pk %}" class="stacked-form">{% csrf_token %}<div class="form-field"><label for="{{ void_form.reason.id_for_label }}">Reason</label>{{ void_form.reason }}{{ void_form.reason.errors }}</div><button class="btn btn-outline-danger" type="submit">Void invoice</button></form></section>{% endif %}
+
+{% if invoice.client_visible %}<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Questions</p><h2>Need clarification?</h2></div><a class="btn btn-outline-secondary" href="{{ question_url }}">Ask a question</a></div><p class="empty-copy">Start a project conversation referencing this invoice. Online payment is not available.</p></section>{% endif %}
+{% endblock %}

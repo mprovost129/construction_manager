@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if invoice %}Edit invoice{% else %}New invoice{% endif %} | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><a href="{% url 'billing:invoice_list' project.pk %}">Invoices</a><i class="bi bi-chevron-right"></i><span>{% if invoice %}Edit draft{% else %}New draft{% endif %}</span></nav>
+
+<section class="form-shell">
+    <div><p class="eyebrow">Local invoice draft</p><h1>{% if invoice %}Edit {{ invoice.title }}{% elif source %}Invoice {{ source.display_number }}{% else %}Create invoice draft{% endif %}</h1><p class="text-secondary">Drafts are internal and editable. A permanent company invoice number is assigned only when the invoice is issued.</p></div>
+    <form method="post" class="stacked-form">{% csrf_token %}{{ form.non_field_errors }}<div class="form-grid">{% for field in form %}<div class="form-field{% if field.name == 'notes' %} form-field--wide{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<div class="help-text">{{ field.help_text }}</div>{% endif %}{{ field.errors }}</div>{% endfor %}</div><div class="form-actions"><a class="btn btn-outline-secondary" href="{% if invoice %}{% url 'billing:invoice_detail' project.pk invoice.pk %}{% else %}{% url 'billing:invoice_list' project.pk %}{% endif %}">Cancel</a><button class="btn btn-primary" type="submit">Save draft</button></div></form>
+</section>
+{% endblock %}
+

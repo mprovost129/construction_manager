@@ -67,6 +67,11 @@
         <div><h2>Selections</h2><p>Finish options, allowances, and customer choices.</p></div>
         <span>Open selections <i class="bi bi-arrow-right"></i></span>
     </a>{% endif %}
+    {% if can_use_invoices %}<a class="module-card module-card--ready module-card--link" href="{% url 'billing:invoice_list' project.pk %}">
+        <i class="bi bi-receipt"></i>
+        <div><h2>Invoices</h2><p>Invoice details, balances, and payment status.</p></div>
+        <span>Open invoices <i class="bi bi-arrow-right"></i></span>
+    </a>{% endif %}
     {% if can_use_schedule %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:schedule' project.pk %}">
         <i class="bi bi-calendar3"></i>
         <div><h2>Schedule</h2><p>Internal milestones and project dates.</p></div>

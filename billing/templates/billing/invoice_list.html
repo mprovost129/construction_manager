@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+
+{% block title %}Invoices | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><span>Invoices</span></nav>
+
+<section class="page-heading">
+    <div><p class="eyebrow">Project accounting</p><h1>Invoices</h1><p class="text-secondary mb-0">{% if viewer_is_client %}Review invoice details, balances, and payment status. Online payment is not available.{% else %}Prepare local drafts and issue client-visible invoices. QuickBooks synchronization remains a separate accounting step.{% endif %}</p></div>
+    {% if can_manage_invoices %}<a class="btn btn-primary" href="{% url 'billing:invoice_create' project.pk %}"><i class="bi bi-plus-lg"></i> New invoice draft</a>{% endif %}
+</section>
+
+<section class="summary-strip" aria-label="Invoice totals">
+    <article><span>Total invoiced</span><strong>${{ total_invoiced|floatformat:2 }}</strong></article>
+    <article><span>Balance due</span><strong>${{ total_balance|floatformat:2 }}</strong></article>
+</section>
+
+{% if invoices %}
+<section class="document-list" aria-label="Project invoices">
+    {% for invoice in invoices %}
+    <a class="document-row" href="{% url 'billing:invoice_detail' project.pk invoice.pk %}">
+        <div class="document-row__icon"><i class="bi bi-receipt"></i></div>
+        <div class="document-row__body"><h2>{{ invoice.display_number }} &middot; {{ invoice.title }}</h2><p>{% if invoice.issue_date %}Issued {{ invoice.issue_date|date:"M j, Y" }} &middot; Due {{ invoice.due_date|date:"M j, Y" }} &middot; {% endif %}Total ${{ invoice.total_amount|floatformat:2 }} &middot; Balance ${{ invoice.balance_due|floatformat:2 }}</p></div>
+        <span class="status-pill status-pill--{% if invoice.status == 'paid' %}active{% elif invoice.status == 'voided' %}declined{% elif invoice.status == 'issued' or invoice.status == 'partially_paid' %}on_hold{% endif %}">{{ invoice.get_status_display }}</span>
+        <i class="bi bi-chevron-right"></i>
+    </a>
+    {% endfor %}
+</section>
+{% else %}
+<div class="empty-state"><i class="bi bi-receipt"></i><h2>No invoices yet</h2><p>{% if can_manage_invoices %}Create a draft manually or from an approved change order.{% else %}No invoices have been issued for this project.{% endif %}</p>{% if can_manage_invoices %}<a class="btn btn-primary" href="{% url 'billing:invoice_create' project.pk %}">New invoice draft</a>{% endif %}</div>
+{% endif %}
+{% endblock %}
+

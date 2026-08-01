@@ -17,6 +17,8 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import DetailView, FormView, TemplateView
 
+from billing.access import can_use_invoices
+
 from .access import (
     can_invite_clients,
     can_manage_organization,
@@ -324,6 +326,10 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
                     self.request.user, self.object
                 ),
                 'can_use_action_center': action_center_allowed,
+                'can_use_invoices': can_use_invoices(
+                    self.request.user,
+                    self.object,
+                ),
                 'action_count': (
                     action_center['action_count'] if action_center else 0
                 ),
@@ -446,6 +452,12 @@ class ProjectMessageCreateView(LoginRequiredMixin, FormView):
         context = super().get_context_data(**kwargs)
         context['project'] = self.project
         return context
+
+    def get_initial(self):
+        initial = super().get_initial()
+        initial['subject'] = self.request.GET.get('subject', '').strip()[:200]
+        initial['body'] = self.request.GET.get('body', '').strip()
+        return initial
 
     def form_valid(self, form):
         with transaction.atomic():
@@ -1162,6 +1174,7 @@ class ChangeOrderDetailView(LoginRequiredMixin, TemplateView):
                 'approval_progress': progress,
                 'line_items': self.change_order.line_items.all(),
                 'replacement': getattr(self.change_order, 'replaced_by', None),
+                'source_invoice': getattr(self.change_order, 'invoice', None),
                 'void_form': (
                     ChangeOrderVoidForm()
                     if can_manage
@@ -1373,6 +1386,12 @@ class ChangeOrderVoidView(LoginRequiredMixin, View):
             ):
                 raise PermissionDenied(
                     'Only pending or approved change orders can be voided.'
+                )
+            source_invoice = getattr(change_order, 'invoice', None)
+            if source_invoice and source_invoice.status != 'voided':
+                raise PermissionDenied(
+                    'Discard the related invoice draft, or void the unpaid issued '
+                    'invoice, before voiding this change order.'
                 )
             was_approved = change_order.status == ChangeOrder.Status.APPROVED
             change_order.status = ChangeOrder.Status.VOIDED
