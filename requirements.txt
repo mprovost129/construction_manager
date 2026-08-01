@@ -17,6 +17,7 @@ idna==3.18
 iniconfig==2.3.0
 nodeenv==1.10.0
 packaging==26.0
+pillow==12.3.0
 platformdirs==4.9.4
 pluggy==1.6.0
 pre_commit==4.5.1
@@ -30,6 +31,7 @@ python-dotenv==1.2.2
 PyYAML==6.0.3
 redis==7.4.0
 requests==2.34.2
+reportlab==5.0.0
 ruff==0.15.9
 sqlparse==0.5.5
 tzdata==2026.1

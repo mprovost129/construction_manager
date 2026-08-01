@@ -301,6 +301,50 @@ class InvoicePortalTests(InvoiceTestCase):
         self.assertContains(response, 'Balance due')
         self.assertContains(response, 'Online payment is not available')
 
+    def test_client_can_download_authenticated_issued_invoice_pdf(self):
+        invoice = self.create_issued(title='Kitchen progress invoice')
+        self.client.force_login(self.client_user)
+
+        response = self.client.get(
+            reverse('billing:invoice_pdf', args=(self.project.pk, invoice.pk))
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertEqual(
+            response['Content-Disposition'],
+            'attachment; filename="inv-000001-invoice.pdf"',
+        )
+        self.assertEqual(response['Cache-Control'], 'private, no-store')
+        self.assertTrue(response.content.startswith(b'%PDF-'))
+        self.assertGreater(len(response.content), 2000)
+
+    def test_client_cannot_download_draft_invoice_pdf(self):
+        invoice = self.create_draft()
+        self.add_line(invoice)
+        self.client.force_login(self.client_user)
+
+        response = self.client.get(
+            reverse('billing:invoice_pdf', args=(self.project.pk, invoice.pk))
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_invoice_detail_links_to_pdf_download(self):
+        invoice = self.create_issued()
+        self.client.force_login(self.client_user)
+        pdf_url = reverse(
+            'billing:invoice_pdf',
+            args=(self.project.pk, invoice.pk),
+        )
+
+        response = self.client.get(
+            reverse('billing:invoice_detail', args=(self.project.pk, invoice.pk))
+        )
+
+        self.assertContains(response, pdf_url)
+        self.assertContains(response, 'Download PDF')
+
     def test_client_cannot_create_or_modify_invoices(self):
         invoice = self.create_draft()
         self.client.force_login(self.client_user)

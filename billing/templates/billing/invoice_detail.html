@@ -7,7 +7,7 @@
 
 <section class="page-heading">
     <div><p class="eyebrow">{{ invoice.display_number }}</p><h1>{{ invoice.title }}</h1><p class="text-secondary mb-0">{% if invoice.issue_date %}Issued {{ invoice.issue_date|date:"F j, Y" }} &middot; Due {{ invoice.due_date|date:"F j, Y" }}{% else %}Internal draft &middot; Not visible to clients{% endif %}</p></div>
-    <div class="button-row"><span class="status-pill status-pill--{% if invoice.status == 'paid' %}active{% elif invoice.status == 'voided' %}declined{% elif invoice.status == 'issued' or invoice.status == 'partially_paid' %}on_hold{% endif %}">{{ invoice.get_status_display }}</span>{% if can_manage_invoices and invoice.is_editable %}<a class="btn btn-outline-secondary" href="{% url 'billing:invoice_edit' project.pk invoice.pk %}">Edit draft</a>{% endif %}</div>
+    <div class="button-row"><span class="status-pill status-pill--{% if invoice.status == 'paid' %}active{% elif invoice.status == 'voided' %}declined{% elif invoice.status == 'issued' or invoice.status == 'partially_paid' %}on_hold{% endif %}">{{ invoice.get_status_display }}</span><a class="btn btn-outline-secondary" href="{% url 'billing:invoice_pdf' project.pk invoice.pk %}"><i class="bi bi-download"></i> Download PDF</a>{% if can_manage_invoices and invoice.is_editable %}<a class="btn btn-outline-secondary" href="{% url 'billing:invoice_edit' project.pk invoice.pk %}">Edit draft</a>{% endif %}</div>
 </section>
 
 {% if invoice.status == 'voided' %}<div class="role-banner"><i class="bi bi-slash-circle"></i><span>Voided {{ invoice.voided_at|date:"M j, Y g:i A" }}. Reason: {{ invoice.void_reason }}</span></div>{% endif %}

@@ -4,8 +4,10 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
+from django.utils.http import content_disposition_header
 from django.views import View
 from django.views.generic import FormView, TemplateView
 
@@ -20,6 +22,7 @@ from .access import (
 )
 from .forms import InvoiceDraftForm, InvoiceLineItemForm, InvoiceVoidForm
 from .models import Invoice, InvoiceLineItem
+from .pdf import build_invoice_pdf
 from .services import (
     create_invoice_from_change_order,
     discard_invoice_draft,
@@ -190,6 +193,28 @@ class InvoiceDetailView(LoginRequiredMixin, TemplateView):
             }
         )
         return context
+
+
+class InvoicePDFDownloadView(LoginRequiredMixin, View):
+    def get(self, request, project_id, invoice_id):
+        project = invoice_project_or_404(request.user, project_id)
+        invoice = visible_invoice_or_404(request.user, project, invoice_id)
+        filename = (
+            f'{invoice.display_number.lower()}-invoice.pdf'
+            if invoice.number is not None
+            else f'draft-invoice-{invoice.pk}.pdf'
+        )
+        response = HttpResponse(
+            build_invoice_pdf(invoice),
+            content_type='application/pdf',
+        )
+        response.headers['Content-Disposition'] = content_disposition_header(
+            True,
+            filename,
+        )
+        response.headers['Cache-Control'] = 'private, no-store'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        return response
 
 
 class InvoiceUpdateView(LoginRequiredMixin, FormView):

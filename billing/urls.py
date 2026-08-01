@@ -26,6 +26,11 @@ urlpatterns = [
         name='invoice_detail',
     ),
     path(
+        'projects/<int:project_id>/invoices/<int:invoice_id>/pdf/',
+        views.InvoicePDFDownloadView.as_view(),
+        name='invoice_pdf',
+    ),
+    path(
         'projects/<int:project_id>/invoices/<int:invoice_id>/edit/',
         views.InvoiceUpdateView.as_view(),
         name='invoice_edit',
