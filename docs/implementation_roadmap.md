@@ -32,7 +32,7 @@ implemented and verified.
 | Notifications | Partial | Transactional email exists with project-level recipient preferences; per-event settings, reminders, and digest delivery do not. |
 | Project pricing and financials | Not started | No product/material/labor/commission pricing engine, job-costing ledger, estimate, proposal, or project financial rollup exists. |
 | Invoices and payment visibility | Not started | No application invoice model, client invoice portal, balance view, or payment-status workflow exists. Online payment is deferred. |
-| QuickBooks Online | Partial | Company-scoped OAuth, encrypted tokens, capability/subscription discovery, stable project-to-customer mappings, refresh/revoke services, audit events, and management UI exist. Sandbox acceptance and accounting entity synchronization remain. |
+| QuickBooks Online | Partial | Company-scoped OAuth, encrypted tokens, capability/subscription discovery, stable project-to-customer mappings, and the first customer-sync slice exist. Live sandbox acceptance plus invoice, credit-memo, payment, and change-detection work remain. |
 | Tasks and punch lists | Not started | Confirmed as required, but no models or workflow exist. |
 | Two-factor authentication | Not started | Confirmed as optional per user/admin policy, but not implemented. |
 | Public legal pages | Complete with launch action | Public EULA and privacy pages exist; real legal entity values and counsel review are still required before production submission. |
@@ -146,7 +146,14 @@ These decisions govern remaining implementation work:
   flags, stable Project-to-QuickBooks-Customer mappings, sync tokens, last-known values,
   tombstones, and explicit entity ownership/conflict policies. QuickBooks Projects/Jobs
   are rejected as mapping targets.
-- Current automated baseline: 191 passing tests, Ruff clean, Django checks clean, migration check clean, and `collectstatic` passing as of this update.
+- Administrator-triggered QuickBooks Customer create-or-match and refresh actions, durable
+  attempts, serialized per-company synchronization, stable write request IDs, current-sync-token
+  updates, query pagination, throttling-aware retry scheduling, inactive-record tombstones, and an
+  administrator retry/resolution queue. Deferred retries are exposed through the
+  `retry_quickbooks_syncs` management command.
+- Current automated baseline: 211 passing tests, Ruff clean, no pending migrations,
+  and build-settings `collectstatic` passing as of this update. Django's expected
+  development warning remains when QuickBooks credentials are intentionally unset.
 
 ## Partial feature gaps
 
@@ -185,6 +192,8 @@ The following must be resolved before representing the application as production
 - Confirm a production Redis service or remove runtime dependency on it.
 - Configure and verify SMTP delivery, sender-domain authentication, bounce handling, and support/privacy mailboxes.
 - Validate the selected hosting tier against Intuit's availability expectations; free-tier spin-down must not be represented as continuous production availability.
+- Schedule `retry_quickbooks_syncs` on a persistent production worker or cron service; the
+  Render free web service does not run this command automatically.
 - Add production error monitoring, health checks, alerting, and an incident-response procedure.
 - Establish an operational privacy-request, data-export, QuickBooks-disconnect, and deletion procedure matching the published Privacy Policy.
 
@@ -203,7 +212,7 @@ Current questionnaire truth as of this update:
 
 | Question | Accurate answer today |
 | --- | --- |
-| API calls per customer | No scheduled calls yet. OAuth makes one token exchange per connect/reconnect and one revoke per disconnect. Each administrator-triggered company refresh makes two Accounting API reads (`CompanyInfo` and Preferences); each mapping validation/refresh makes one Customer read. An expired access token adds one token-refresh call. |
+| API calls per customer | There is no periodic customer polling. Initial manual sync makes one exact-name Customer query plus, only when no match exists, one Customer create. A mapped manual sync makes one Customer read. A retry repeats the applicable operation; create retries reuse the same Intuit `requestid`. Due retryable failures run only when `retry_quickbooks_syncs` is scheduled. Company refresh makes two reads (`CompanyInfo` and Preferences), and an expired access token adds one token-refresh call. |
 | Handles QBO edition feature gains/losses | Not yet a portal “Yes.” Subscription/preference capability changes and feature-not-supported errors are handled without deleting data, but the sandbox edition matrix remains. |
 | Uses webhooks | No |
 | Uses CDC | No |
@@ -260,6 +269,28 @@ Implement in this order:
 2. Invoices
 3. Credit memos
 4. Payments
+
+Customer slice delivered:
+
+- [x] Let an administrator create a QuickBooks customer from a local project or safely match an
+  existing customer with the same display name.
+- [x] Refresh an active customer mapping from QuickBooks, preserving QuickBooks as the source of
+  truth after the first mapping.
+- [x] Preserve inactive or missing external customers as tombstoned mappings instead of deleting
+  accounting history.
+- [x] Use stable per-operation `requestid` values for duplicate-safe writes, fetch the current
+  `SyncToken` before sparse updates, paginate Customer queries, and serialize Customer operations
+  per QuickBooks company and direction.
+- [x] Record durable attempts and sanitized failures, defer retryable throttling/server failures
+  with bounded exponential backoff, and provide administrator retry/resolution actions.
+- [x] Provide manual Customer sync and the `retry_quickbooks_syncs` scheduled-command boundary.
+- [ ] Verify create, existing-name match, refresh, inactive/missing customer, duplicate request,
+  stale token, subscription downgrade, and throttling behavior against live Intuit sandbox
+  companies.
+- [ ] Add the approved local-to-QuickBooks update workflow for already mapped customers; the API
+  primitive exists, but the current administrator action deliberately refreshes from QuickBooks.
+- [ ] Implement invoices, credit memos, and payments. These remain disabled until their local
+  accounting models and reconciliation rules exist.
 
 For each entity:
 

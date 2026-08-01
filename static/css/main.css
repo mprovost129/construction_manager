@@ -1390,6 +1390,9 @@ input:focus {
 
 .integration-mapping-form .form-field { margin: 0; }
 .integration-mapping-form small { display: block; margin-top: 0.3rem; color: var(--color-muted); font-size: 0.72rem; }
+.integration-sync-form, .integration-error-actions, .integration-resolution-form { display: flex; gap: 0.5rem; align-items: center; }
+.integration-sync-form select, .integration-resolution-form input { min-height: 31px; border: 1px solid var(--color-border); border-radius: 6px; background: white; }
+.integration-error-actions { align-items: stretch; flex-direction: column; }
 
 .action-row {
     display: grid;
@@ -1453,4 +1456,5 @@ input:focus {
     .integration-row { grid-template-columns: 1fr; }
     .integration-row .status-pill { justify-self: start; }
     .integration-mapping-form { grid-template-columns: 1fr; }
+    .integration-sync-form, .integration-resolution-form { align-items: stretch; flex-direction: column; }
 }

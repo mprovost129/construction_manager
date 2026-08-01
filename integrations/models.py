@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -176,3 +178,107 @@ class QuickBooksProjectCustomerMapping(models.Model):
     def mark_unlinked(self):
         self.status = self.Status.UNLINKED
         self.unlinked_at = timezone.now()
+
+
+class QuickBooksSyncAttempt(models.Model):
+    class EntityType(models.TextChoices):
+        CUSTOMER = 'customer', 'Customer'
+
+    class Operation(models.TextChoices):
+        CREATE = 'create', 'Create'
+        READ = 'read', 'Read'
+        UPDATE = 'update', 'Update'
+
+    class Direction(models.TextChoices):
+        TO_QUICKBOOKS = 'to_quickbooks', 'To QuickBooks'
+        FROM_QUICKBOOKS = 'from_quickbooks', 'From QuickBooks'
+
+    class Status(models.TextChoices):
+        RUNNING = 'running', 'Running'
+        SUCCEEDED = 'succeeded', 'Succeeded'
+        FAILED = 'failed', 'Failed'
+        RESOLVED = 'resolved', 'Resolved'
+
+    connection = models.ForeignKey(
+        QuickBooksConnection,
+        on_delete=models.PROTECT,
+        related_name='sync_attempts',
+    )
+    project = models.ForeignKey(
+        Project,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='quickbooks_sync_attempts',
+    )
+    mapping = models.ForeignKey(
+        QuickBooksProjectCustomerMapping,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='sync_attempts',
+    )
+    entity_type = models.CharField(max_length=20, choices=EntityType.choices)
+    operation = models.CharField(max_length=20, choices=Operation.choices)
+    direction = models.CharField(max_length=20, choices=Direction.choices)
+    status = models.CharField(max_length=20, choices=Status.choices)
+    operation_key = models.UUIDField(default=uuid.uuid4, editable=False)
+    attempt_number = models.PositiveSmallIntegerField(default=1)
+    request_payload = models.JSONField(default=dict, blank=True)
+    response_snapshot = models.JSONField(default=dict, blank=True)
+    external_id = models.CharField(max_length=50, blank=True)
+    external_sync_token = models.CharField(max_length=50, blank=True)
+    error_code = models.CharField(max_length=80, blank=True)
+    error_message = models.CharField(max_length=255, blank=True)
+    retryable = models.BooleanField(default=False)
+    next_retry_at = models.DateTimeField(null=True, blank=True)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='quickbooks_sync_attempts_requested',
+    )
+    started_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    resolution_note = models.CharField(max_length=255, blank=True)
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='quickbooks_sync_attempts_resolved',
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        constraints = [
+            models.UniqueConstraint(
+                fields=('connection', 'operation_key', 'attempt_number'),
+                name='integrations_unique_sync_attempt_number',
+            ),
+            models.UniqueConstraint(
+                fields=('connection', 'entity_type', 'direction'),
+                condition=models.Q(status='running'),
+                name='integrations_unique_running_entity_sync',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=('status', 'next_retry_at'),
+                name='integrations_sync_retry_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f'{self.get_entity_type_display()} {self.get_operation_display()} '
+            f'#{self.attempt_number}: {self.get_status_display()}'
+        )
+
+    @property
+    def request_id(self):
+        return self.operation_key.hex

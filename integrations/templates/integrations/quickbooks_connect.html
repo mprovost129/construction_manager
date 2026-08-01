@@ -75,12 +75,46 @@
                 <h3>{{ project.name }}</h3>
                 {% if mapping %}<p>{{ mapping.quickbooks_display_name }} &middot; Customer {{ mapping.quickbooks_customer_id }} &middot; {{ mapping.connection.display_name }}</p><p>Ownership: QuickBooks authoritative &middot; Conflict rule: QuickBooks wins</p>{% if mapping.last_seen_at %}<p>Last verified {{ mapping.last_seen_at|date:"M j, Y g:i A" }}</p>{% endif %}{% else %}<p>Not mapped to a QuickBooks customer.</p>{% endif %}
             </div>
-            {% if mapping %}<span class="status-pill status-pill--{% if mapping.status == 'active' %}active{% elif mapping.status == 'unlinked' %}completed{% else %}declined{% endif %}">{{ mapping.get_status_display }}</span>
-            <div class="button-row">{% if mapping.status == 'active' %}<form method="post" action="{% url 'integrations:quickbooks_mapping_refresh' mapping.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" type="submit">Refresh</button></form><form method="post" action="{% url 'integrations:quickbooks_mapping_unlink' mapping.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit">Unlink</button></form>{% endif %}</div>{% endif %}
+            {% if mapping %}<span class="status-pill status-pill--{% if mapping.status == 'active' %}active{% elif mapping.status == 'unlinked' %}completed{% else %}declined{% endif %}">{{ mapping.get_status_display }}</span>{% endif %}
+            <div class="button-row">
+                <form method="post" action="{% url 'integrations:quickbooks_customer_sync' project.pk %}" class="integration-sync-form">
+                    {% csrf_token %}
+                    {% if mapping.status == 'active' %}<input type="hidden" name="connection" value="{{ mapping.connection_id }}"><button class="btn btn-sm btn-primary" type="submit">Sync customer</button>
+                    {% else %}<select name="connection" aria-label="QuickBooks company for {{ project.name }}" required>{% for connection in connections %}{% if connection.status == 'connected' %}<option value="{{ connection.pk }}">{{ connection.display_name }}</option>{% endif %}{% endfor %}</select><button class="btn btn-sm btn-primary" type="submit">Create or match customer</button>{% endif %}
+                </form>
+                {% if mapping.status == 'active' %}<form method="post" action="{% url 'integrations:quickbooks_mapping_unlink' mapping.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit">Unlink</button></form>{% endif %}
+            </div>
         </article>
         {% endwith %}{% empty %}<div class="empty-state"><h2>No projects</h2><p>Create a project before adding a QuickBooks customer mapping.</p></div>{% endfor %}
     </div>
 </section>
+
+{% if failed_sync_attempts %}
+<section class="integration-panel" aria-labelledby="sync-errors-heading">
+    <div class="integration-panel__heading"><div><p class="eyebrow">Action required</p><h2 id="sync-errors-heading">Customer sync error queue</h2><p class="text-secondary mb-0">Retry transient failures or document how a permanent issue was resolved.</p></div></div>
+    <div class="integration-list">
+        {% for attempt in failed_sync_attempts %}
+        <article class="integration-row">
+            <div><h3>{{ attempt.project.name|default:"Deleted project" }} &middot; {{ attempt.get_operation_display }}</h3><p>{{ attempt.error_message }} &middot; Code {{ attempt.error_code|default:"unknown" }} &middot; Attempt {{ attempt.attempt_number }}</p>{% if attempt.next_retry_at %}<p>Automatic retry eligible after {{ attempt.next_retry_at|date:"M j, Y g:i A" }}</p>{% endif %}</div>
+            <span class="status-pill status-pill--declined">Failed</span>
+            <div class="integration-error-actions">
+                {% if attempt.retryable %}<form method="post" action="{% url 'integrations:quickbooks_sync_retry' attempt.pk %}">{% csrf_token %}<button class="btn btn-sm btn-primary" type="submit">Retry now</button></form>{% endif %}
+                <form method="post" action="{% url 'integrations:quickbooks_sync_resolve' attempt.pk %}" class="integration-resolution-form">{% csrf_token %}<input type="text" name="resolution_note" maxlength="255" placeholder="Resolution note" required><button class="btn btn-sm btn-outline-secondary" type="submit">Mark resolved</button></form>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{% if recent_sync_attempts %}
+<section class="integration-panel" aria-labelledby="sync-history-heading">
+    <div class="integration-panel__heading"><div><p class="eyebrow">Audit history</p><h2 id="sync-history-heading">Recent customer synchronization</h2></div></div>
+    <div class="integration-list">
+        {% for attempt in recent_sync_attempts %}<article class="integration-row"><div><h3>{{ attempt.project.name|default:"Deleted project" }} &middot; {{ attempt.get_operation_display }}</h3><p>{{ attempt.get_direction_display }} &middot; Attempt {{ attempt.attempt_number }} &middot; {{ attempt.created_at|date:"M j, Y g:i A" }}</p></div><span class="status-pill status-pill--{% if attempt.status == 'succeeded' %}active{% elif attempt.status == 'failed' %}declined{% else %}completed{% endif %}">{{ attempt.get_status_display }}</span><span></span></article>{% endfor %}
+    </div>
+</section>
+{% endif %}
 {% endif %}
 {% elif organizations %}<div class="empty-state"><h2>Choose a company</h2><p>Select the company whose QuickBooks connections you want to manage.</p></div>
 {% else %}<div class="empty-state"><h2>Administrator access required</h2><p>Only company administrators can manage QuickBooks connections.</p></div>{% endif %}

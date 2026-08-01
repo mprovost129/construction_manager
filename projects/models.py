@@ -543,6 +543,18 @@ class ActivityEvent(models.Model):
             'quickbooks_project_mapping_tombstoned',
             'QuickBooks customer mapping tombstoned',
         )
+        QUICKBOOKS_CUSTOMER_SYNC_SUCCEEDED = (
+            'quickbooks_customer_sync_succeeded',
+            'QuickBooks customer sync succeeded',
+        )
+        QUICKBOOKS_CUSTOMER_SYNC_FAILED = (
+            'quickbooks_customer_sync_failed',
+            'QuickBooks customer sync failed',
+        )
+        QUICKBOOKS_SYNC_RESOLVED = (
+            'quickbooks_sync_resolved',
+            'QuickBooks sync issue resolved',
+        )
 
     organization = models.ForeignKey(
         Organization,

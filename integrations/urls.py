@@ -46,6 +46,21 @@ urlpatterns = [
         name='quickbooks_mapping_unlink',
     ),
     path(
+        'quickbooks/customer-sync/projects/<int:project_id>/',
+        views.quickbooks_customer_sync,
+        name='quickbooks_customer_sync',
+    ),
+    path(
+        'quickbooks/sync-attempts/<int:attempt_id>/retry/',
+        views.quickbooks_sync_retry,
+        name='quickbooks_sync_retry',
+    ),
+    path(
+        'quickbooks/sync-attempts/<int:attempt_id>/resolve/',
+        views.quickbooks_sync_resolve,
+        name='quickbooks_sync_resolve',
+    ),
+    path(
         'quickbooks/disconnected/',
         views.quickbooks_disconnected,
         name='quickbooks_disconnected',

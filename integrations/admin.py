@@ -1,6 +1,10 @@
 from django.contrib import admin
 
-from .models import QuickBooksConnection, QuickBooksProjectCustomerMapping
+from .models import (
+    QuickBooksConnection,
+    QuickBooksProjectCustomerMapping,
+    QuickBooksSyncAttempt,
+)
 
 
 @admin.register(QuickBooksConnection)
@@ -83,6 +87,33 @@ class QuickBooksProjectCustomerMappingAdmin(admin.ModelAdmin):
         'unlinked_at',
         'created_at',
         'updated_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(QuickBooksSyncAttempt)
+class QuickBooksSyncAttemptAdmin(admin.ModelAdmin):
+    list_display = (
+        'entity_type',
+        'operation',
+        'project',
+        'connection',
+        'attempt_number',
+        'status',
+        'created_at',
+    )
+    list_filter = ('entity_type', 'operation', 'direction', 'status', 'retryable')
+    search_fields = ('project__name', 'connection__realm_id', 'error_code')
+    readonly_fields = tuple(
+        field.name for field in QuickBooksSyncAttempt._meta.fields
     )
 
     def has_add_permission(self, request):

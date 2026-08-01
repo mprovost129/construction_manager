@@ -300,13 +300,21 @@ def save_project_customer_mapping(*, project, connection, customer, actor):
         )
 
     now = timezone.now()
-    mapping, _ = QuickBooksProjectCustomerMapping.objects.select_for_update().get_or_create(
+    mapping, created = QuickBooksProjectCustomerMapping.objects.select_for_update().get_or_create(
         project=project,
         defaults={
             'connection': connection,
             'quickbooks_customer_id': customer_id,
             'quickbooks_display_name': display_name,
         },
+    )
+    identity_changed = (
+        not created
+        and (
+            mapping.connection_id != connection.pk
+            or mapping.quickbooks_customer_id != customer_id
+            or mapping.status != QuickBooksProjectCustomerMapping.Status.ACTIVE
+        )
     )
     mapping.connection = connection
     mapping.quickbooks_customer_id = customer_id
@@ -320,17 +328,18 @@ def save_project_customer_mapping(*, project, connection, customer, actor):
     mapping.tombstoned_at = None
     mapping.unlinked_at = None
     mapping.save()
-    record_activity(
-        organization=project.organization,
-        project=project,
-        actor=actor,
-        event_type=ActivityEvent.Type.QUICKBOOKS_PROJECT_MAPPED,
-        summary=f'{project.name} was mapped to QuickBooks customer {display_name}.',
-        metadata={
-            'realm_id': connection.realm_id,
-            'quickbooks_customer_id': customer_id,
-        },
-    )
+    if created or identity_changed:
+        record_activity(
+            organization=project.organization,
+            project=project,
+            actor=actor,
+            event_type=ActivityEvent.Type.QUICKBOOKS_PROJECT_MAPPED,
+            summary=f'{project.name} was mapped to QuickBooks customer {display_name}.',
+            metadata={
+                'realm_id': connection.realm_id,
+                'quickbooks_customer_id': customer_id,
+            },
+        )
     return mapping
 
 

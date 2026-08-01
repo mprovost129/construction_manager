@@ -179,6 +179,100 @@ class QuickBooksAccountingClient:
             'Customer',
         )
 
+    def create_customer(self, connection, customer, *, request_id):
+        return self._write_entity(
+            connection,
+            'customer',
+            'Customer',
+            customer,
+            request_id=request_id,
+        )
+
+    def update_customer(self, connection, customer, *, request_id):
+        if not customer.get('Id') or customer.get('SyncToken') is None:
+            raise QuickBooksAPIError(
+                'missing_sync_identity',
+                'A QuickBooks customer update requires its ID and latest sync token.',
+            )
+        payload = dict(customer)
+        payload['sparse'] = True
+        return self._write_entity(
+            connection,
+            'customer',
+            'Customer',
+            payload,
+            request_id=request_id,
+        )
+
+    def find_customers_by_display_name(self, connection, display_name):
+        escaped = str(display_name).replace('\\', '\\\\').replace("'", "\\'")
+        query = (
+            "SELECT * FROM Customer WHERE DisplayName = "
+            f"'{escaped}' MAXRESULTS 2"
+        )
+        return self._query_customers(connection, query)
+
+    def iter_customers(self, connection, *, page_size=100):
+        if page_size < 1 or page_size > 1000:
+            raise ValueError('page_size must be between 1 and 1000.')
+        start_position = 1
+        while True:
+            query = (
+                'SELECT * FROM Customer WHERE Active IN (true, false) '
+                f'STARTPOSITION {start_position} MAXRESULTS {page_size}'
+            )
+            customers = self._query_customers(connection, query)
+            yield from customers
+            if len(customers) < page_size:
+                break
+            start_position += len(customers)
+
+    def _query_customers(self, connection, query):
+        payload = self._request(
+            connection,
+            'query',
+            params={'query': query},
+        )
+        query_response = payload.get('QueryResponse') if isinstance(payload, dict) else None
+        if not isinstance(query_response, dict):
+            raise QuickBooksAPIError(
+                'invalid_api_response',
+                'QuickBooks returned an incomplete customer query response.',
+            )
+        customers = query_response.get('Customer') or []
+        if not isinstance(customers, list) or not all(
+            isinstance(customer, dict) for customer in customers
+        ):
+            raise QuickBooksAPIError(
+                'invalid_api_response',
+                'QuickBooks returned an invalid customer list.',
+            )
+        return customers
+
+    def _write_entity(
+        self,
+        connection,
+        resource,
+        entity_name,
+        entity,
+        *,
+        request_id,
+    ):
+        payload = self._request(
+            connection,
+            resource,
+            method='post',
+            json_body=entity,
+            params={'requestid': request_id},
+        )
+        result = payload.get(entity_name) if isinstance(payload, dict) else None
+        if not isinstance(result, dict):
+            raise QuickBooksAPIError(
+                'invalid_api_response',
+                f'QuickBooks returned incomplete {entity_name} information.',
+            )
+        return result
+
     def _get_entity(self, connection, resource, entity_name):
         payload = self._request(connection, resource)
         entity = payload.get(entity_name) if isinstance(payload, dict) else None
@@ -189,7 +283,16 @@ class QuickBooksAccountingClient:
             )
         return entity
 
-    def _request(self, connection, resource, *, allow_refresh=True):
+    def _request(
+        self,
+        connection,
+        resource,
+        *,
+        method='get',
+        json_body=None,
+        params=None,
+        allow_refresh=True,
+    ):
         if connection.environment != settings.QUICKBOOKS_ENVIRONMENT:
             raise QuickBooksAPIError(
                 'environment_mismatch',
@@ -208,16 +311,21 @@ class QuickBooksAccountingClient:
 
         host = self.HOSTS[connection.environment]
         url = f'{host}/v3/company/{connection.realm_id}/{resource}'
+        request_params = {'minorversion': settings.QUICKBOOKS_MINOR_VERSION}
+        request_params.update(params or {})
+        request_kwargs = {
+            'params': request_params,
+            'headers': {
+                'Accept': 'application/json',
+                'Authorization': f'Bearer {connection.access_token}',
+            },
+            'timeout': settings.QUICKBOOKS_HTTP_TIMEOUT_SECONDS,
+        }
+        if json_body is not None:
+            request_kwargs['json'] = json_body
         try:
-            response = requests.get(
-                url,
-                params={'minorversion': settings.QUICKBOOKS_MINOR_VERSION},
-                headers={
-                    'Accept': 'application/json',
-                    'Authorization': f'Bearer {connection.access_token}',
-                },
-                timeout=settings.QUICKBOOKS_HTTP_TIMEOUT_SECONDS,
-            )
+            request_method = requests.post if method == 'post' else requests.get
+            response = request_method(url, **request_kwargs)
         except requests.RequestException as exc:
             raise QuickBooksAPIError(
                 'api_unavailable',
@@ -227,7 +335,14 @@ class QuickBooksAccountingClient:
 
         if response.status_code == 401 and allow_refresh:
             connection = self._refresh(connection)
-            return self._request(connection, resource, allow_refresh=False)
+            return self._request(
+                connection,
+                resource,
+                method=method,
+                json_body=json_body,
+                params=params,
+                allow_refresh=False,
+            )
 
         try:
             payload = response.json()
@@ -273,6 +388,10 @@ class QuickBooksAccountingClient:
             message = 'This feature is not available for the connected QuickBooks company.'
         elif code == '6190':
             message = 'This QuickBooks subscription is currently read-only.'
+        elif code in {'5010', '2020'}:
+            message = 'The QuickBooks record changed. Refresh it before retrying.'
+        elif code == '6240':
+            message = 'That name is already used by a QuickBooks customer, vendor, or employee.'
         elif code in {'610', '404'} or status_code == 404:
             message = 'The requested QuickBooks record no longer exists.'
         else:
@@ -281,5 +400,8 @@ class QuickBooksAccountingClient:
             code,
             message,
             status_code=status_code,
-            retryable=status_code in {429, 500, 502, 503, 504},
+            retryable=(
+                status_code in {429, 500, 502, 503, 504}
+                or code in {'5010', '2020'}
+            ),
         )
