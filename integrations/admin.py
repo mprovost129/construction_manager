@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     QuickBooksConnection,
+    QuickBooksInvoiceMapping,
     QuickBooksProjectCustomerMapping,
     QuickBooksSyncAttempt,
 )
@@ -87,6 +88,36 @@ class QuickBooksProjectCustomerMappingAdmin(admin.ModelAdmin):
         'unlinked_at',
         'created_at',
         'updated_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(QuickBooksInvoiceMapping)
+class QuickBooksInvoiceMappingAdmin(admin.ModelAdmin):
+    list_display = (
+        'invoice',
+        'quickbooks_doc_number',
+        'connection',
+        'status',
+        'external_balance',
+        'last_seen_at',
+    )
+    list_filter = ('status', 'connection__environment')
+    search_fields = (
+        'invoice__title',
+        'quickbooks_doc_number',
+        'quickbooks_invoice_id',
+    )
+    readonly_fields = tuple(
+        field.name for field in QuickBooksInvoiceMapping._meta.fields
     )
 
     def has_add_permission(self, request):

@@ -179,6 +179,13 @@ class QuickBooksAccountingClient:
             'Customer',
         )
 
+    def get_invoice(self, connection, invoice_id):
+        return self._get_entity(
+            connection,
+            f'invoice/{quote(str(invoice_id), safe="")}',
+            'Invoice',
+        )
+
     def create_customer(self, connection, customer, *, request_id):
         return self._write_entity(
             connection,
@@ -203,6 +210,67 @@ class QuickBooksAccountingClient:
             payload,
             request_id=request_id,
         )
+
+    def create_invoice(self, connection, invoice, *, request_id):
+        self._validate_invoice_create_payload(invoice)
+        return self._write_entity(
+            connection,
+            'invoice',
+            'Invoice',
+            invoice,
+            request_id=request_id,
+        )
+
+    def update_invoice(self, connection, invoice, *, request_id):
+        if not invoice.get('Id') or invoice.get('SyncToken') is None:
+            raise QuickBooksAPIError(
+                'missing_sync_identity',
+                'A QuickBooks invoice update requires its ID and latest sync token.',
+            )
+        payload = dict(invoice)
+        payload['sparse'] = True
+        return self._write_entity(
+            connection,
+            'invoice',
+            'Invoice',
+            payload,
+            request_id=request_id,
+        )
+
+    def void_invoice(self, connection, invoice, *, request_id):
+        if not invoice.get('Id') or invoice.get('SyncToken') is None:
+            raise QuickBooksAPIError(
+                'missing_sync_identity',
+                'Voiding a QuickBooks invoice requires its ID and latest sync token.',
+            )
+        return self._write_entity(
+            connection,
+            'invoice',
+            'Invoice',
+            {
+                'Id': str(invoice['Id']),
+                'SyncToken': str(invoice['SyncToken']),
+            },
+            request_id=request_id,
+            params={'operation': 'void'},
+        )
+
+    @staticmethod
+    def _validate_invoice_create_payload(invoice):
+        customer_ref = invoice.get('CustomerRef') if isinstance(invoice, dict) else None
+        lines = invoice.get('Line') if isinstance(invoice, dict) else None
+        if not isinstance(customer_ref, dict) or not customer_ref.get('value'):
+            raise QuickBooksAPIError(
+                'invalid_invoice_payload',
+                'A QuickBooks invoice requires a mapped customer.',
+            )
+        if not isinstance(lines, list) or not lines or not all(
+            isinstance(line, dict) for line in lines
+        ):
+            raise QuickBooksAPIError(
+                'invalid_invoice_payload',
+                'A QuickBooks invoice requires at least one line item.',
+            )
 
     def find_customers_by_display_name(self, connection, display_name):
         escaped = str(display_name).replace('\\', '\\\\').replace("'", "\\'")
@@ -257,13 +325,21 @@ class QuickBooksAccountingClient:
         entity,
         *,
         request_id,
+        params=None,
     ):
+        if not str(request_id).strip():
+            raise QuickBooksAPIError(
+                'missing_request_id',
+                'A stable request ID is required for QuickBooks writes.',
+            )
+        request_params = dict(params or {})
+        request_params['requestid'] = str(request_id)
         payload = self._request(
             connection,
             resource,
             method='post',
             json_body=entity,
-            params={'requestid': request_id},
+            params=request_params,
         )
         result = payload.get(entity_name) if isinstance(payload, dict) else None
         if not isinstance(result, dict):
@@ -392,6 +468,8 @@ class QuickBooksAccountingClient:
             message = 'The QuickBooks record changed. Refresh it before retrying.'
         elif code == '6240':
             message = 'That name is already used by a QuickBooks customer, vendor, or employee.'
+        elif code == '6450':
+            message = 'QuickBooks could not void this invoice because it is already settled.'
         elif code in {'610', '404'} or status_code == 404:
             message = 'The requested QuickBooks record no longer exists.'
         else:

@@ -555,6 +555,10 @@ class ActivityEvent(models.Model):
             'quickbooks_sync_resolved',
             'QuickBooks sync issue resolved',
         )
+        QUICKBOOKS_INVOICE_MAPPED = (
+            'quickbooks_invoice_mapped',
+            'QuickBooks invoice mapped',
+        )
         INVOICE_DRAFT_CREATED = (
             'invoice_draft_created',
             'Invoice draft created',

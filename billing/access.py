@@ -36,7 +36,11 @@ def invoice_project_or_404(user, project_id):
 
 
 def visible_invoices(user, project):
-    invoices = project.invoices.select_related('created_by', 'issued_by')
+    invoices = project.invoices.select_related(
+        'created_by',
+        'issued_by',
+        'quickbooks_mapping__connection',
+    )
     if is_project_client(user, project):
         invoices = invoices.exclude(status=Invoice.Status.DRAFT)
     return invoices
@@ -52,4 +56,3 @@ def visible_invoice_or_404(user, project, invoice_id):
 def require_invoice_manager(user, project):
     if not can_manage_project(user, project):
         raise PermissionDenied('You cannot manage invoices for this project.')
-

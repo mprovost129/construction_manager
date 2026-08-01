@@ -1,9 +1,11 @@
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
+from billing.models import Invoice
 from projects.models import Organization, Project
 
 from .crypto import decrypt_token, encrypt_token
@@ -180,14 +182,170 @@ class QuickBooksProjectCustomerMapping(models.Model):
         self.unlinked_at = timezone.now()
 
 
+class QuickBooksInvoiceMapping(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = 'active', 'Active'
+        VOIDED = 'voided', 'Voided in QuickBooks'
+        TOMBSTONED = 'tombstoned', 'Removed in QuickBooks'
+
+    class OwnershipPolicy(models.TextChoices):
+        QUICKBOOKS_AUTHORITATIVE = (
+            'quickbooks_authoritative',
+            'QuickBooks is authoritative after first sync',
+        )
+
+    invoice = models.OneToOneField(
+        Invoice,
+        on_delete=models.PROTECT,
+        related_name='quickbooks_mapping',
+    )
+    connection = models.ForeignKey(
+        QuickBooksConnection,
+        on_delete=models.PROTECT,
+        related_name='invoice_mappings',
+    )
+    quickbooks_invoice_id = models.CharField(max_length=50)
+    quickbooks_sync_token = models.CharField(max_length=50)
+    quickbooks_customer_id = models.CharField(max_length=50)
+    quickbooks_doc_number = models.CharField(max_length=50, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+    )
+    ownership_policy = models.CharField(
+        max_length=40,
+        choices=OwnershipPolicy.choices,
+        default=OwnershipPolicy.QUICKBOOKS_AUTHORITATIVE,
+    )
+    conflict_policy = models.CharField(
+        max_length=40,
+        default='quickbooks_wins',
+        editable=False,
+    )
+    external_total_amount = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    external_balance = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    external_txn_date = models.DateField(null=True, blank=True)
+    external_due_date = models.DateField(null=True, blank=True)
+    currency_code = models.CharField(max_length=10, blank=True)
+    last_synced_values = models.JSONField(default=dict, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    external_voided_at = models.DateTimeField(null=True, blank=True)
+    tombstoned_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-last_synced_at', '-pk')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('connection', 'quickbooks_invoice_id'),
+                name='integrations_unique_quickbooks_invoice',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(external_total_amount__isnull=True)
+                    | models.Q(external_total_amount__gte=0)
+                ),
+                name='integrations_qbo_invoice_total_nonnegative',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(external_balance__isnull=True)
+                    | models.Q(external_balance__gte=0)
+                ),
+                name='integrations_qbo_invoice_balance_nonnegative',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.invoice_id and self.connection_id:
+            if self.invoice.organization_id != self.connection.organization_id:
+                errors['connection'] = (
+                    'The invoice and QuickBooks connection must belong to the same company.'
+                )
+            if self.invoice.status == Invoice.Status.DRAFT:
+                errors['invoice'] = 'Draft invoices cannot have a QuickBooks identity.'
+            customer_mapping = QuickBooksProjectCustomerMapping.objects.filter(
+                project_id=self.invoice.project_id,
+                connection_id=self.connection_id,
+                status=QuickBooksProjectCustomerMapping.Status.ACTIVE,
+            ).first()
+            if not customer_mapping:
+                errors['connection'] = (
+                    'Map the invoice project to an active QuickBooks customer first.'
+                )
+            elif (
+                self.quickbooks_customer_id
+                and self.quickbooks_customer_id
+                != customer_mapping.quickbooks_customer_id
+            ):
+                errors['quickbooks_customer_id'] = (
+                    'The QuickBooks invoice customer must match the project mapping.'
+                )
+        if not self.quickbooks_invoice_id.strip():
+            errors['quickbooks_invoice_id'] = 'QuickBooks invoice ID is required.'
+        if not self.quickbooks_sync_token.strip():
+            errors['quickbooks_sync_token'] = 'QuickBooks sync token is required.'
+        if not self.quickbooks_customer_id.strip():
+            errors['quickbooks_customer_id'] = 'QuickBooks customer ID is required.'
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            original = type(self).objects.filter(pk=self.pk).values(
+                'invoice_id',
+                'connection_id',
+                'quickbooks_invoice_id',
+            ).first()
+            immutable_fields = (
+                'invoice_id',
+                'connection_id',
+                'quickbooks_invoice_id',
+            )
+            if original and any(
+                original[field] != getattr(self, field) for field in immutable_fields
+            ):
+                raise ValidationError('QuickBooks invoice identity is immutable.')
+        return super().save(*args, **kwargs)
+
+    def mark_voided(self):
+        self.status = self.Status.VOIDED
+        self.external_voided_at = timezone.now()
+
+    def mark_tombstoned(self):
+        self.status = self.Status.TOMBSTONED
+        self.tombstoned_at = timezone.now()
+
+    def __str__(self):
+        reference = self.quickbooks_doc_number or self.quickbooks_invoice_id
+        return f'{self.invoice.display_number} -> QuickBooks invoice {reference}'
+
+
 class QuickBooksSyncAttempt(models.Model):
     class EntityType(models.TextChoices):
         CUSTOMER = 'customer', 'Customer'
+        INVOICE = 'invoice', 'Invoice'
 
     class Operation(models.TextChoices):
         CREATE = 'create', 'Create'
         READ = 'read', 'Read'
         UPDATE = 'update', 'Update'
+        VOID = 'void', 'Void'
 
     class Direction(models.TextChoices):
         TO_QUICKBOOKS = 'to_quickbooks', 'To QuickBooks'
@@ -213,6 +371,20 @@ class QuickBooksSyncAttempt(models.Model):
     )
     mapping = models.ForeignKey(
         QuickBooksProjectCustomerMapping,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='sync_attempts',
+    )
+    invoice = models.ForeignKey(
+        Invoice,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='quickbooks_sync_attempts',
+    )
+    invoice_mapping = models.ForeignKey(
+        QuickBooksInvoiceMapping,
         null=True,
         blank=True,
         on_delete=models.SET_NULL,

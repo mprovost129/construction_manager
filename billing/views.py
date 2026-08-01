@@ -190,6 +190,11 @@ class InvoiceDetailView(LoginRequiredMixin, TemplateView):
                     f'{reverse("projects:message_create", args=(self.project.pk,))}'
                     f'?{urlencode({"subject": question_subject})}'
                 ),
+                'quickbooks_mapping': (
+                    getattr(self.invoice, 'quickbooks_mapping', None)
+                    if can_manage
+                    else None
+                ),
             }
         )
         return context
