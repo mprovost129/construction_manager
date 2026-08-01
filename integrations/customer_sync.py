@@ -115,6 +115,38 @@ def start_project_customer_sync(
     return execute_customer_sync_attempt(attempt.pk, api_client=api_client)
 
 
+def start_project_customer_update(*, project_id, actor, api_client=None):
+    project = Project.objects.select_related('organization').get(pk=project_id)
+    mapping = QuickBooksProjectCustomerMapping.objects.select_related('connection').filter(
+        project=project,
+        status=QuickBooksProjectCustomerMapping.Status.ACTIVE,
+    ).first()
+    if not mapping:
+        raise QuickBooksSyncError(
+            'Map this project to an active QuickBooks customer before updating it.'
+        )
+    connection = mapping.connection
+    if connection.status != QuickBooksConnection.Status.CONNECTED:
+        raise QuickBooksSyncError('Reconnect QuickBooks before updating this customer.')
+    display_name = project.name.strip()
+    if not display_name:
+        raise QuickBooksSyncError('The project needs a name before updating QuickBooks.')
+
+    attempt = _create_running_attempt(
+        connection=connection,
+        project=project,
+        mapping=mapping,
+        operation=QuickBooksSyncAttempt.Operation.UPDATE,
+        direction=QuickBooksSyncAttempt.Direction.TO_QUICKBOOKS,
+        request_payload={
+            'Id': mapping.quickbooks_customer_id,
+            'DisplayName': display_name[:255],
+        },
+        actor=actor,
+    )
+    return execute_customer_sync_attempt(attempt.pk, api_client=api_client)
+
+
 def execute_customer_sync_attempt(attempt_id, *, api_client=None):
     attempt = QuickBooksSyncAttempt.objects.select_related(
         'connection', 'project__organization', 'mapping'
@@ -150,16 +182,7 @@ def _perform_customer_operation(attempt, api_client):
             attempt.request_payload['customer_id'],
         )
     if attempt.operation == QuickBooksSyncAttempt.Operation.CREATE:
-        if attempt.connection.capabilities_checked_at is None:
-            raise QuickBooksAPIError(
-                'capabilities_unknown',
-                'Refresh QuickBooks company information before creating a customer.',
-            )
-        if not attempt.connection.capabilities.get('accounting_write', True):
-            raise QuickBooksAPIError(
-                '6190',
-                'This QuickBooks subscription is currently read-only.',
-            )
+        _require_accounting_write(attempt.connection)
         display_name = attempt.request_payload['DisplayName']
         matches = api_client.find_customers_by_display_name(
             attempt.connection,
@@ -173,6 +196,7 @@ def _perform_customer_operation(attempt, api_client):
             request_id=attempt.request_id,
         )
     if attempt.operation == QuickBooksSyncAttempt.Operation.UPDATE:
+        _require_accounting_write(attempt.connection)
         latest = api_client.get_customer(
             attempt.connection,
             attempt.request_payload['Id'],
@@ -183,6 +207,12 @@ def _perform_customer_operation(attempt, api_client):
                 'QuickBooks returned a customer without a sync token.',
             )
         payload = dict(attempt.request_payload)
+        if all(
+            latest.get(key) == value
+            for key, value in payload.items()
+            if key not in {'Id', 'SyncToken'}
+        ):
+            return latest
         payload['SyncToken'] = latest['SyncToken']
         return api_client.update_customer(
             attempt.connection,
@@ -190,6 +220,19 @@ def _perform_customer_operation(attempt, api_client):
             request_id=attempt.request_id,
         )
     raise QuickBooksSyncError('Unsupported customer synchronization operation.')
+
+
+def _require_accounting_write(connection):
+    if connection.capabilities_checked_at is None:
+        raise QuickBooksAPIError(
+            'capabilities_unknown',
+            'Refresh QuickBooks company information before changing a customer.',
+        )
+    if not connection.capabilities.get('accounting_write', True):
+        raise QuickBooksAPIError(
+            '6190',
+            'This QuickBooks subscription is currently read-only.',
+        )
 
 
 @transaction.atomic

@@ -16,6 +16,7 @@ from integrations.customer_sync import (
     resolve_customer_sync_attempt,
     retry_customer_sync_attempt,
     start_project_customer_sync,
+    start_project_customer_update,
 )
 from integrations.models import (
     QuickBooksConnection,
@@ -401,6 +402,91 @@ class QuickBooksCustomerSyncTests(TestCase):
         update_payload = api.update_customer.call_args.args[1]
         self.assertEqual(update_payload['SyncToken'], '7')
 
+    def test_explicit_update_sends_project_name_to_mapped_customer(self):
+        mapping = save_project_customer_mapping(
+            project=self.project,
+            connection=self.connection,
+            customer=customer(),
+            actor=self.admin,
+        )
+        self.project.name = 'Updated Residence'
+        self.project.save(update_fields=['name'])
+        api = Mock()
+        api.get_customer.return_value = customer(sync_token='7')
+        api.update_customer.return_value = customer(
+            name='Updated Residence',
+            sync_token='8',
+        )
+
+        attempt = start_project_customer_update(
+            project_id=self.project.pk,
+            actor=self.admin,
+            api_client=api,
+        )
+
+        mapping.refresh_from_db()
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
+        self.assertEqual(attempt.operation, QuickBooksSyncAttempt.Operation.UPDATE)
+        payload = api.update_customer.call_args.args[1]
+        self.assertEqual(payload['Id'], '42')
+        self.assertEqual(payload['DisplayName'], 'Updated Residence')
+        self.assertEqual(payload['SyncToken'], '7')
+        self.assertEqual(
+            api.update_customer.call_args.kwargs['request_id'],
+            attempt.request_id,
+        )
+        self.assertEqual(mapping.quickbooks_display_name, 'Updated Residence')
+
+    def test_explicit_update_skips_write_when_name_already_matches(self):
+        mapping = save_project_customer_mapping(
+            project=self.project,
+            connection=self.connection,
+            customer=customer(),
+            actor=self.admin,
+        )
+        api = Mock()
+        api.get_customer.return_value = customer(sync_token='7')
+
+        attempt = start_project_customer_update(
+            project_id=self.project.pk,
+            actor=self.admin,
+            api_client=api,
+        )
+
+        mapping.refresh_from_db()
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
+        api.update_customer.assert_not_called()
+        self.assertEqual(mapping.quickbooks_sync_token, '7')
+
+    def test_explicit_update_requires_active_mapping(self):
+        with self.assertRaisesMessage(QuickBooksSyncError, 'Map this project'):
+            start_project_customer_update(
+                project_id=self.project.pk,
+                actor=self.admin,
+                api_client=Mock(),
+            )
+
+    def test_explicit_update_respects_read_only_capability(self):
+        save_project_customer_mapping(
+            project=self.project,
+            connection=self.connection,
+            customer=customer(),
+            actor=self.admin,
+        )
+        self.connection.capabilities = {'accounting_write': False}
+        self.connection.save(update_fields=['capabilities'])
+        api = Mock()
+
+        attempt = start_project_customer_update(
+            project_id=self.project.pk,
+            actor=self.admin,
+            api_client=api,
+        )
+
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.FAILED)
+        self.assertEqual(attempt.error_code, '6190')
+        api.get_customer.assert_not_called()
+
     def test_running_project_sync_prevents_concurrent_duplicate(self):
         other_project = Project.objects.create(
             organization=self.organization,
@@ -476,6 +562,60 @@ class QuickBooksCustomerSyncTests(TestCase):
             {'connection': self.connection.pk},
         )
         self.assertEqual(response.status_code, 403)
+
+    @patch('integrations.views.start_project_customer_update')
+    def test_admin_can_start_explicit_customer_update(self, start_update):
+        save_project_customer_mapping(
+            project=self.project,
+            connection=self.connection,
+            customer=customer(),
+            actor=self.admin,
+        )
+        start_update.return_value = QuickBooksSyncAttempt.objects.create(
+            connection=self.connection,
+            project=self.project,
+            entity_type=QuickBooksSyncAttempt.EntityType.CUSTOMER,
+            operation=QuickBooksSyncAttempt.Operation.UPDATE,
+            direction=QuickBooksSyncAttempt.Direction.TO_QUICKBOOKS,
+            status=QuickBooksSyncAttempt.Status.SUCCEEDED,
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse('integrations:quickbooks_customer_update', args=(self.project.pk,)),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        start_update.assert_called_once_with(
+            project_id=self.project.pk,
+            actor=self.admin,
+        )
+
+    def test_non_admin_cannot_start_explicit_customer_update(self):
+        self.client.force_login(self.staff)
+        response = self.client.post(
+            reverse('integrations:quickbooks_customer_update', args=(self.project.pk,)),
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_outbound_update_button_is_disabled_for_read_only_company(self):
+        save_project_customer_mapping(
+            project=self.project,
+            connection=self.connection,
+            customer=customer(),
+            actor=self.admin,
+        )
+        self.connection.capabilities = {'accounting_write': False}
+        self.connection.save(update_fields=['capabilities'])
+        self.client.force_login(self.admin)
+
+        response = self.client.get(
+            reverse('integrations:quickbooks_connect'),
+            {'organization': self.organization.slug},
+        )
+
+        self.assertContains(response, 'Send project name to QuickBooks')
+        self.assertContains(response, 'aria-disabled="true"')
 
     def test_failed_attempt_appears_in_admin_error_queue(self):
         QuickBooksSyncAttempt.objects.create(

@@ -19,6 +19,7 @@ from .customer_sync import (
     resolve_customer_sync_attempt,
     retry_customer_sync_attempt,
     start_project_customer_sync,
+    start_project_customer_update,
 )
 from .forms import QuickBooksProjectCustomerMappingForm
 from .models import (
@@ -371,6 +372,33 @@ def quickbooks_customer_sync(request, project_id):
     else:
         if attempt.status == QuickBooksSyncAttempt.Status.SUCCEEDED:
             messages.success(request, 'QuickBooks customer synchronization succeeded.')
+        else:
+            messages.error(request, attempt.error_message)
+    return _connect_redirect(project.organization)
+
+
+@login_required
+@require_POST
+def quickbooks_customer_update(request, project_id):
+    project = get_object_or_404(
+        Project.objects.select_related('organization'),
+        pk=project_id,
+    )
+    if not can_manage_organization(request.user, project.organization):
+        raise PermissionDenied('Only company administrators can update customers.')
+    try:
+        attempt = start_project_customer_update(
+            project_id=project.pk,
+            actor=request.user,
+        )
+    except QuickBooksSyncError as exc:
+        messages.error(request, str(exc))
+    else:
+        if attempt.status == QuickBooksSyncAttempt.Status.SUCCEEDED:
+            messages.success(
+                request,
+                'The project name was sent to the mapped QuickBooks customer.',
+            )
         else:
             messages.error(request, attempt.error_message)
     return _connect_redirect(project.organization)

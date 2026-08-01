@@ -51,6 +51,11 @@ urlpatterns = [
         name='quickbooks_customer_sync',
     ),
     path(
+        'quickbooks/customer-sync/projects/<int:project_id>/update/',
+        views.quickbooks_customer_update,
+        name='quickbooks_customer_update',
+    ),
+    path(
         'quickbooks/sync-attempts/<int:attempt_id>/retry/',
         views.quickbooks_sync_retry,
         name='quickbooks_sync_retry',

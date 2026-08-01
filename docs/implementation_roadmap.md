@@ -146,12 +146,13 @@ These decisions govern remaining implementation work:
   flags, stable Project-to-QuickBooks-Customer mappings, sync tokens, last-known values,
   tombstones, and explicit entity ownership/conflict policies. QuickBooks Projects/Jobs
   are rejected as mapping targets.
-- Administrator-triggered QuickBooks Customer create-or-match and refresh actions, durable
-  attempts, serialized per-company synchronization, stable write request IDs, current-sync-token
-  updates, query pagination, throttling-aware retry scheduling, inactive-record tombstones, and an
-  administrator retry/resolution queue. Deferred retries are exposed through the
+- Administrator-triggered QuickBooks Customer create-or-match, QuickBooks-authoritative refresh,
+  and explicit project-name-to-customer update actions; durable attempts; serialized per-company
+  synchronization; stable write request IDs; current-sync-token updates; query pagination;
+  throttling-aware retry scheduling; inactive-record tombstones; and an administrator
+  retry/resolution queue. Deferred retries are exposed through the
   `retry_quickbooks_syncs` management command.
-- Current automated baseline: 211 passing tests, Ruff clean, no pending migrations,
+- Current automated baseline: 218 passing tests, Ruff clean, no pending migrations,
   and build-settings `collectstatic` passing as of this update. Django's expected
   development warning remains when QuickBooks credentials are intentionally unset.
 
@@ -212,7 +213,7 @@ Current questionnaire truth as of this update:
 
 | Question | Accurate answer today |
 | --- | --- |
-| API calls per customer | There is no periodic customer polling. Initial manual sync makes one exact-name Customer query plus, only when no match exists, one Customer create. A mapped manual sync makes one Customer read. A retry repeats the applicable operation; create retries reuse the same Intuit `requestid`. Due retryable failures run only when `retry_quickbooks_syncs` is scheduled. Company refresh makes two reads (`CompanyInfo` and Preferences), and an expired access token adds one token-refresh call. |
+| API calls per customer | There is no periodic customer polling. Initial manual sync makes one exact-name Customer query plus, only when no match exists, one Customer create. A mapped manual refresh makes one Customer read. The separate outbound name update makes one Customer read and, only when the names differ, one sparse Customer update. A retry repeats the applicable operation; writes reuse the same Intuit `requestid`. Due retryable failures run only when `retry_quickbooks_syncs` is scheduled. Company refresh makes two reads (`CompanyInfo` and Preferences), and an expired access token adds one token-refresh call. |
 | Handles QBO edition feature gains/losses | Not yet a portal “Yes.” Subscription/preference capability changes and feature-not-supported errors are handled without deleting data, but the sandbox edition matrix remains. |
 | Uses webhooks | No |
 | Uses CDC | No |
@@ -287,8 +288,9 @@ Customer slice delivered:
 - [ ] Verify create, existing-name match, refresh, inactive/missing customer, duplicate request,
   stale token, subscription downgrade, and throttling behavior against live Intuit sandbox
   companies.
-- [ ] Add the approved local-to-QuickBooks update workflow for already mapped customers; the API
-  primitive exists, but the current administrator action deliberately refreshes from QuickBooks.
+- [x] Add an explicit administrator action that sends the current local project name to an already
+  mapped QuickBooks customer. Normal sync remains QuickBooks-authoritative; the outbound action
+  re-reads the customer, uses its latest `SyncToken`, and skips the write when the names match.
 - [ ] Implement invoices, credit memos, and payments. These remain disabled until their local
   accounting models and reconciliation rules exist.
 
