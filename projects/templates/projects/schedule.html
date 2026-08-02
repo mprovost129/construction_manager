@@ -17,7 +17,7 @@
         <h1>Schedule</h1>
         <p class="text-secondary mb-0">Internal milestones and target date ranges for assigned project users.</p>
     </div>
-    {% if can_manage_project %}
+    {% if can_manage_schedule %}
     <a class="btn btn-primary" href="{% url 'projects:schedule_milestone_create' project.pk %}">
         <i class="bi bi-plus-lg" aria-hidden="true"></i> Add milestone
     </a>
@@ -64,14 +64,14 @@
                         <time datetime="{{ day.date|date:'Y-m-d' }}" aria-label="{{ day.date|date:'F j, Y' }}">{{ day.date.day }}</time>
                         <div class="schedule-calendar__events">
                             {% for event in day.events %}
-                            {% if can_manage_project %}
+                            {% if can_manage_schedule %}
                             <a class="schedule-calendar__event schedule-calendar__event--{{ event.milestone.status }}" href="{% url 'projects:schedule_milestone_edit' project.pk event.milestone.pk %}" title="{{ event.milestone.title }} - {{ event.milestone.get_status_display }}" aria-label="{{ event.milestone.title }}, {{ event.milestone.get_status_display }}">
                             {% else %}
                             <span class="schedule-calendar__event schedule-calendar__event--{{ event.milestone.status }}" role="group" title="{{ event.milestone.title }} - {{ event.milestone.get_status_display }}" aria-label="{{ event.milestone.title }}, {{ event.milestone.get_status_display }}">
                             {% endif %}
                                 <strong>{{ event.milestone.title }}</strong>
                                 {% if event.is_start and event.is_end %}<small>One day</small>{% elif event.is_start %}<small>Starts</small>{% elif event.is_end %}<small>Ends</small>{% endif %}
-                            {% if can_manage_project %}</a>{% else %}</span>{% endif %}
+                            {% if can_manage_schedule %}</a>{% else %}</span>{% endif %}
                             {% endfor %}
                         </div>
                     </td>
@@ -124,7 +124,7 @@
                 </header>
                 {% if milestone.description %}<div class="schedule-milestone__description">{{ milestone.description|linebreaks }}</div>{% endif %}
                 {% if can_manage_project and milestone.internal_notes %}<div class="schedule-milestone__internal"><strong>Internal notes</strong>{{ milestone.internal_notes|linebreaks }}</div>{% endif %}
-                {% if can_manage_project %}<footer><a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:schedule_milestone_edit' project.pk milestone.pk %}"><i class="bi bi-pencil" aria-hidden="true"></i> Edit milestone</a></footer>{% endif %}
+                {% if can_manage_schedule %}<footer><a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:schedule_milestone_edit' project.pk milestone.pk %}"><i class="bi bi-pencil" aria-hidden="true"></i> Edit milestone</a></footer>{% endif %}
             </div>
         </article>
         {% endfor %}
@@ -134,8 +134,8 @@
 <div class="empty-state schedule-empty-state">
     <i class="bi bi-calendar3" aria-hidden="true"></i>
     <h2>No schedule milestones yet</h2>
-    <p>{% if can_manage_project %}Add the first milestone or date range for this project.{% else %}No schedule milestones have been added yet.{% endif %}</p>
-    {% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:schedule_milestone_create' project.pk %}">Add milestone</a>{% endif %}
+    <p>{% if can_manage_schedule %}Add the first milestone or date range for this project.{% else %}No schedule milestones have been added yet.{% endif %}</p>
+    {% if can_manage_schedule %}<a class="btn btn-primary" href="{% url 'projects:schedule_milestone_create' project.pk %}">Add milestone</a>{% endif %}
 </div>
 {% endif %}
 {% endblock %}

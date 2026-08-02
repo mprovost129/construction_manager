@@ -23,6 +23,7 @@ from .access import (
     can_invite_clients,
     can_manage_organization,
     can_manage_project,
+    can_manage_schedule,
     can_use_action_center,
     can_use_change_orders,
     can_use_project_documents,
@@ -2772,6 +2773,9 @@ class ProjectScheduleView(LoginRequiredMixin, TemplateView):
                 'can_manage_project': can_manage_project(
                     self.request.user, self.project
                 ),
+                'can_manage_schedule': can_manage_schedule(
+                    self.request.user, self.project
+                ),
             }
         )
         return context
@@ -2782,7 +2786,11 @@ class ScheduleMilestoneCreateView(LoginRequiredMixin, FormView):
     template_name = 'projects/schedule_milestone_form.html'
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        self.project = schedule_project_or_404(request.user, kwargs['pk'])
+        if not can_manage_schedule(request.user, self.project):
+            raise PermissionDenied(
+                'Only administrators, managers, and project managers can manage the schedule.'
+            )
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
@@ -2824,7 +2832,11 @@ class ScheduleMilestoneUpdateView(LoginRequiredMixin, FormView):
     template_name = 'projects/schedule_milestone_form.html'
 
     def dispatch(self, request, *args, **kwargs):
-        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        self.project = schedule_project_or_404(request.user, kwargs['pk'])
+        if not can_manage_schedule(request.user, self.project):
+            raise PermissionDenied(
+                'Only administrators, managers, and project managers can manage the schedule.'
+            )
         self.milestone = get_object_or_404(
             ScheduleMilestone,
             project=self.project,

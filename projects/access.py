@@ -160,5 +160,19 @@ def can_use_schedule(user, project):
     )
 
 
+def can_manage_schedule(user, project):
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    membership = organization_membership_for(user, project.organization)
+    return bool(
+        membership
+        and membership.is_internal
+        and membership.role in MANAGEMENT_ROLES
+        and projects_for_user(user).filter(pk=project.pk).exists()
+    )
+
+
 def can_use_action_center(user, project):
     return can_use_project_messaging(user, project)

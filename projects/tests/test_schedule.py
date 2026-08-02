@@ -37,6 +37,9 @@ class ProjectScheduleTests(TestCase):
         cls.staff_user = get_user_model().objects.create_user(
             'staff@example.com', 'password'
         )
+        cls.manager_user = get_user_model().objects.create_user(
+            'manager@example.com', 'password'
+        )
         cls.accountant = get_user_model().objects.create_user(
             'accountant@example.com', 'password'
         )
@@ -52,6 +55,7 @@ class ProjectScheduleTests(TestCase):
         for user, role in (
             (cls.admin_user, OrganizationMembership.Role.ADMIN),
             (cls.staff_user, OrganizationMembership.Role.STAFF),
+            (cls.manager_user, OrganizationMembership.Role.MANAGER),
             (cls.accountant, OrganizationMembership.Role.ACCOUNTANT),
             (cls.client_user, OrganizationMembership.Role.CLIENT),
             (cls.second_client, OrganizationMembership.Role.CLIENT),
@@ -69,6 +73,7 @@ class ProjectScheduleTests(TestCase):
                 project=cls.project, user=user, role=role
             )
         grant_internal_access(cls.staff_user, cls.project, cls.other_project)
+        grant_internal_access(cls.manager_user, cls.project, cls.other_project)
         grant_internal_access(
             cls.accountant,
             cls.project,
@@ -102,8 +107,8 @@ class ProjectScheduleTests(TestCase):
             created_by=self.admin_user,
         )
 
-    def test_staff_creates_internal_milestone_without_client_email(self):
-        self.client.force_login(self.staff_user)
+    def test_manager_creates_internal_milestone_without_client_email(self):
+        self.client.force_login(self.manager_user)
         response = self.client.post(
             reverse('projects:schedule_milestone_create', args=(self.project.pk,)),
             self.form_data(),
@@ -113,12 +118,12 @@ class ProjectScheduleTests(TestCase):
         self.assertRedirects(
             response, reverse('projects:schedule', args=(self.project.pk,))
         )
-        self.assertEqual(milestone.created_by, self.staff_user)
+        self.assertEqual(milestone.created_by, self.manager_user)
         self.assertFalse(milestone.client_visible)
         self.assertTrue(
             ActivityEvent.objects.filter(
                 event_type=ActivityEvent.Type.SCHEDULE_MILESTONE_CREATED,
-                actor=self.staff_user,
+                actor=self.manager_user,
             ).exists()
         )
 
@@ -203,15 +208,27 @@ class ProjectScheduleTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
-    def test_staff_sees_internal_notes_and_edit_control(self):
+    def test_manager_sees_internal_notes_and_edit_control(self):
         milestone = self.create_milestone()
-        self.client.force_login(self.staff_user)
+        self.client.force_login(self.manager_user)
         response = self.client.get(
             reverse('projects:schedule', args=(self.project.pk,))
         )
 
         self.assertContains(response, milestone.internal_notes)
         self.assertContains(response, 'Edit milestone')
+
+    def test_staff_has_read_only_schedule_access(self):
+        milestone = self.create_milestone()
+        self.client.force_login(self.staff_user)
+        response = self.client.get(
+            reverse('projects:schedule', args=(self.project.pk,))
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, milestone.internal_notes)
+        self.assertNotContains(response, 'Add milestone')
+        self.assertNotContains(response, 'Edit milestone')
 
     def test_end_date_before_start_date_is_rejected(self):
         self.client.force_login(self.admin_user)
@@ -244,7 +261,7 @@ class ProjectScheduleTests(TestCase):
             ).exists()
         )
 
-    def test_client_accountant_and_subcontractor_cannot_manage_schedule(self):
+    def test_staff_client_accountant_and_subcontractor_cannot_manage_schedule(self):
         milestone = self.create_milestone()
         create_url = reverse(
             'projects:schedule_milestone_create', args=(self.project.pk,)
@@ -253,7 +270,12 @@ class ProjectScheduleTests(TestCase):
             'projects:schedule_milestone_edit',
             args=(self.project.pk, milestone.pk),
         )
-        for user in (self.client_user, self.accountant, self.subcontractor):
+        for user in (
+            self.staff_user,
+            self.client_user,
+            self.accountant,
+            self.subcontractor,
+        ):
             self.client.force_login(user)
             self.assertEqual(self.client.get(create_url).status_code, 403)
             self.assertEqual(self.client.get(edit_url).status_code, 403)

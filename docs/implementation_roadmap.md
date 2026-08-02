@@ -134,6 +134,7 @@ These decisions govern remaining implementation work:
 
 - Internal milestone list and calendar views.
 - Start/end dates, status, notes, ordering, create, and update workflows.
+- Schedule creation and updates are restricted to Admin, Manager, and Project Manager roles.
 - Schedule is unavailable to clients, accountants, and subcontractors.
 
 ### Invoices
@@ -198,7 +199,6 @@ These decisions govern remaining implementation work:
 
 ### Schedule and notifications
 
-- Restrict schedule creation and updates to the confirmed Admin, Manager, and Project Manager policy; the current assigned-internal-user access is broader.
 - Add milestone dependencies and dependency-aware date changes.
 - Add recurring schedule items.
 - Add external calendar integration.
