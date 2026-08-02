@@ -31,6 +31,7 @@ from .access import (
     can_use_project_messaging,
     can_use_schedule,
     can_use_selections,
+    can_view_project_budget,
     internal_organizations_for_user,
     is_project_client,
     organization_membership_for,
@@ -55,6 +56,7 @@ from .forms import (
     EstimateVoidForm,
     FinishSelectionForm,
     InvitationSignupForm,
+    ProjectCostEntryForm,
     ProjectDocumentCreateForm,
     ProjectDocumentVersionForm,
     ProjectForm,
@@ -84,6 +86,7 @@ from .models import (
     OrganizationInvitation,
     OrganizationMembership,
     Project,
+    ProjectCostEntry,
     ProjectDocument,
     ProjectDocumentVersion,
     ProjectInternalAccess,
@@ -102,9 +105,11 @@ from .schedule_calendar import (
 from .services import (
     accept_organization_invitation,
     accept_project_invitation,
+    delete_cost_entry,
     document_client_recipients,
     evaluate_approval_progress,
     record_activity,
+    record_cost_entry,
     send_change_order_decision_notification,
     send_change_order_review_notification,
     send_change_order_voided_notification,
@@ -405,17 +410,71 @@ class ProjectFinancialSummaryView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         viewer_is_client = is_project_client(self.request.user, self.project)
+        can_view_budget = can_view_project_budget(self.request.user, self.project)
         summary = project_financial_summary(
-            self.project, include_costs=not viewer_is_client
+            self.project, include_costs=can_view_budget
         )
         context.update(
             {
                 'project': self.project,
                 'summary': summary,
                 'viewer_is_client': viewer_is_client,
+                'can_view_budget': can_view_budget,
+                'can_manage_project': can_manage_project(
+                    self.request.user, self.project
+                ),
+                'cost_entries': (
+                    self.project.cost_entries.select_related('cost_code', 'recorded_by')
+                    if can_view_budget
+                    else ()
+                ),
             }
         )
         return context
+
+
+class ProjectCostEntryCreateView(LoginRequiredMixin, FormView):
+    form_class = ProjectCostEntryForm
+    template_name = 'projects/project_cost_entry_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['organization'] = self.project.organization
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['project'] = self.project
+        return context
+
+    def form_valid(self, form):
+        record_cost_entry(
+            project=self.project,
+            actor=self.request.user,
+            category=form.cleaned_data['category'],
+            cost_code=form.cleaned_data['cost_code'],
+            description=form.cleaned_data['description'],
+            amount=form.cleaned_data['amount'],
+            incurred_date=form.cleaned_data['incurred_date'],
+            note=form.cleaned_data['note'],
+        )
+        messages.success(self.request, 'Actual cost recorded.')
+        return redirect('projects:financial_summary', pk=self.project.pk)
+
+
+class ProjectCostEntryDeleteView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, entry_pk):
+        project = managed_project_or_404(request.user, pk)
+        entry = get_object_or_404(ProjectCostEntry, project=project, pk=entry_pk)
+        delete_cost_entry(entry_id=entry.pk, actor=request.user)
+        messages.success(request, 'Cost entry removed.')
+        return redirect('projects:financial_summary', pk=project.pk)
 
 
 class ProjectActionCenterView(LoginRequiredMixin, TemplateView):

@@ -203,6 +203,16 @@ urlpatterns = [
         name='financial_summary',
     ),
     path(
+        'projects/<int:pk>/financials/cost-entries/new/',
+        views.ProjectCostEntryCreateView.as_view(),
+        name='cost_entry_create',
+    ),
+    path(
+        'projects/<int:pk>/financials/cost-entries/<int:entry_pk>/delete/',
+        views.ProjectCostEntryDeleteView.as_view(),
+        name='cost_entry_delete',
+    ),
+    path(
         'projects/<int:pk>/selections/',
         views.FinishSelectionListView.as_view(),
         name='selection_list',

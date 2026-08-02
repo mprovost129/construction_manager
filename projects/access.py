@@ -160,6 +160,25 @@ def can_use_estimates(user, project):
     )
 
 
+def can_view_project_budget(user, project):
+    """Internal cost, budget, committed/actual cost, and profitability visibility.
+
+    Deliberately narrower than can_view_project_financials (which includes every
+    internal role): budget and margin data is restricted to company administrators,
+    management roles, and accountants, never clients.
+    """
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    membership = organization_membership_for(user, project.organization)
+    return bool(
+        membership
+        and membership.role in (*MANAGEMENT_ROLES, OrganizationMembership.Role.ACCOUNTANT)
+        and projects_for_user(user).filter(pk=project.pk).exists()
+    )
+
+
 def can_use_schedule(user, project):
     if not user.is_authenticated:
         return False

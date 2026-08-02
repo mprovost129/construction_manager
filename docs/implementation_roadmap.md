@@ -30,7 +30,7 @@ implemented and verified.
 | Finish selections | Complete | Options, allowance math, publishing, client choice, overage flag, reopening, package grouping for multi-area choices, vendor/link/spec/image/lead-time option metadata, client custom-option requests routed to a change order, credit disposition tracking, and manual + scheduler-driven overdue reminders exist. |
 | Schedule | Partial | Internal milestone/calendar workflow exists; dependencies, recurrence, and external calendar integration do not. |
 | Notifications | Partial | Transactional email exists with project-level recipient preferences; per-event settings, reminders, and digest delivery do not. |
-| Project pricing and financials | Partial | An organization-scoped cost-code catalog, an estimate/proposal workflow with client approval that sets a project's fixed contract amount, a staff+client-safe financial rollup view (contract, change orders, selection overage/credit, invoicing, payments, and internal cost/margin), and a manual invoice payment ledger exist. Tax-rate calculation, job-costing/budget dashboards beyond the rollup, and QuickBooks Item/CostCode mapping do not. |
+| Project pricing and financials | Partial | An organization-scoped cost-code catalog, an estimate/proposal workflow with client approval that sets a project's fixed contract amount, a staff+client-safe financial rollup view (contract, change orders, selection overage/credit, invoicing, payments), a role-gated budget/committed/actual-cost/profitability view backed by a staff-recorded job-costing ledger, and a manual invoice payment ledger exist. Tax-rate calculation and QuickBooks Item/CostCode mapping do not. |
 | Invoices and payment visibility | Partial | Local drafts, approved-change-order conversion, immutable company numbering, line items, totals, client-visible issued invoices, authenticated PDF downloads, balances, status fields, notification, questions, unpaid voiding, and a manual payment ledger (status transitions from issued to partially paid to paid) exist. Selection-origin rules, QuickBooks payment import/synchronization remain. Online payment is deferred. |
 | QuickBooks Online | Partial | Company-scoped OAuth, encrypted tokens, capability/subscription discovery, stable customer/invoice mappings, customer sync, and tested Invoice API primitives exist. Live sandbox acceptance plus invoice orchestration, Item mapping, credit-memo, payment, and change-detection work remain. |
 | SaaS subscription billing | Partial | Organization-level Stripe Billing, hosted Checkout, Customer Portal, signed webhook reconciliation, audit records, grace-period access rules, and staged entitlement enforcement exist. The Sandbox Product, monthly/yearly Prices, default Portal, and webhook are configured; a real end-to-end Sandbox test plus live-mode setup and validation remain. |
@@ -148,11 +148,19 @@ These decisions govern remaining implementation work:
   contract stays fixed."
 - A pure `project_financial_summary()` rollup: contract amount, approved/pending change-order
   totals, total project cost (contract plus approved change-order deltas), selection overage/
-  credit totals (with a staff-only credit-disposition breakdown), invoiced/paid/balance totals,
-  and, for internal viewers only, approved change-order cost, approved estimate cost, and
-  estimated margin.
+  credit totals, and invoiced/paid/balance totals for every internal/client viewer permitted to
+  open the page; and, additionally restricted to a new `can_view_project_budget` permission
+  (Admin, Manager, Project Manager, and Accountant only — narrower than the general
+  `can_view_project_financials` gate), approved change-order cost, approved estimate cost
+  (budget), committed cost (budget plus approved change-order cost), a staff-recorded actual
+  cost total, estimated final cost, estimated margin, profitability, and a credit-disposition
+  breakdown.
+- A `ProjectCostEntry` job-costing ledger: staff (project managers) record actual costs
+  incurred (category, optional cost code, description, amount, date), feeding the actual-cost
+  and profitability figures above; management can remove incorrect entries.
 - A staff-and-client-safe "Project financials" page replacing the former disabled placeholder,
-  branching on client vs. internal viewer to withhold cost/margin/budget data from clients.
+  branching on viewer role to withhold cost/margin/budget data from clients and from internal
+  roles outside management/accounting (Staff, Office Manager, Real Estate Agent).
 - A shared `money()`/`MONEY_QUANTUM` rounding helper (moved out of the invoicing module) used
   consistently by change orders, estimates, and invoices.
 - A local `Payment` model and `record_payment`/`delete_payment` services: staff record payments
@@ -211,7 +219,7 @@ These decisions govern remaining implementation work:
   balance, date, currency, and linked-transaction snapshots. Read, create, sparse-update, and void
   API primitives enforce required references, stable request IDs, and current external identity;
   no live invoice orchestration or automatic local issue-time call is enabled yet.
-- Current automated baseline: 290 passing tests, Ruff clean, no pending migrations,
+- Current automated baseline: 293 passing tests, Ruff clean, no pending migrations,
   and build-settings `collectstatic` passing as of this update. Django's expected
   development warning remains when QuickBooks credentials are intentionally unset.
 
@@ -426,9 +434,16 @@ Acceptance gate:
   invoices, as before.
 - [ ] Add an estimate revision/replacement chain equivalent to change orders' revise/replace
   workflow; a declined or voided estimate today requires a brand-new estimate.
-- [ ] Add staff budget/committed-cost/actual-cost/profitability dashboards beyond the
-  contract-and-cost-total rollup; the client interview left staff-side budget visibility
-  unanswered, so this remains an open product question rather than a built feature.
+- [x] Add staff budget/committed-cost/actual-cost/profitability visibility: an approved
+  estimate's cost total is the budget baseline, committed cost adds approved change-order
+  cost deltas, a staff-recorded `ProjectCostEntry` job-costing ledger supplies actual cost,
+  and estimated final cost/profitability are derived from both. Gated by a new
+  `can_view_project_budget` permission restricted to Admin/Manager/Project Manager/
+  Accountant — narrower than the general internal `can_view_project_financials` gate,
+  since Staff/Office Manager/Real Estate Agent should not see budget or margin data. The
+  client interview left staff-side budget visibility unanswered; this implements the
+  standard job-costing pattern (budget vs. committed vs. actual vs. profitability) rather
+  than leaving it unbuilt.
 - [ ] Add QuickBooks Item/CostCode mapping so cost codes can drive outbound QuickBooks
   Invoice line items (see QB-3 Invoice synchronization preparation).
 

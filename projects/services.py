@@ -12,6 +12,7 @@ from .models import (
     ActivityEvent,
     OrganizationInvitation,
     OrganizationMembership,
+    ProjectCostEntry,
     ProjectInvitation,
     ProjectMembership,
 )
@@ -676,3 +677,46 @@ def accept_organization_invitation(invitation, user):
         metadata={'email': user.email, 'role': membership.role},
     )
     return invitation.organization
+
+
+@transaction.atomic
+def record_cost_entry(*, project, actor, category, cost_code, description, amount, incurred_date, note):
+    entry = ProjectCostEntry(
+        project=project,
+        category=category,
+        cost_code=cost_code,
+        description=description,
+        amount=amount,
+        incurred_date=incurred_date,
+        note=note,
+        recorded_by=actor,
+    )
+    entry.full_clean()
+    entry.save()
+    record_activity(
+        organization=project.organization,
+        project=project,
+        actor=actor,
+        event_type=ActivityEvent.Type.PROJECT_COST_ENTRY_RECORDED,
+        summary=f'{actor.email} recorded a ${entry.amount:,.2f} actual cost: {entry.description}.',
+        metadata={'cost_entry_id': entry.pk, 'amount': str(entry.amount)},
+    )
+    return entry
+
+
+@transaction.atomic
+def delete_cost_entry(*, entry_id, actor):
+    entry = ProjectCostEntry.objects.select_related('project').get(pk=entry_id)
+    project = entry.project
+    description = entry.description
+    amount = entry.amount
+    entry.delete()
+    record_activity(
+        organization=project.organization,
+        project=project,
+        actor=actor,
+        event_type=ActivityEvent.Type.PROJECT_COST_ENTRY_DELETED,
+        summary=f'{actor.email} removed a ${amount:,.2f} actual cost: {description}.',
+        metadata={'amount': str(amount)},
+    )
+    return project

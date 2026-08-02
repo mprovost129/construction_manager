@@ -11,10 +11,12 @@ from billing.services import issue_invoice, record_payment
 from projects.financials import project_financial_summary
 from projects.models import (
     ChangeOrder,
+    Estimate,
     FinishSelection,
     Organization,
     OrganizationMembership,
     Project,
+    ProjectCostEntry,
     ProjectMembership,
     SelectionOption,
 )
@@ -39,6 +41,9 @@ class ProjectFinancialSummaryTests(TestCase):
         cls.client_user = get_user_model().objects.create_user(
             'client-fin@example.com', 'password'
         )
+        cls.office_manager = get_user_model().objects.create_user(
+            'office-manager-fin@example.com', 'password'
+        )
         OrganizationMembership.objects.create(
             organization=cls.organization,
             user=cls.admin_user,
@@ -49,14 +54,42 @@ class ProjectFinancialSummaryTests(TestCase):
             user=cls.client_user,
             role=OrganizationMembership.Role.CLIENT,
         )
+        OrganizationMembership.objects.create(
+            organization=cls.organization,
+            user=cls.office_manager,
+            role=OrganizationMembership.Role.OFFICE_MANAGER,
+        )
         ProjectMembership.objects.create(
             project=cls.project,
             user=cls.client_user,
             role=OrganizationMembership.Role.CLIENT,
         )
         grant_internal_access(cls.admin_user, cls.project)
+        grant_internal_access(cls.office_manager, cls.project, can_manage=False)
 
         now = timezone.now()
+
+        Estimate.objects.create(
+            project=cls.project,
+            number=1,
+            title='Base contract',
+            price_total=Decimal('100000.00'),
+            cost_total=Decimal('70000.00'),
+            status=Estimate.Status.APPROVED,
+            created_by=cls.admin_user,
+            submitted_by=cls.admin_user,
+            submitted_at=now,
+            decided_by=cls.client_user,
+            decided_at=now,
+        )
+        ProjectCostEntry.objects.create(
+            project=cls.project,
+            category=ProjectCostEntry.Category.MATERIAL,
+            description='Lumber invoice',
+            amount=Decimal('50000.00'),
+            incurred_date=timezone.localdate(),
+            recorded_by=cls.admin_user,
+        )
 
         ChangeOrder.objects.create(
             project=cls.project,
@@ -196,25 +229,81 @@ class ProjectFinancialSummaryTests(TestCase):
         self.assertEqual(summary['paid_total'], Decimal('1000.00'))
         self.assertEqual(summary['balance_due'], Decimal('2000.00'))
         self.assertEqual(summary['approved_change_order_cost_total'], Decimal('2000.00'))
+        self.assertEqual(summary['estimate_cost_total'], Decimal('70000.00'))
+        self.assertEqual(summary['budget_amount'], Decimal('70000.00'))
+        self.assertEqual(summary['committed_cost_total'], Decimal('72000.00'))
+        self.assertEqual(summary['actual_cost_total'], Decimal('50000.00'))
+        self.assertEqual(summary['estimated_final_cost'], Decimal('72000.00'))
+        self.assertEqual(summary['estimated_margin'], Decimal('33000.00'))
+        self.assertEqual(summary['profitability'], Decimal('33000.00'))
 
     def test_summary_excludes_costs_by_default(self):
         summary = project_financial_summary(self.project)
         self.assertNotIn('approved_change_order_cost_total', summary)
         self.assertNotIn('estimated_margin', summary)
+        self.assertNotIn('profitability', summary)
 
-    def test_staff_sees_cost_and_margin_on_financial_summary_page(self):
+    def test_management_sees_budget_and_margin_on_financial_summary_page(self):
         self.client.force_login(self.admin_user)
         response = self.client.get(
             reverse('projects:financial_summary', args=(self.project.pk,))
         )
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Cost and margin')
+        self.assertContains(response, 'Budget, cost, and margin')
+        self.assertContains(response, 'Actual cost entries')
 
-    def test_client_does_not_see_cost_and_margin_on_financial_summary_page(self):
+    def test_client_does_not_see_budget_and_margin_on_financial_summary_page(self):
         self.client.force_login(self.client_user)
         response = self.client.get(
             reverse('projects:financial_summary', args=(self.project.pk,))
         )
         self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, 'Cost and margin')
+        self.assertNotContains(response, 'Budget, cost, and margin')
         self.assertContains(response, 'Contract amount')
+
+    def test_office_manager_sees_base_rollup_but_not_budget_section(self):
+        """Internal roles outside management/accounting see the base rollup, not budget data."""
+        self.client.force_login(self.office_manager)
+        response = self.client.get(
+            reverse('projects:financial_summary', args=(self.project.pk,))
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Contract amount')
+        self.assertNotContains(response, 'Budget, cost, and margin')
+        self.assertNotContains(response, 'Actual cost entries')
+
+    def test_manager_can_record_and_remove_cost_entry(self):
+        self.client.force_login(self.admin_user)
+        create_response = self.client.post(
+            reverse('projects:cost_entry_create', args=(self.project.pk,)),
+            {
+                'category': 'labor',
+                'description': 'Framing crew',
+                'amount': '2500.00',
+                'incurred_date': timezone.localdate().isoformat(),
+                'note': '',
+            },
+        )
+        self.assertEqual(create_response.status_code, 302)
+        entry = ProjectCostEntry.objects.get(description='Framing crew')
+        self.assertEqual(entry.amount, Decimal('2500.00'))
+
+        delete_response = self.client.post(
+            reverse('projects:cost_entry_delete', args=(self.project.pk, entry.pk))
+        )
+        self.assertEqual(delete_response.status_code, 302)
+        self.assertFalse(ProjectCostEntry.objects.filter(pk=entry.pk).exists())
+
+    def test_office_manager_cannot_record_cost_entry(self):
+        self.client.force_login(self.office_manager)
+        response = self.client.post(
+            reverse('projects:cost_entry_create', args=(self.project.pk,)),
+            {
+                'category': 'labor',
+                'description': 'Framing crew',
+                'amount': '2500.00',
+                'incurred_date': timezone.localdate().isoformat(),
+                'note': '',
+            },
+        )
+        self.assertEqual(response.status_code, 403)

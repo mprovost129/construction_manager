@@ -14,6 +14,7 @@ from .models import (
     OrganizationInvitation,
     OrganizationMembership,
     Project,
+    ProjectCostEntry,
     ProjectDocument,
     ProjectDocumentVersion,
     ProjectInternalAccess,
@@ -60,6 +61,30 @@ class CostCodeAdmin(admin.ModelAdmin):
     list_display = ('code', 'name', 'organization', 'is_active', 'updated_at')
     list_filter = ('is_active', 'organization')
     search_fields = ('code', 'name', 'organization__name')
+
+
+@admin.register(ProjectCostEntry)
+class ProjectCostEntryAdmin(admin.ModelAdmin):
+    list_display = (
+        'project',
+        'category',
+        'description',
+        'amount',
+        'incurred_date',
+        'recorded_by',
+    )
+    list_filter = ('category', 'project__organization')
+    search_fields = ('description', 'project__name')
+    readonly_fields = tuple(field.name for field in ProjectCostEntry._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(OrganizationMembership)

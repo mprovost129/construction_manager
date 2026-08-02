@@ -23,8 +23,8 @@
     <article><span>Selection credits</span><strong>${{ summary.selection_credit_total|floatformat:2 }}</strong></article>
 </section>
 
-{% if not viewer_is_client and summary.selection_credit_by_disposition %}
-<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Internal</p><h2>Credit disposition</h2></div></div>
+{% if can_view_budget and summary.selection_credit_by_disposition %}
+<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Restricted to management and accounting</p><h2>Credit disposition</h2></div></div>
 <div class="table-responsive"><table class="admin-table"><thead><tr><th>Disposition</th><th>Amount</th></tr></thead><tbody>
 {% for disposition, amount in summary.selection_credit_by_disposition.items %}<tr><td>{{ disposition }}</td><td>${{ amount|floatformat:2 }}</td></tr>{% endfor %}
 </tbody></table></div></section>
@@ -36,13 +36,25 @@
     <article><span>Balance due</span><strong>${{ summary.balance_due|floatformat:2 }}</strong></article>
 </section>
 
-{% if not viewer_is_client %}
-<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Internal only</p><h2>Cost and margin</h2></div></div>
+{% if can_view_budget %}
+<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Restricted to management and accounting</p><h2>Budget, cost, and margin</h2></div></div>
 <div class="table-responsive"><table class="admin-table"><tbody>
+<tr><td>Budget (approved estimate cost)</td><td>{% if summary.budget_amount is not None %}${{ summary.budget_amount|floatformat:2 }}{% else %}Not set{% endif %}</td></tr>
 <tr><td>Approved change order cost</td><td>${{ summary.approved_change_order_cost_total|floatformat:2 }}</td></tr>
-<tr><td>Approved estimate cost</td><td>{% if summary.estimate_cost_total is not None %}${{ summary.estimate_cost_total|floatformat:2 }}{% else %}—{% endif %}</td></tr>
-<tr><td>Estimated margin</td><td>{% if summary.estimated_margin is not None %}${{ summary.estimated_margin|floatformat:2 }}{% else %}—{% endif %}</td></tr>
-</tbody></table></div></section>
+<tr><td>Committed cost (budget + approved change orders)</td><td>{% if summary.committed_cost_total is not None %}${{ summary.committed_cost_total|floatformat:2 }}{% else %}—{% endif %}</td></tr>
+<tr><td>Actual cost recorded</td><td>${{ summary.actual_cost_total|floatformat:2 }}</td></tr>
+<tr><td>Estimated final cost</td><td>${{ summary.estimated_final_cost|floatformat:2 }}</td></tr>
+<tr><td>Estimated margin (vs. committed cost)</td><td>{% if summary.estimated_margin is not None %}${{ summary.estimated_margin|floatformat:2 }}{% else %}—{% endif %}</td></tr>
+<tr><td>Profitability (vs. estimated final cost)</td><td>{% if summary.profitability is not None %}${{ summary.profitability|floatformat:2 }}{% else %}—{% endif %}</td></tr>
+</tbody></table></div>
+</section>
+
+<section class="admin-panel">
+    <div class="section-heading"><div><p class="eyebrow">Job costing</p><h2>Actual cost entries</h2></div>{% if can_manage_project %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:cost_entry_create' project.pk %}"><i class="bi bi-plus-lg"></i> Record actual cost</a>{% endif %}</div>
+    {% if cost_entries %}<div class="table-responsive"><table class="admin-table"><thead><tr><th>Date</th><th>Category</th><th>Cost code</th><th>Description</th><th>Amount</th>{% if can_manage_project %}<th class="text-end">Actions</th>{% endif %}</tr></thead><tbody>
+    {% for entry in cost_entries %}<tr><td>{{ entry.incurred_date|date:"M j, Y" }}</td><td>{{ entry.get_category_display }}</td><td>{{ entry.cost_code.code|default:"—" }}</td><td>{{ entry.description }}</td><td>${{ entry.amount|floatformat:2 }}</td>{% if can_manage_project %}<td class="text-end"><form class="inline-form" method="post" action="{% url 'projects:cost_entry_delete' project.pk entry.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit">Remove</button></form></td>{% endif %}</tr>{% endfor %}
+    </tbody></table></div>{% else %}<p class="empty-copy">No actual costs recorded yet.</p>{% endif %}
+</section>
 {% endif %}
 
 <section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Related</p><h2>Explore further</h2></div></div><div class="button-row"><a class="btn btn-outline-secondary" href="{% url 'projects:estimate_list' project.pk %}">Estimates</a><a class="btn btn-outline-secondary" href="{% url 'projects:change_order_list' project.pk %}">Change orders</a><a class="btn btn-outline-secondary" href="{% url 'projects:selection_list' project.pk %}">Selections</a><a class="btn btn-outline-secondary" href="{% url 'billing:invoice_list' project.pk %}">Invoices</a></div></section>

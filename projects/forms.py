@@ -4,6 +4,7 @@ from django import forms
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import UserCreationForm
+from django.utils import timezone
 
 from .models import (
     ChangeOrder,
@@ -17,6 +18,7 @@ from .models import (
     OrganizationInvitation,
     OrganizationMembership,
     Project,
+    ProjectCostEntry,
     ProjectDocument,
     ProjectInternalAccess,
     ProjectInvitation,
@@ -329,6 +331,31 @@ class EstimateDecisionForm(forms.Form):
         required=False,
         widget=forms.Textarea(attrs={'rows': 4}),
     )
+
+
+class ProjectCostEntryForm(forms.ModelForm):
+    class Meta:
+        model = ProjectCostEntry
+        fields = (
+            'category',
+            'cost_code',
+            'description',
+            'amount',
+            'incurred_date',
+            'note',
+        )
+        labels = {'cost_code': 'Cost code'}
+        widgets = {
+            'amount': forms.NumberInput(attrs={'step': '0.01', 'min': '0.01'}),
+            'incurred_date': forms.DateInput(attrs={'type': 'date'}),
+            'note': forms.Textarea(attrs={'rows': 3}),
+        }
+
+    def __init__(self, *args, organization, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['cost_code'].queryset = organization.cost_codes.filter(is_active=True)
+        if not self.is_bound:
+            self.initial.setdefault('incurred_date', timezone.localdate())
 
 
 class SelectionPackageForm(forms.ModelForm):

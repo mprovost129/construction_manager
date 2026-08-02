@@ -595,6 +595,14 @@ class ActivityEvent(models.Model):
             'estimate_line_item_removed',
             'Estimate line item removed',
         )
+        PROJECT_COST_ENTRY_RECORDED = (
+            'project_cost_entry_recorded',
+            'Actual cost recorded',
+        )
+        PROJECT_COST_ENTRY_DELETED = (
+            'project_cost_entry_deleted',
+            'Actual cost deleted',
+        )
 
     organization = models.ForeignKey(
         Organization,
@@ -1456,6 +1464,83 @@ class EstimateDecision(models.Model):
             f'{self.decided_by.email} {self.get_decision_display().lower()} '
             f'{self.estimate.display_number}'
         )
+
+
+class ProjectCostEntry(models.Model):
+    """A staff-recorded actual cost incurred on a project (job costing).
+
+    Distinct from estimate/change-order cost_delta fields, which are planned/committed
+    costs: this is what has actually been spent, used to compute an estimated final cost
+    and profitability alongside the committed-cost figures.
+    """
+
+    class Category(models.TextChoices):
+        PRODUCT = 'product', 'Product'
+        MATERIAL = 'material', 'Material'
+        LABOR = 'labor', 'Labor'
+        SUBCONTRACTOR = 'subcontractor', 'Subcontractor'
+        COMMISSION = 'commission', 'Commission/markup'
+        TAX = 'tax', 'Tax'
+        ALLOWANCE = 'allowance', 'Allowance'
+        OTHER = 'other', 'Other'
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='cost_entries',
+    )
+    category = models.CharField(
+        max_length=20,
+        choices=Category.choices,
+        default=Category.OTHER,
+    )
+    cost_code = models.ForeignKey(
+        CostCode,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='project_cost_entries',
+    )
+    description = models.CharField(max_length=200)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    incurred_date = models.DateField()
+    note = models.TextField(blank=True)
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='project_cost_entries_recorded',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-incurred_date', '-pk')
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(amount__gt=0),
+                name='projects_cost_entry_amount_positive',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        self.description = self.description.strip()
+        self.note = self.note.strip()
+        errors = {}
+        if not self.description:
+            errors['description'] = 'Describe this cost.'
+        if self.amount is not None and self.amount <= 0:
+            errors['amount'] = 'Amount must be greater than zero.'
+        if (
+            self.cost_code_id
+            and self.project_id
+            and self.cost_code.organization_id != self.project.organization_id
+        ):
+            errors['cost_code'] = 'Choose a cost code from this company.'
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f'{self.project}: {self.description} (${self.amount})'
 
 
 class SelectionPackage(models.Model):

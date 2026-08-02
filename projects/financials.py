@@ -87,11 +87,39 @@ def project_financial_summary(project, *, include_costs=False):
             estimated_margin = money(
                 total_project_cost - estimate_cost_total - approved_change_order_cost_total
             )
+
+        # Budget/committed cost: the approved estimate's internal cost baseline plus
+        # committed change-order cost deltas. Actual cost: what staff have recorded as
+        # actually spent so far (job costing), independent of the budget/estimate.
+        committed_cost_total = (
+            money(estimate_cost_total + approved_change_order_cost_total)
+            if estimate_cost_total is not None
+            else None
+        )
+        actual_cost_total = money(
+            sum((entry.amount for entry in project.cost_entries.all()), Decimal('0'))
+        )
+        estimated_final_cost = (
+            max(committed_cost_total, actual_cost_total)
+            if committed_cost_total is not None
+            else actual_cost_total
+        )
+        profitability = (
+            money(total_project_cost - estimated_final_cost)
+            if total_project_cost is not None
+            else None
+        )
+
         summary.update(
             {
                 'approved_change_order_cost_total': approved_change_order_cost_total,
                 'estimate_cost_total': estimate_cost_total,
                 'estimated_margin': estimated_margin,
+                'budget_amount': estimate_cost_total,
+                'committed_cost_total': committed_cost_total,
+                'actual_cost_total': actual_cost_total,
+                'estimated_final_cost': estimated_final_cost,
+                'profitability': profitability,
             }
         )
 
