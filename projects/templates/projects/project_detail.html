@@ -57,6 +57,11 @@
         <div><h2>Documents</h2><p>Review, approve, or decline project documents.</p></div>
         <span>Open documents <i class="bi bi-arrow-right"></i></span>
     </a>{% endif %}
+    {% if can_use_estimates %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:estimate_list' project.pk %}">
+        <i class="bi bi-file-earmark-text"></i>
+        <div><h2>Estimates</h2><p>Propose the project price and set the contract amount.</p></div>
+        <span>Open estimates <i class="bi bi-arrow-right"></i></span>
+    </a>{% endif %}
     {% if can_use_change_orders %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:change_order_list' project.pk %}">
         <i class="bi bi-arrow-left-right"></i>
         <div><h2>Change orders</h2><p>Pricing, customer decisions, and approval history.</p></div>
@@ -77,13 +82,11 @@
         <div><h2>Schedule</h2><p>Internal milestones and project dates.</p></div>
         <span>Open schedule <i class="bi bi-arrow-right"></i></span>
     </a>{% endif %}
-    {% if can_view_project_financials %}
-    <article class="module-card">
+    {% if can_view_project_financials %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:financial_summary' project.pk %}">
         <i class="bi bi-graph-up-arrow"></i>
-        <div><h2>Project financials</h2><p>Project costs and accounting status.</p></div>
-        <span>Restricted</span>
-    </article>
-    {% endif %}
+        <div><h2>Project financials</h2><p>Contract amount, change orders, selections, and invoicing.</p></div>
+        <span>Open financials <i class="bi bi-arrow-right"></i></span>
+    </a>{% endif %}
 </section>
 
 {% if activity_events %}

@@ -51,6 +51,16 @@ urlpatterns = [
         name='invoice_void',
     ),
     path(
+        'projects/<int:project_id>/invoices/<int:invoice_id>/payments/new/',
+        views.PaymentCreateView.as_view(),
+        name='payment_create',
+    ),
+    path(
+        'projects/<int:project_id>/invoices/<int:invoice_id>/payments/<int:payment_id>/delete/',
+        views.PaymentDeleteView.as_view(),
+        name='payment_delete',
+    ),
+    path(
         'projects/<int:project_id>/invoices/<int:invoice_id>/lines/new/',
         views.InvoiceLineItemCreateView.as_view(),
         name='invoice_line_create',

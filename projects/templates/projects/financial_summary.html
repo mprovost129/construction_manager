@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+
+{% block title %}Financials | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'core:home' %}">Projects</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><span>Financials</span></nav>
+
+<section class="page-heading">
+    <div><p class="eyebrow">Project financials</p><h1>{{ project.name }}</h1><p class="text-secondary mb-0">Contract amount, change orders, selections, and invoicing at a glance.</p></div>
+</section>
+
+<section class="summary-strip" aria-label="Contract totals">
+    <article><span>Contract amount</span><strong>{% if summary.contract_amount is not None %}${{ summary.contract_amount|floatformat:2 }}{% else %}Not set{% endif %}</strong></article>
+    <article><span>Approved change orders</span><strong>${{ summary.approved_change_order_total|floatformat:2 }}</strong></article>
+    <article><span>Pending change orders</span><strong>${{ summary.pending_change_order_total|floatformat:2 }}</strong></article>
+    <article><span>Total project cost</span><strong>{% if summary.total_project_cost is not None %}${{ summary.total_project_cost|floatformat:2 }}{% else %}Not set{% endif %}</strong></article>
+</section>
+
+{% if summary.contract_amount is None %}<p class="empty-copy">No estimate has been approved yet. <a href="{% url 'projects:estimate_list' project.pk %}">Create and approve an estimate</a> to set the contract amount.</p>{% endif %}
+
+<section class="summary-strip" aria-label="Selection variance">
+    <article><span>Selection overages</span><strong>${{ summary.selection_overage_total|floatformat:2 }}</strong></article>
+    <article><span>Selection credits</span><strong>${{ summary.selection_credit_total|floatformat:2 }}</strong></article>
+</section>
+
+{% if not viewer_is_client and summary.selection_credit_by_disposition %}
+<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Internal</p><h2>Credit disposition</h2></div></div>
+<div class="table-responsive"><table class="admin-table"><thead><tr><th>Disposition</th><th>Amount</th></tr></thead><tbody>
+{% for disposition, amount in summary.selection_credit_by_disposition.items %}<tr><td>{{ disposition }}</td><td>${{ amount|floatformat:2 }}</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endif %}
+
+<section class="summary-strip" aria-label="Invoicing">
+    <article><span>Invoiced</span><strong>${{ summary.invoiced_total|floatformat:2 }}</strong></article>
+    <article><span>Paid</span><strong>${{ summary.paid_total|floatformat:2 }}</strong></article>
+    <article><span>Balance due</span><strong>${{ summary.balance_due|floatformat:2 }}</strong></article>
+</section>
+
+{% if not viewer_is_client %}
+<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Internal only</p><h2>Cost and margin</h2></div></div>
+<div class="table-responsive"><table class="admin-table"><tbody>
+<tr><td>Approved change order cost</td><td>${{ summary.approved_change_order_cost_total|floatformat:2 }}</td></tr>
+<tr><td>Approved estimate cost</td><td>{% if summary.estimate_cost_total is not None %}${{ summary.estimate_cost_total|floatformat:2 }}{% else %}—{% endif %}</td></tr>
+<tr><td>Estimated margin</td><td>{% if summary.estimated_margin is not None %}${{ summary.estimated_margin|floatformat:2 }}{% else %}—{% endif %}</td></tr>
+</tbody></table></div></section>
+{% endif %}
+
+<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Related</p><h2>Explore further</h2></div></div><div class="button-row"><a class="btn btn-outline-secondary" href="{% url 'projects:estimate_list' project.pk %}">Estimates</a><a class="btn btn-outline-secondary" href="{% url 'projects:change_order_list' project.pk %}">Change orders</a><a class="btn btn-outline-secondary" href="{% url 'projects:selection_list' project.pk %}">Selections</a><a class="btn btn-outline-secondary" href="{% url 'billing:invoice_list' project.pk %}">Invoices</a></div></section>
+{% endblock %}

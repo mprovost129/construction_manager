@@ -9,6 +9,7 @@ from django.utils import timezone
 from projects.models import (
     ActivityEvent,
     ChangeOrder,
+    CostCode,
     Organization,
     OrganizationMembership,
     Project,
@@ -378,6 +379,9 @@ class ChangeOrderTests(TestCase):
     def test_line_items_recalculate_totals_and_lock_fields(self):
         self.client.force_login(self.admin_user)
         change_order = self.create_change_order(status=ChangeOrder.Status.DRAFT)
+        cost_code = CostCode.objects.create(
+            organization=self.organization, code='06-100', name='Decking'
+        )
         add_url = reverse(
             'projects:change_order_line_item_create',
             args=(self.project.pk, change_order.pk),
@@ -386,7 +390,7 @@ class ChangeOrderTests(TestCase):
             add_url,
             {
                 'category': 'material',
-                'cost_code': '06-100',
+                'cost_code': cost_code.pk,
                 'description': 'Cedar decking',
                 'quantity': '10',
                 'unit_price': '25.00',
@@ -399,6 +403,7 @@ class ChangeOrderTests(TestCase):
         self.assertEqual(change_order.price_delta, Decimal('250.00'))
         self.assertEqual(change_order.cost_delta, Decimal('150.00'))
         self.assertEqual(change_order.line_items.count(), 1)
+        self.assertEqual(change_order.line_items.get().cost_code, cost_code)
 
         edit_response = self.client.get(
             reverse('projects:change_order_edit', args=(self.project.pk, change_order.pk))

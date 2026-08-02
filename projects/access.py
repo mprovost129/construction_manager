@@ -146,6 +146,20 @@ def can_use_selections(user, project):
     return can_use_project_messaging(user, project)
 
 
+def can_use_estimates(user, project):
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser or is_project_client(user, project):
+        return True
+    membership = organization_membership_for(user, project.organization)
+    return bool(
+        membership
+        and membership.is_internal
+        and membership.can_view_project_financials
+        and projects_for_user(user).filter(pk=project.pk).exists()
+    )
+
+
 def can_use_schedule(user, project):
     if not user.is_authenticated:
         return False

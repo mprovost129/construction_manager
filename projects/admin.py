@@ -5,7 +5,10 @@ from .models import (
     ChangeOrder,
     ConversationMessage,
     ConversationThread,
+    CostCode,
     DocumentDecision,
+    Estimate,
+    EstimateLineItem,
     FinishSelection,
     Organization,
     OrganizationInvitation,
@@ -46,10 +49,17 @@ class ProjectInternalAccessInline(admin.TabularInline):
 
 @admin.register(Project)
 class ProjectAdmin(admin.ModelAdmin):
-    list_display = ('name', 'organization', 'status', 'updated_at')
+    list_display = ('name', 'organization', 'status', 'contract_amount', 'updated_at')
     list_filter = ('organization', 'status')
     search_fields = ('name', 'code', 'organization__name')
     inlines = (ProjectInternalAccessInline, ProjectMembershipInline)
+
+
+@admin.register(CostCode)
+class CostCodeAdmin(admin.ModelAdmin):
+    list_display = ('code', 'name', 'organization', 'is_active', 'updated_at')
+    list_filter = ('is_active', 'organization')
+    search_fields = ('code', 'name', 'organization__name')
 
 
 @admin.register(OrganizationMembership)
@@ -251,6 +261,69 @@ class ChangeOrderAdmin(admin.ModelAdmin):
         'created_at',
         'updated_at',
     )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return bool(obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class EstimateLineItemInline(admin.TabularInline):
+    model = EstimateLineItem
+    extra = 0
+    fields = (
+        'category',
+        'cost_code',
+        'description',
+        'quantity',
+        'unit_price',
+        'unit_cost',
+        'sort_order',
+    )
+    readonly_fields = fields
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Estimate)
+class EstimateAdmin(admin.ModelAdmin):
+    list_display = (
+        'display_number',
+        'title',
+        'project',
+        'status',
+        'price_total',
+        'cost_total',
+        'updated_at',
+    )
+    list_filter = ('status', 'project__organization')
+    search_fields = ('title', 'project__name')
+    readonly_fields = (
+        'project',
+        'number',
+        'title',
+        'description',
+        'price_total',
+        'cost_total',
+        'status',
+        'created_by',
+        'submitted_by',
+        'submitted_at',
+        'decided_by',
+        'decided_at',
+        'client_comment',
+        'voided_by',
+        'voided_at',
+        'created_at',
+        'updated_at',
+    )
+    inlines = (EstimateLineItemInline,)
 
     def has_add_permission(self, request):
         return False

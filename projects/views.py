@@ -26,6 +26,7 @@ from .access import (
     can_manage_schedule,
     can_use_action_center,
     can_use_change_orders,
+    can_use_estimates,
     can_use_project_documents,
     can_use_project_messaging,
     can_use_schedule,
@@ -36,6 +37,7 @@ from .access import (
     projects_for_user,
 )
 from .action_center import build_project_action_center
+from .financials import project_financial_summary
 from .forms import (
     ChangeOrderDecisionForm,
     ChangeOrderForm,
@@ -45,7 +47,12 @@ from .forms import (
     ClientProjectUploadForm,
     ConversationReplyForm,
     ConversationThreadForm,
+    CostCodeForm,
     DocumentDecisionForm,
+    EstimateDecisionForm,
+    EstimateForm,
+    EstimateLineItemForm,
+    EstimateVoidForm,
     FinishSelectionForm,
     InvitationSignupForm,
     ProjectDocumentCreateForm,
@@ -68,6 +75,10 @@ from .models import (
     ChangeOrderLineItem,
     ConversationMessage,
     ConversationThread,
+    CostCode,
+    Estimate,
+    EstimateDecision,
+    EstimateLineItem,
     FinishSelection,
     Organization,
     OrganizationInvitation,
@@ -100,6 +111,9 @@ from .services import (
     send_client_upload_notification,
     send_document_available_notification,
     send_document_decision_notification,
+    send_estimate_decision_notification,
+    send_estimate_review_notification,
+    send_estimate_voided_notification,
     send_message_notifications,
     send_project_invitation,
     send_selection_chosen_notification,
@@ -173,6 +187,33 @@ def visible_change_order_or_404(user, project, change_order_pk):
     if is_project_client(user, project):
         queryset = queryset.exclude(status=ChangeOrder.Status.DRAFT)
     return get_object_or_404(queryset, pk=change_order_pk)
+
+
+def estimates_project_or_404(user, pk):
+    project = get_object_or_404(
+        projects_for_user(user).select_related('organization'),
+        pk=pk,
+    )
+    if not can_use_estimates(user, project):
+        raise PermissionDenied('You cannot access project estimates.')
+    return project
+
+
+def visible_estimate_or_404(user, project, estimate_pk):
+    queryset = Estimate.objects.filter(project=project)
+    if is_project_client(user, project):
+        queryset = queryset.exclude(status=Estimate.Status.DRAFT)
+    return get_object_or_404(queryset, pk=estimate_pk)
+
+
+def financials_project_or_404(user, pk):
+    project = get_object_or_404(
+        projects_for_user(user).select_related('organization'),
+        pk=pk,
+    )
+    if not can_use_estimates(user, project):
+        raise PermissionDenied('You cannot access project financials.')
+    return project
 
 
 def selections_project_or_404(user, pk):
@@ -331,6 +372,9 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
                     self.request.user,
                     self.object,
                 ),
+                'can_use_estimates': can_use_estimates(
+                    self.request.user, self.object
+                ),
                 'action_count': (
                     action_center['action_count'] if action_center else 0
                 ),
@@ -346,6 +390,29 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
                     if is_internal
                     else ()
                 ),
+            }
+        )
+        return context
+
+
+class ProjectFinancialSummaryView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/financial_summary.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = financials_project_or_404(request.user, kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        viewer_is_client = is_project_client(self.request.user, self.project)
+        summary = project_financial_summary(
+            self.project, include_costs=not viewer_is_client
+        )
+        context.update(
+            {
+                'project': self.project,
+                'summary': summary,
+                'viewer_is_client': viewer_is_client,
             }
         )
         return context
@@ -1621,6 +1688,7 @@ class ChangeOrderLineItemCreateView(LoginRequiredMixin, FormView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['instance'] = ChangeOrderLineItem(change_order=self.change_order)
+        kwargs['organization'] = self.project.organization
         return kwargs
 
     def form_valid(self, form):
@@ -1688,6 +1756,7 @@ class ChangeOrderLineItemUpdateView(LoginRequiredMixin, FormView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['instance'] = self.line_item
+        kwargs['organization'] = self.project.organization
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -1787,6 +1856,557 @@ class ChangeOrderLineItemDeleteView(LoginRequiredMixin, View):
             pk=project.pk,
             change_order_pk=change_order.pk,
         )
+
+
+class EstimateListView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/estimate_list.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = estimates_project_or_404(request.user, kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        estimates = self.project.estimates.select_related('created_by', 'decided_by')
+        if is_project_client(self.request.user, self.project):
+            estimates = estimates.exclude(status=Estimate.Status.DRAFT)
+        context.update(
+            {
+                'project': self.project,
+                'estimates': estimates,
+                'can_manage_project': can_manage_project(
+                    self.request.user, self.project
+                ),
+            }
+        )
+        return context
+
+
+class EstimateCreateView(LoginRequiredMixin, FormView):
+    form_class = EstimateForm
+    template_name = 'projects/estimate_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({'project': self.project, 'estimate': None})
+        return context
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            Project.objects.select_for_update().get(pk=self.project.pk)
+            current_number = self.project.estimates.aggregate(
+                maximum=Max('number')
+            )['maximum']
+            estimate = form.save(commit=False)
+            estimate.project = self.project
+            estimate.number = (current_number or 0) + 1
+            estimate.created_by = self.request.user
+            estimate.full_clean()
+            estimate.save()
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.ESTIMATE_CREATED,
+                summary=(
+                    f'{self.request.user.email} created '
+                    f'{estimate.display_number} - "{estimate.title}".'
+                ),
+                metadata={'estimate_id': estimate.pk, 'number': estimate.number},
+            )
+        messages.success(self.request, f'{estimate.display_number} was created.')
+        return redirect(
+            'projects:estimate_detail',
+            pk=self.project.pk,
+            estimate_pk=estimate.pk,
+        )
+
+
+class EstimateUpdateView(LoginRequiredMixin, FormView):
+    form_class = EstimateForm
+    template_name = 'projects/estimate_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        self.estimate = get_object_or_404(
+            Estimate,
+            project=self.project,
+            pk=kwargs['estimate_pk'],
+        )
+        if self.estimate.status != Estimate.Status.DRAFT:
+            raise PermissionDenied('Only draft estimates can be edited.')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['instance'] = self.estimate
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({'project': self.project, 'estimate': self.estimate})
+        return context
+
+    def form_valid(self, form):
+        editable_fields = tuple(EstimateForm.Meta.fields)
+        with transaction.atomic():
+            estimate = get_object_or_404(
+                Estimate.objects.select_for_update(),
+                project=self.project,
+                pk=self.estimate.pk,
+            )
+            if estimate.status != Estimate.Status.DRAFT:
+                raise PermissionDenied('Only draft estimates can be edited.')
+            for field_name in editable_fields:
+                setattr(estimate, field_name, form.cleaned_data[field_name])
+            estimate.full_clean()
+            estimate.save(update_fields=editable_fields + ('updated_at',))
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.ESTIMATE_UPDATED,
+                summary=(
+                    f'{self.request.user.email} updated '
+                    f'{estimate.display_number} - "{estimate.title}".'
+                ),
+                metadata={'estimate_id': estimate.pk, 'number': estimate.number},
+            )
+        messages.success(self.request, f'{estimate.display_number} was updated.')
+        return redirect(
+            'projects:estimate_detail',
+            pk=self.project.pk,
+            estimate_pk=estimate.pk,
+        )
+
+
+class EstimateDetailView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/estimate_detail.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = estimates_project_or_404(request.user, kwargs['pk'])
+        self.estimate = visible_estimate_or_404(
+            request.user, self.project, kwargs['estimate_pk']
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        viewer_is_client = is_project_client(self.request.user, self.project)
+        can_manage = can_manage_project(self.request.user, self.project)
+        decisions = list(self.estimate.decisions.select_related('decided_by'))
+        progress = evaluate_approval_progress(
+            decisions, self.estimate.required_approvals
+        )
+        viewer_already_decided = any(
+            decision.decided_by_id == self.request.user.pk for decision in decisions
+        )
+        context.update(
+            {
+                'project': self.project,
+                'estimate': self.estimate,
+                'can_manage_project': can_manage,
+                'can_decide': bool(
+                    viewer_is_client
+                    and self.estimate.status == Estimate.Status.PENDING
+                    and not viewer_already_decided
+                ),
+                'decision_form': EstimateDecisionForm(),
+                'decisions': decisions,
+                'approval_progress': progress,
+                'line_items': self.estimate.line_items.all(),
+                'void_form': (
+                    EstimateVoidForm()
+                    if can_manage and self.estimate.status == Estimate.Status.PENDING
+                    else None
+                ),
+            }
+        )
+        return context
+
+
+class EstimateSubmitView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, estimate_pk):
+        project = managed_project_or_404(request.user, pk)
+        if not document_client_recipients(project):
+            messages.error(
+                request,
+                'Assign an active client to the project before requesting approval.',
+            )
+            return redirect('projects:estimate_detail', pk=project.pk, estimate_pk=estimate_pk)
+        with transaction.atomic():
+            estimate = get_object_or_404(
+                Estimate.objects.select_for_update(),
+                project=project,
+                pk=estimate_pk,
+            )
+            if estimate.status != Estimate.Status.DRAFT:
+                raise PermissionDenied('Only draft estimates can be submitted.')
+            if not estimate.line_items.exists():
+                raise PermissionDenied('Add at least one line item before submitting.')
+            if project.contract_amount is not None:
+                raise PermissionDenied(
+                    'This project already has an approved estimate. Use a change '
+                    'order for further pricing changes.'
+                )
+            estimate.status = Estimate.Status.PENDING
+            estimate.submitted_by = request.user
+            estimate.submitted_at = timezone.now()
+            estimate.full_clean()
+            estimate.save(
+                update_fields=('status', 'submitted_by', 'submitted_at', 'updated_at')
+            )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.ESTIMATE_SUBMITTED,
+                summary=(
+                    f'{request.user.email} sent {estimate.display_number} '
+                    'to the client for a decision.'
+                ),
+                metadata={'estimate_id': estimate.pk, 'number': estimate.number},
+            )
+        delivery_result = send_estimate_review_notification(request, estimate)
+        warn_if_notification_failed(request, delivery_result)
+        messages.success(request, 'The estimate was sent to the client.')
+        return redirect('projects:estimate_detail', pk=project.pk, estimate_pk=estimate.pk)
+
+
+class EstimateDecisionView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, estimate_pk):
+        project = estimates_project_or_404(request.user, pk)
+        if not is_project_client(request.user, project):
+            raise PermissionDenied('Only assigned clients can record a decision.')
+        form = EstimateDecisionForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, 'Choose approve or decline before submitting.')
+            return redirect('projects:estimate_detail', pk=project.pk, estimate_pk=estimate_pk)
+        with transaction.atomic():
+            estimate = get_object_or_404(
+                Estimate.objects.select_for_update(),
+                project=project,
+                pk=estimate_pk,
+            )
+            if estimate.status != Estimate.Status.PENDING:
+                messages.info(request, 'This estimate is no longer awaiting a decision.')
+                return redirect(
+                    'projects:estimate_detail', pk=project.pk, estimate_pk=estimate.pk
+                )
+            if estimate.decisions.filter(decided_by=request.user).exists():
+                messages.info(
+                    request, 'Your decision for this estimate is already recorded.'
+                )
+                return redirect(
+                    'projects:estimate_detail', pk=project.pk, estimate_pk=estimate.pk
+                )
+            decision = EstimateDecision.objects.create(
+                estimate=estimate,
+                decided_by=request.user,
+                decision=form.cleaned_data['decision'],
+                comment=form.cleaned_data['comment'],
+            )
+            progress = evaluate_approval_progress(
+                estimate.decisions.all(), estimate.required_approvals
+            )
+            resolved = progress['resolved']
+            if resolved:
+                estimate.status = (
+                    Estimate.Status.APPROVED
+                    if progress['outcome'] == 'approved'
+                    else Estimate.Status.DECLINED
+                )
+                estimate.client_comment = decision.comment
+                estimate.decided_by = decision.decided_by
+                estimate.decided_at = decision.decided_at
+                estimate.full_clean()
+                estimate.save(
+                    update_fields=(
+                        'status',
+                        'client_comment',
+                        'decided_by',
+                        'decided_at',
+                        'updated_at',
+                    )
+                )
+                if estimate.status == Estimate.Status.APPROVED:
+                    locked_project = Project.objects.select_for_update().get(
+                        pk=project.pk
+                    )
+                    if locked_project.contract_amount is None:
+                        locked_project.contract_amount = estimate.price_total
+                        locked_project.save(
+                            update_fields=('contract_amount', 'updated_at')
+                        )
+                summary = (
+                    f'{request.user.email} {estimate.get_status_display().lower()} '
+                    f'{estimate.display_number} - "{estimate.title}".'
+                )
+            else:
+                summary = (
+                    f'{request.user.email} {decision.get_decision_display().lower()} '
+                    f'{estimate.display_number} - "{estimate.title}" '
+                    f"({progress['approved_count']} of "
+                    f"{progress['required_approvals']} approvals recorded)."
+                )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.ESTIMATE_DECIDED,
+                summary=summary,
+                metadata={
+                    'estimate_id': estimate.pk,
+                    'number': estimate.number,
+                    'decision': decision.decision,
+                    'resolved': resolved,
+                    'approved_count': progress['approved_count'],
+                    'required_approvals': progress['required_approvals'],
+                },
+            )
+        if resolved:
+            delivery_result = send_estimate_decision_notification(request, estimate)
+            warn_if_notification_failed(request, delivery_result)
+            messages.success(request, 'Your estimate decision was recorded.')
+        else:
+            remaining = progress['required_approvals'] - progress['approved_count']
+            messages.success(
+                request,
+                f'Your approval was recorded. {remaining} more approval(s) needed.',
+            )
+        return redirect('projects:estimate_detail', pk=project.pk, estimate_pk=estimate.pk)
+
+
+class EstimateVoidView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, estimate_pk):
+        project = managed_project_or_404(request.user, pk)
+        form = EstimateVoidForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, 'Provide a reason before voiding this estimate.')
+            return redirect('projects:estimate_detail', pk=project.pk, estimate_pk=estimate_pk)
+        with transaction.atomic():
+            estimate = get_object_or_404(
+                Estimate.objects.select_for_update(),
+                project=project,
+                pk=estimate_pk,
+            )
+            if estimate.status != Estimate.Status.PENDING:
+                raise PermissionDenied('Only pending estimates can be voided.')
+            estimate.status = Estimate.Status.VOIDED
+            estimate.voided_by = request.user
+            estimate.voided_at = timezone.now()
+            estimate.void_reason = form.cleaned_data['reason']
+            estimate.full_clean()
+            estimate.save(
+                update_fields=(
+                    'status',
+                    'voided_by',
+                    'voided_at',
+                    'void_reason',
+                    'updated_at',
+                )
+            )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.ESTIMATE_VOIDED,
+                summary=(
+                    f'{request.user.email} voided {estimate.display_number} '
+                    f'- "{estimate.title}".'
+                ),
+                metadata={'estimate_id': estimate.pk, 'number': estimate.number},
+            )
+        delivery_result = send_estimate_voided_notification(request, estimate)
+        warn_if_notification_failed(request, delivery_result)
+        messages.success(request, 'The estimate was voided.')
+        return redirect('projects:estimate_detail', pk=project.pk, estimate_pk=estimate.pk)
+
+
+class EstimateLineItemCreateView(LoginRequiredMixin, FormView):
+    form_class = EstimateLineItemForm
+    template_name = 'projects/estimate_line_item_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        self.estimate = get_object_or_404(
+            Estimate,
+            project=self.project,
+            pk=kwargs['estimate_pk'],
+        )
+        if self.estimate.status != Estimate.Status.DRAFT:
+            raise PermissionDenied('Line items can only be added to draft estimates.')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {'project': self.project, 'estimate': self.estimate, 'line_item': None}
+        )
+        return context
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['instance'] = EstimateLineItem(estimate=self.estimate)
+        kwargs['organization'] = self.project.organization
+        return kwargs
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            estimate = get_object_or_404(
+                Estimate.objects.select_for_update(),
+                project=self.project,
+                pk=self.estimate.pk,
+            )
+            if estimate.status != Estimate.Status.DRAFT:
+                raise PermissionDenied(
+                    'Line items can only be added to draft estimates.'
+                )
+            line_item = form.save(commit=False)
+            line_item.estimate = estimate
+            line_item.full_clean()
+            line_item.save()
+            estimate.recalculate_from_line_items()
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.ESTIMATE_LINE_ITEM_ADDED,
+                summary=(
+                    f'{self.request.user.email} added line item '
+                    f'"{line_item.description}" to {estimate.display_number}.'
+                ),
+                metadata={'estimate_id': estimate.pk, 'line_item_id': line_item.pk},
+            )
+        messages.success(self.request, f'{line_item.description} was added.')
+        return redirect(
+            'projects:estimate_detail',
+            pk=self.project.pk,
+            estimate_pk=self.estimate.pk,
+        )
+
+
+class EstimateLineItemUpdateView(LoginRequiredMixin, FormView):
+    form_class = EstimateLineItemForm
+    template_name = 'projects/estimate_line_item_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        self.estimate = get_object_or_404(
+            Estimate,
+            project=self.project,
+            pk=kwargs['estimate_pk'],
+        )
+        self.line_item = get_object_or_404(
+            EstimateLineItem,
+            estimate=self.estimate,
+            pk=kwargs['line_item_pk'],
+        )
+        if self.estimate.status != Estimate.Status.DRAFT:
+            raise PermissionDenied('Line items can only be edited in draft estimates.')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['instance'] = self.line_item
+        kwargs['organization'] = self.project.organization
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'project': self.project,
+                'estimate': self.estimate,
+                'line_item': self.line_item,
+            }
+        )
+        return context
+
+    def form_valid(self, form):
+        editable_fields = tuple(EstimateLineItemForm.Meta.fields)
+        with transaction.atomic():
+            estimate = get_object_or_404(
+                Estimate.objects.select_for_update(),
+                project=self.project,
+                pk=self.estimate.pk,
+            )
+            if estimate.status != Estimate.Status.DRAFT:
+                raise PermissionDenied(
+                    'Line items can only be edited in draft estimates.'
+                )
+            line_item = get_object_or_404(
+                EstimateLineItem.objects.select_for_update(),
+                estimate=estimate,
+                pk=self.line_item.pk,
+            )
+            for field_name in editable_fields:
+                setattr(line_item, field_name, form.cleaned_data[field_name])
+            line_item.full_clean()
+            line_item.save(update_fields=editable_fields + ('updated_at',))
+            estimate.recalculate_from_line_items()
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.ESTIMATE_LINE_ITEM_UPDATED,
+                summary=(
+                    f'{self.request.user.email} updated line item '
+                    f'"{line_item.description}" in {estimate.display_number}.'
+                ),
+                metadata={'estimate_id': estimate.pk, 'line_item_id': line_item.pk},
+            )
+        messages.success(self.request, f'{line_item.description} was updated.')
+        return redirect(
+            'projects:estimate_detail',
+            pk=self.project.pk,
+            estimate_pk=self.estimate.pk,
+        )
+
+
+class EstimateLineItemDeleteView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, estimate_pk, line_item_pk):
+        project = managed_project_or_404(request.user, pk)
+        with transaction.atomic():
+            estimate = get_object_or_404(
+                Estimate.objects.select_for_update(),
+                project=project,
+                pk=estimate_pk,
+            )
+            if estimate.status != Estimate.Status.DRAFT:
+                raise PermissionDenied('Line items can only be removed from drafts.')
+            line_item = get_object_or_404(
+                EstimateLineItem, estimate=estimate, pk=line_item_pk
+            )
+            description = line_item.description
+            line_item_id = line_item.pk
+            line_item.delete()
+            estimate.recalculate_from_line_items()
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.ESTIMATE_LINE_ITEM_REMOVED,
+                summary=(
+                    f'{request.user.email} removed line item "{description}" from '
+                    f'{estimate.display_number}.'
+                ),
+                metadata={'estimate_id': estimate.pk, 'line_item_id': line_item_id},
+            )
+        messages.success(request, f'{description} was removed.')
+        return redirect('projects:estimate_detail', pk=project.pk, estimate_pk=estimate.pk)
 
 
 class FinishSelectionListView(LoginRequiredMixin, TemplateView):
@@ -3386,6 +4006,84 @@ class TeamInviteView(LoginRequiredMixin, FormView):
             invitation.email,
         )
         return redirect('projects:company_team', slug=self.organization.slug)
+
+
+class CostCodeListView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/cost_code_list.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.organization = internal_organization_or_404(request.user, kwargs['slug'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'organization': self.organization,
+                'can_manage_team': can_manage_organization(
+                    self.request.user, self.organization
+                ),
+                'cost_codes': self.organization.cost_codes.all(),
+            }
+        )
+        return context
+
+
+class CostCodeCreateView(LoginRequiredMixin, FormView):
+    form_class = CostCodeForm
+    template_name = 'projects/cost_code_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.organization = managed_organization_or_404(request.user, kwargs['slug'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['organization'] = self.organization
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({'organization': self.organization, 'cost_code': None})
+        return context
+
+    def form_valid(self, form):
+        cost_code = form.save(commit=False)
+        cost_code.organization = self.organization
+        cost_code.full_clean()
+        cost_code.save()
+        messages.success(self.request, f'{cost_code.code} was added.')
+        return redirect('projects:cost_code_list', slug=self.organization.slug)
+
+
+class CostCodeUpdateView(LoginRequiredMixin, FormView):
+    form_class = CostCodeForm
+    template_name = 'projects/cost_code_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.organization = managed_organization_or_404(request.user, kwargs['slug'])
+        self.cost_code = get_object_or_404(
+            CostCode,
+            organization=self.organization,
+            pk=kwargs['pk'],
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['instance'] = self.cost_code
+        kwargs['organization'] = self.organization
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({'organization': self.organization, 'cost_code': self.cost_code})
+        return context
+
+    def form_valid(self, form):
+        cost_code = form.save()
+        messages.success(self.request, f'{cost_code.code} was updated.')
+        return redirect('projects:cost_code_list', slug=self.organization.slug)
 
 
 class TeamInvitationResendView(LoginRequiredMixin, View):

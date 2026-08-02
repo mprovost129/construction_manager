@@ -9,7 +9,10 @@ from .models import (
     ChangeOrder,
     ChangeOrderLineItem,
     ConversationMessage,
+    CostCode,
     DocumentDecision,
+    Estimate,
+    EstimateLineItem,
     FinishSelection,
     OrganizationInvitation,
     OrganizationMembership,
@@ -209,6 +212,10 @@ class ChangeOrderLineItemForm(forms.ModelForm):
             'unit_cost': forms.NumberInput(attrs={'step': '0.01'}),
         }
 
+    def __init__(self, *args, organization, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['cost_code'].queryset = organization.cost_codes.filter(is_active=True)
+
 
 class ChangeOrderVoidForm(forms.Form):
     reason = forms.CharField(
@@ -222,6 +229,99 @@ class ChangeOrderDecisionForm(forms.Form):
         choices=(
             (ChangeOrder.Status.APPROVED, 'Approve'),
             (ChangeOrder.Status.DECLINED, 'Decline'),
+        ),
+        widget=forms.RadioSelect,
+    )
+    comment = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'rows': 4}),
+    )
+
+
+class CostCodeForm(forms.ModelForm):
+    class Meta:
+        model = CostCode
+        fields = ('code', 'name', 'description', 'is_active')
+        widgets = {'description': forms.Textarea(attrs={'rows': 3})}
+
+    def __init__(self, *args, organization, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.organization = organization
+
+    def clean_code(self):
+        code = self.cleaned_data['code'].strip()
+        existing = self.organization.cost_codes.filter(code__iexact=code)
+        if self.instance.pk:
+            existing = existing.exclude(pk=self.instance.pk)
+        if existing.exists():
+            raise forms.ValidationError('This company already has a cost code with that code.')
+        return code
+
+
+class EstimateForm(forms.ModelForm):
+    required_approvals = forms.IntegerField(
+        required=False,
+        min_value=1,
+        initial=1,
+        label='Required client approvals',
+        help_text='Number of distinct client approvals needed before this is approved.',
+    )
+
+    class Meta:
+        model = Estimate
+        fields = ('title', 'description', 'required_approvals')
+        widgets = {'description': forms.Textarea(attrs={'rows': 5})}
+
+    def clean_required_approvals(self):
+        return self.cleaned_data['required_approvals'] or 1
+
+
+class EstimateLineItemForm(forms.ModelForm):
+    class Meta:
+        model = EstimateLineItem
+        fields = (
+            'category',
+            'cost_code',
+            'description',
+            'quantity',
+            'unit_price',
+            'unit_cost',
+            'sort_order',
+        )
+        labels = {
+            'unit_price': 'Client unit price',
+            'unit_cost': 'Estimated unit cost',
+            'cost_code': 'Cost code',
+            'sort_order': 'Display order',
+        }
+        help_texts = {
+            'unit_cost': 'Internal only and never shown to clients.',
+            'cost_code': 'Optional job-costing code.',
+            'sort_order': 'Lower numbers appear first.',
+        }
+        widgets = {
+            'quantity': forms.NumberInput(attrs={'step': '0.01'}),
+            'unit_price': forms.NumberInput(attrs={'step': '0.01'}),
+            'unit_cost': forms.NumberInput(attrs={'step': '0.01'}),
+        }
+
+    def __init__(self, *args, organization, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['cost_code'].queryset = organization.cost_codes.filter(is_active=True)
+
+
+class EstimateVoidForm(forms.Form):
+    reason = forms.CharField(
+        label='Reason for voiding',
+        widget=forms.Textarea(attrs={'rows': 3}),
+    )
+
+
+class EstimateDecisionForm(forms.Form):
+    decision = forms.ChoiceField(
+        choices=(
+            (Estimate.Status.APPROVED, 'Approve'),
+            (Estimate.Status.DECLINED, 'Decline'),
         ),
         widget=forms.RadioSelect,
     )

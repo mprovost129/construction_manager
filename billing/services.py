@@ -1,17 +1,18 @@
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, Sum
 from django.urls import reverse
 from django.utils import timezone
 
 from projects.models import ActivityEvent, ChangeOrder, Organization
+from projects.money import money
 from projects.services import (
     document_client_recipients,
     record_activity,
     send_notification_email,
 )
 
-from .models import Invoice, InvoiceLineItem
+from .models import Invoice, InvoiceLineItem, Payment
 
 
 def record_invoice_draft_created(invoice, actor):
@@ -171,6 +172,86 @@ def void_invoice(*, invoice_id, actor, reason):
             'number': invoice.number,
             'reason': invoice.void_reason,
         },
+    )
+    return invoice
+
+
+def _apply_payment_state(invoice):
+    total_paid = money(
+        invoice.payments.aggregate(total=Sum('amount'))['total'] or 0
+    )
+    invoice.amount_paid = total_paid
+    if total_paid <= 0:
+        invoice.status = Invoice.Status.ISSUED
+    elif total_paid >= invoice.total_amount:
+        invoice.status = Invoice.Status.PAID
+    else:
+        invoice.status = Invoice.Status.PARTIALLY_PAID
+    invoice.full_clean()
+    invoice.save(update_fields=('amount_paid', 'status', 'updated_at'))
+
+
+@transaction.atomic
+def record_payment(*, invoice_id, actor, amount, method, reference, paid_date, note):
+    invoice = Invoice.objects.select_for_update().select_related(
+        'organization', 'project'
+    ).get(pk=invoice_id)
+    if invoice.status not in (Invoice.Status.ISSUED, Invoice.Status.PARTIALLY_PAID):
+        raise ValidationError('Only an issued or partially paid invoice can receive payments.')
+    amount = money(amount)
+    if amount <= 0:
+        raise ValidationError({'amount': 'Payment amount must be greater than zero.'})
+    if amount > invoice.balance_due:
+        raise ValidationError({'amount': 'Payment cannot exceed the balance due.'})
+    payment = Payment(
+        invoice=invoice,
+        amount=amount,
+        method=method,
+        reference=reference,
+        paid_date=paid_date,
+        note=note,
+        recorded_by=actor,
+    )
+    payment.full_clean()
+    payment.save()
+    _apply_payment_state(invoice)
+    record_activity(
+        organization=invoice.organization,
+        project=invoice.project,
+        actor=actor,
+        event_type=ActivityEvent.Type.PAYMENT_RECORDED,
+        summary=(
+            f'{actor.email} recorded a ${payment.amount:,.2f} payment on '
+            f'{invoice.display_number}.'
+        ),
+        metadata={'invoice_id': invoice.pk, 'payment_id': payment.pk, 'amount': str(payment.amount)},
+    )
+    return payment
+
+
+@transaction.atomic
+def delete_payment(*, payment_id, actor):
+    payment = Payment.objects.select_related('invoice__organization', 'invoice__project').get(
+        pk=payment_id
+    )
+    invoice = Invoice.objects.select_for_update().select_related(
+        'organization', 'project'
+    ).get(pk=payment.invoice_id)
+    if invoice.status == Invoice.Status.VOIDED:
+        raise ValidationError('Payments on a voided invoice cannot be modified.')
+    amount = payment.amount
+    payment.delete()
+    _apply_payment_state(invoice)
+    record_activity(
+        organization=invoice.organization,
+        project=invoice.project,
+        actor=actor,
+        event_type=ActivityEvent.Type.PAYMENT_DELETED,
+        summary=(
+            f'{actor.email} removed a ${amount:,.2f} payment from '
+            f'{invoice.display_number}.'
+        ),
+        metadata={'invoice_id': invoice.pk, 'amount': str(amount)},
     )
     return invoice
 

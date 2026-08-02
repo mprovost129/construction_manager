@@ -148,6 +148,61 @@ urlpatterns = [
         name='change_order_line_item_delete',
     ),
     path(
+        'projects/<int:pk>/estimates/',
+        views.EstimateListView.as_view(),
+        name='estimate_list',
+    ),
+    path(
+        'projects/<int:pk>/estimates/new/',
+        views.EstimateCreateView.as_view(),
+        name='estimate_create',
+    ),
+    path(
+        'projects/<int:pk>/estimates/<int:estimate_pk>/',
+        views.EstimateDetailView.as_view(),
+        name='estimate_detail',
+    ),
+    path(
+        'projects/<int:pk>/estimates/<int:estimate_pk>/edit/',
+        views.EstimateUpdateView.as_view(),
+        name='estimate_edit',
+    ),
+    path(
+        'projects/<int:pk>/estimates/<int:estimate_pk>/submit/',
+        views.EstimateSubmitView.as_view(),
+        name='estimate_submit',
+    ),
+    path(
+        'projects/<int:pk>/estimates/<int:estimate_pk>/decision/',
+        views.EstimateDecisionView.as_view(),
+        name='estimate_decision',
+    ),
+    path(
+        'projects/<int:pk>/estimates/<int:estimate_pk>/void/',
+        views.EstimateVoidView.as_view(),
+        name='estimate_void',
+    ),
+    path(
+        'projects/<int:pk>/estimates/<int:estimate_pk>/line-items/add/',
+        views.EstimateLineItemCreateView.as_view(),
+        name='estimate_line_item_create',
+    ),
+    path(
+        'projects/<int:pk>/estimates/<int:estimate_pk>/line-items/<int:line_item_pk>/edit/',
+        views.EstimateLineItemUpdateView.as_view(),
+        name='estimate_line_item_edit',
+    ),
+    path(
+        'projects/<int:pk>/estimates/<int:estimate_pk>/line-items/<int:line_item_pk>/delete/',
+        views.EstimateLineItemDeleteView.as_view(),
+        name='estimate_line_item_delete',
+    ),
+    path(
+        'projects/<int:pk>/financials/',
+        views.ProjectFinancialSummaryView.as_view(),
+        name='financial_summary',
+    ),
+    path(
         'projects/<int:pk>/selections/',
         views.FinishSelectionListView.as_view(),
         name='selection_list',
@@ -287,6 +342,21 @@ urlpatterns = [
         'companies/<slug:slug>/team/',
         views.CompanyTeamView.as_view(),
         name='company_team',
+    ),
+    path(
+        'companies/<slug:slug>/cost-codes/',
+        views.CostCodeListView.as_view(),
+        name='cost_code_list',
+    ),
+    path(
+        'companies/<slug:slug>/cost-codes/new/',
+        views.CostCodeCreateView.as_view(),
+        name='cost_code_create',
+    ),
+    path(
+        'companies/<slug:slug>/cost-codes/<int:pk>/edit/',
+        views.CostCodeUpdateView.as_view(),
+        name='cost_code_edit',
     ),
     path(
         'companies/<slug:slug>/team/invite/',

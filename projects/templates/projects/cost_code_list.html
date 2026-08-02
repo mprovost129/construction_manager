@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}Cost codes | {{ organization.name }}{% endblock %}
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:company_list' %}">Company</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:company_team' organization.slug %}">{{ organization.name }}</a><i class="bi bi-chevron-right"></i><span>Cost codes</span></nav>
+<section class="page-heading">
+    <div><p class="eyebrow">{{ organization.name }}</p><h1>Cost codes</h1><p class="text-secondary mb-0">Job-costing codes available on change order, estimate, and invoice line items.</p></div>
+    {% if can_manage_team %}<a class="btn btn-primary" href="{% url 'projects:cost_code_create' organization.slug %}"><i class="bi bi-plus-lg"></i> New cost code</a>{% endif %}
+</section>
+
+{% if cost_codes %}
+<section class="admin-panel">
+    <div class="table-responsive"><table class="admin-table"><thead><tr><th>Code</th><th>Name</th><th>Description</th><th>Status</th>{% if can_manage_team %}<th class="text-end">Manage</th>{% endif %}</tr></thead><tbody>
+    {% for cost_code in cost_codes %}
+    <tr><td>{{ cost_code.code }}</td><td>{{ cost_code.name }}</td><td>{{ cost_code.description|default:"—" }}</td><td>{% if cost_code.is_active %}Active{% else %}Inactive{% endif %}</td>
+    {% if can_manage_team %}<td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:cost_code_edit' organization.slug cost_code.pk %}">Edit</a></td>{% endif %}</tr>
+    {% endfor %}
+    </tbody></table></div>
+</section>
+{% else %}
+<div class="empty-state"><i class="bi bi-tags"></i><h2>No cost codes yet</h2><p>{% if can_manage_team %}Add job-costing codes to tag change order, estimate, and invoice line items.{% else %}This company has not added any cost codes.{% endif %}</p>{% if can_manage_team %}<a class="btn btn-primary" href="{% url 'projects:cost_code_create' organization.slug %}">New cost code</a>{% endif %}</div>
+{% endif %}
+{% endblock %}

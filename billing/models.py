@@ -1,17 +1,18 @@
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
-from projects.models import ChangeOrder, FinishSelection, Organization, Project
-
-MONEY_QUANTUM = Decimal('0.01')
-
-
-def money(value):
-    return Decimal(value).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+from projects.models import (
+    ChangeOrder,
+    CostCode,
+    FinishSelection,
+    Organization,
+    Project,
+)
+from projects.money import money
 
 
 class Invoice(models.Model):
@@ -362,6 +363,13 @@ class InvoiceLineItem(models.Model):
         choices=Category.choices,
         default=Category.OTHER,
     )
+    cost_code = models.ForeignKey(
+        CostCode,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='invoice_line_items',
+    )
     description = models.CharField(max_length=200)
     quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1)
     unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -398,6 +406,12 @@ class InvoiceLineItem(models.Model):
             errors['unit_price'] = 'Unit price cannot be negative.'
         if self.invoice_id and self.invoice.status != Invoice.Status.DRAFT:
             errors['invoice'] = 'Issued invoice lines are immutable.'
+        if (
+            self.cost_code_id
+            and self.invoice_id
+            and self.cost_code.organization_id != self.invoice.organization_id
+        ):
+            errors['cost_code'] = 'Choose a cost code from this company.'
         if errors:
             raise ValidationError(errors)
 
@@ -413,3 +427,45 @@ class InvoiceLineItem(models.Model):
 
     def __str__(self):
         return f'{self.invoice.display_number}: {self.description}'
+
+
+class Payment(models.Model):
+    class Method(models.TextChoices):
+        CHECK = 'check', 'Check'
+        ACH = 'ach', 'ACH/bank transfer'
+        CARD = 'card', 'Card'
+        CASH = 'cash', 'Cash'
+        OTHER = 'other', 'Other'
+
+    invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.PROTECT,
+        related_name='payments',
+    )
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    method = models.CharField(
+        max_length=10,
+        choices=Method.choices,
+        default=Method.OTHER,
+    )
+    reference = models.CharField(max_length=100, blank=True)
+    paid_date = models.DateField()
+    note = models.TextField(blank=True)
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='payments_recorded',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-paid_date', '-pk')
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gt=0),
+                name='billing_payment_amount_positive',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.invoice.display_number}: ${self.amount:,.2f} on {self.paid_date}'

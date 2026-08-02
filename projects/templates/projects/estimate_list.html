@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+
+{% block title %}Estimates | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'core:home' %}">Projects</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><span>Estimates</span></nav>
+
+<section class="page-heading">
+    <div><p class="eyebrow">Pricing and proposal</p><h1>Estimates</h1><p class="text-secondary mb-0">Propose the full project price. An approved estimate sets the project's contract amount.</p></div>
+    {% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:estimate_create' project.pk %}"><i class="bi bi-plus-lg"></i> New estimate</a>{% endif %}
+</section>
+
+{% if estimates %}
+<section class="document-list">
+    {% for estimate in estimates %}
+    <a class="document-row" href="{% url 'projects:estimate_detail' project.pk estimate.pk %}">
+        <div class="document-row__icon"><i class="bi bi-file-earmark-text"></i></div>
+        <div class="document-row__body"><h2>{{ estimate.display_number }} · {{ estimate.title }}</h2><p>Total: ${{ estimate.price_total|floatformat:2 }}</p></div>
+        <div class="document-row__meta"><span class="status-pill {% if estimate.status == 'approved' %}status-pill--active{% elif estimate.status == 'pending' %}status-pill--on_hold{% elif estimate.status == 'declined' %}status-pill--declined{% endif %}">{{ estimate.get_status_display }}</span><i class="bi bi-chevron-right"></i></div>
+    </a>
+    {% endfor %}
+</section>
+{% else %}
+<div class="empty-state"><i class="bi bi-file-earmark-text"></i><h2>No estimates yet</h2><p>{% if can_manage_project %}Create a draft to price the project for the client.{% else %}There are no estimates ready for your review.{% endif %}</p>{% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:estimate_create' project.pk %}">New estimate</a>{% endif %}</div>
+{% endif %}
+{% endblock %}

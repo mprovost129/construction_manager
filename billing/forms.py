@@ -3,7 +3,7 @@ from datetime import timedelta
 from django import forms
 from django.utils import timezone
 
-from .models import Invoice, InvoiceLineItem
+from .models import Invoice, InvoiceLineItem, Payment
 
 
 class InvoiceDraftForm(forms.ModelForm):
@@ -32,11 +32,40 @@ class InvoiceDraftForm(forms.ModelForm):
 class InvoiceLineItemForm(forms.ModelForm):
     class Meta:
         model = InvoiceLineItem
-        fields = ('category', 'description', 'quantity', 'unit_price', 'sort_order')
+        fields = (
+            'category',
+            'cost_code',
+            'description',
+            'quantity',
+            'unit_price',
+            'sort_order',
+        )
+        labels = {'cost_code': 'Cost code'}
+        help_texts = {'cost_code': 'Optional job-costing code.'}
         widgets = {
             'quantity': forms.NumberInput(attrs={'step': '0.01', 'min': '0.01'}),
             'unit_price': forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
         }
+
+    def __init__(self, *args, organization, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['cost_code'].queryset = organization.cost_codes.filter(is_active=True)
+
+
+class PaymentForm(forms.ModelForm):
+    class Meta:
+        model = Payment
+        fields = ('amount', 'method', 'reference', 'paid_date', 'note')
+        widgets = {
+            'amount': forms.NumberInput(attrs={'step': '0.01', 'min': '0.01'}),
+            'paid_date': forms.DateInput(attrs={'type': 'date'}),
+            'note': forms.Textarea(attrs={'rows': 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.is_bound:
+            self.initial.setdefault('paid_date', timezone.localdate())
 
 
 class InvoiceVoidForm(forms.Form):

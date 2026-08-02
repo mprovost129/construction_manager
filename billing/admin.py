@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Invoice, InvoiceLineItem
+from .models import Invoice, InvoiceLineItem, Payment
 
 
 class InvoiceLineItemInline(admin.TabularInline):
@@ -29,6 +29,23 @@ class InvoiceAdmin(admin.ModelAdmin):
     search_fields = ('title', 'project__name')
     readonly_fields = tuple(field.name for field in Invoice._meta.fields)
     inlines = (InvoiceLineItemInline,)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Payment)
+class PaymentAdmin(admin.ModelAdmin):
+    list_display = ('invoice', 'amount', 'method', 'paid_date', 'recorded_by')
+    list_filter = ('method', 'invoice__organization')
+    search_fields = ('invoice__project__name', 'reference')
+    readonly_fields = tuple(field.name for field in Payment._meta.fields)
 
     def has_add_permission(self, request):
         return False

@@ -30,8 +30,8 @@ implemented and verified.
 | Finish selections | Complete | Options, allowance math, publishing, client choice, overage flag, reopening, package grouping for multi-area choices, vendor/link/spec/image/lead-time option metadata, client custom-option requests routed to a change order, credit disposition tracking, and manual + scheduler-driven overdue reminders exist. |
 | Schedule | Partial | Internal milestone/calendar workflow exists; dependencies, recurrence, and external calendar integration do not. |
 | Notifications | Partial | Transactional email exists with project-level recipient preferences; per-event settings, reminders, and digest delivery do not. |
-| Project pricing and financials | Not started | No product/material/labor/commission pricing engine, job-costing ledger, estimate, proposal, or project financial rollup exists. |
-| Invoices and payment visibility | Partial | Local drafts, approved-change-order conversion, immutable company numbering, line items, totals, client-visible issued invoices, authenticated PDF downloads, balances, status fields, notification, questions, and unpaid voiding exist. Selection-origin rules, QuickBooks synchronization, and payment import remain. Online payment is deferred. |
+| Project pricing and financials | Partial | An organization-scoped cost-code catalog, an estimate/proposal workflow with client approval that sets a project's fixed contract amount, a staff+client-safe financial rollup view (contract, change orders, selection overage/credit, invoicing, payments, and internal cost/margin), and a manual invoice payment ledger exist. Tax-rate calculation, job-costing/budget dashboards beyond the rollup, and QuickBooks Item/CostCode mapping do not. |
+| Invoices and payment visibility | Partial | Local drafts, approved-change-order conversion, immutable company numbering, line items, totals, client-visible issued invoices, authenticated PDF downloads, balances, status fields, notification, questions, unpaid voiding, and a manual payment ledger (status transitions from issued to partially paid to paid) exist. Selection-origin rules, QuickBooks payment import/synchronization remain. Online payment is deferred. |
 | QuickBooks Online | Partial | Company-scoped OAuth, encrypted tokens, capability/subscription discovery, stable customer/invoice mappings, customer sync, and tested Invoice API primitives exist. Live sandbox acceptance plus invoice orchestration, Item mapping, credit-memo, payment, and change-detection work remain. |
 | SaaS subscription billing | Partial | Organization-level Stripe Billing, hosted Checkout, Customer Portal, signed webhook reconciliation, audit records, grace-period access rules, and staged entitlement enforcement exist. The Sandbox Product, monthly/yearly Prices, default Portal, and webhook are configured; a real end-to-end Sandbox test plus live-mode setup and validation remain. |
 | Tasks and punch lists | Not started | Confirmed as required, but no models or workflow exist. |
@@ -63,6 +63,11 @@ These decisions govern remaining implementation work:
 - Clients do not use the project schedule. Admins, managers, and project managers operate it.
 - Selection overages are flagged and suggest a change order; they do not automatically create one.
 - Completed selections can be reopened by authorized internal users, not by clients.
+- A project's contract amount is fixed once a client approves an estimate; only one estimate
+  per project may reach approved status. Approved change-order price deltas add to a running
+  total project cost without altering the contract amount, matching current practice.
+- Clients see contract amount, change orders, selection allowances/overages/credits, invoices,
+  and payments; they do not see budget, committed-cost, or internal margin data.
 - Subcontractor login, subcontractor financial access, daily logs, and online payments are deferred.
 
 ## Delivered baseline
@@ -130,6 +135,31 @@ These decisions govern remaining implementation work:
   overdue open selections; the command needs an external scheduler in production (see Production
   blockers).
 
+### Project pricing and financials
+
+- Organization-scoped `CostCode` catalog (code, name, description, active flag) managed by
+  company admins, referenced from change order, estimate, and invoice line items.
+- `Estimate`/`EstimateLineItem`/`EstimateDecision` workflow mirroring change orders: sequential
+  numbering, draft/pending/approved/declined/voided states, category/cost-code/quantity/
+  unit-price/unit-cost line items with automatic price/cost recalculation, client approval
+  (configurable required-approval count), and void.
+- Approving an estimate sets `Project.contract_amount` exactly once; a database constraint
+  guarantees only one estimate per project can ever reach approved status, matching "the
+  contract stays fixed."
+- A pure `project_financial_summary()` rollup: contract amount, approved/pending change-order
+  totals, total project cost (contract plus approved change-order deltas), selection overage/
+  credit totals (with a staff-only credit-disposition breakdown), invoiced/paid/balance totals,
+  and, for internal viewers only, approved change-order cost, approved estimate cost, and
+  estimated margin.
+- A staff-and-client-safe "Project financials" page replacing the former disabled placeholder,
+  branching on client vs. internal viewer to withhold cost/margin/budget data from clients.
+- A shared `money()`/`MONEY_QUANTUM` rounding helper (moved out of the invoicing module) used
+  consistently by change orders, estimates, and invoices.
+- A local `Payment` model and `record_payment`/`delete_payment` services: staff record payments
+  against an issued invoice (rejecting overpayment), the invoice's paid amount and status
+  (issued/partially paid/paid) recompute automatically, and clients see payment date/amount on
+  the invoice detail page.
+
 ### Schedule
 
 - Internal milestone list and calendar views.
@@ -181,7 +211,7 @@ These decisions govern remaining implementation work:
   balance, date, currency, and linked-transaction snapshots. Read, create, sparse-update, and void
   API primitives enforce required references, stable request IDs, and current external identity;
   no live invoice orchestration or automatic local issue-time call is enabled yet.
-- Current automated baseline: 263 passing tests, Ruff clean, no pending migrations,
+- Current automated baseline: 290 passing tests, Ruff clean, no pending migrations,
   and build-settings `collectstatic` passing as of this update. Django's expected
   development warning remains when QuickBooks credentials are intentionally unset.
 
@@ -190,12 +220,10 @@ These decisions govern remaining implementation work:
 ### Change orders
 
 - Voiding an approved change order sets a `requires_financial_reversal` flag for staff to action
-  manually; there is no automated accounting reversal because no invoicing/financial ledger exists
-  yet (blocked on [Phase APP-1](#phase-app-1-project-pricing-and-financial-ledger---p0) and
-  [APP-2](#phase-app-2-invoices-and-client-visibility---p0)). Revisit once invoices exist so a void
-  after invoicing can be rejected or trigger a credit memo instead of only a flag.
-- Change order line items use a free-text cost-code tag, not a formal pricing/cost-code catalog;
-  that catalog is also APP-1 scope.
+  manually; there is no automated accounting reversal because no payment-reconciliation ledger
+  exists yet against QuickBooks (blocked on [QB-3 Invoice
+  synchronization](#phase-qb-3-entity-synchronization---p0)). Revisit once invoice sync exists so
+  a void after invoicing can be rejected or trigger a credit memo instead of only a flag.
 
 ### Schedule and notifications
 
@@ -218,8 +246,9 @@ These decisions govern remaining implementation work:
 - Wire the existing QuickBooks Invoice identity/sync-token mapping and API primitives into
   both-direction synchronization before treating local payment-status fields as live accounting
   data. Product/Service Item mapping is still required before outbound creation can be enabled.
-- Import QuickBooks payments and credit applications. Until then, locally issued invoices display
-  their full balance as due.
+- Import QuickBooks payments and credit applications. Payments today are staff-recorded manually
+  through the local `Payment` ledger; there is no reconciliation against QuickBooks-sourced
+  payment records yet.
 
 ## Production blockers
 
@@ -378,11 +407,30 @@ Acceptance gate:
 
 ### Phase APP-1: Project pricing and financial ledger - P0
 
-- Add a project pricing catalog and line items for products, materials, labor, commission/markup, tax, allowances, and cost codes.
-- Add estimate/proposal generation and client-visible approval where required.
-- Calculate base project total, selection overages/credits, change orders, invoices, payments, and remaining balance without treating estimates as accounting truth.
-- Add staff financial views and client-safe financial summaries.
-- Define rounding, tax, void/reversal, and audit rules.
+- [x] Add a project pricing catalog (organization-scoped cost codes) and category/cost-code
+  line items on change orders, estimates, and invoices.
+- [x] Add estimate/proposal generation and client-visible approval (configurable required-
+  approval count, mirroring change orders).
+- [x] Calculate base project total (contract amount, set once from an approved estimate),
+  selection overages/credits (flagged, not merged), change orders, invoices, payments, and
+  remaining balance, without treating estimates as accounting truth after approval.
+- [x] Add staff financial views (contract, change orders, selections, invoicing, and
+  internal-only cost/margin) and a client-safe financial summary that withholds budget and
+  margin data.
+- [x] Add a local payment ledger so invoice balances are backed by real payment records
+  instead of a bare field.
+- [x] Define rounding (shared `money()`/`ROUND_HALF_UP` helper used consistently across change
+  orders, estimates, and invoices) and void/audit rules (estimate void, payment
+  record/delete with activity events).
+- [ ] Define a tax-rate calculation engine; tax remains a manually entered flat amount on
+  invoices, as before.
+- [ ] Add an estimate revision/replacement chain equivalent to change orders' revise/replace
+  workflow; a declined or voided estimate today requires a brand-new estimate.
+- [ ] Add staff budget/committed-cost/actual-cost/profitability dashboards beyond the
+  contract-and-cost-total rollup; the client interview left staff-side budget visibility
+  unanswered, so this remains an open product question rather than a built feature.
+- [ ] Add QuickBooks Item/CostCode mapping so cost codes can drive outbound QuickBooks
+  Invoice line items (see QB-3 Invoice synchronization preparation).
 
 ### Phase APP-2: Invoices and client visibility - P0
 

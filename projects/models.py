@@ -10,6 +10,7 @@ from django.db.models import F, Sum
 from django.db.models.functions import Lower
 from django.utils import timezone
 
+from .money import money
 from .storage import private_document_storage
 
 
@@ -141,6 +142,12 @@ class Project(models.Model):
     )
     start_date = models.DateField(blank=True, null=True)
     target_completion_date = models.DateField(blank=True, null=True)
+    contract_amount = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        blank=True,
+        null=True,
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         blank=True,
@@ -569,6 +576,25 @@ class ActivityEvent(models.Model):
         )
         INVOICE_ISSUED = 'invoice_issued', 'Invoice issued'
         INVOICE_VOIDED = 'invoice_voided', 'Invoice voided'
+        PAYMENT_RECORDED = 'payment_recorded', 'Payment recorded'
+        PAYMENT_DELETED = 'payment_deleted', 'Payment deleted'
+        ESTIMATE_CREATED = 'estimate_created', 'Estimate created'
+        ESTIMATE_UPDATED = 'estimate_updated', 'Estimate updated'
+        ESTIMATE_SUBMITTED = 'estimate_submitted', 'Estimate submitted'
+        ESTIMATE_DECIDED = 'estimate_decided', 'Estimate decided'
+        ESTIMATE_VOIDED = 'estimate_voided', 'Estimate voided'
+        ESTIMATE_LINE_ITEM_ADDED = (
+            'estimate_line_item_added',
+            'Estimate line item added',
+        )
+        ESTIMATE_LINE_ITEM_UPDATED = (
+            'estimate_line_item_updated',
+            'Estimate line item updated',
+        )
+        ESTIMATE_LINE_ITEM_REMOVED = (
+            'estimate_line_item_removed',
+            'Estimate line item removed',
+        )
 
     organization = models.ForeignKey(
         Organization,
@@ -801,6 +827,45 @@ class DocumentDecision(models.Model):
         )
 
 
+class CostCode(models.Model):
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name='cost_codes',
+    )
+    code = models.CharField(max_length=20)
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('code',)
+        constraints = [
+            models.UniqueConstraint(
+                fields=('organization', 'code'),
+                name='projects_unique_cost_code_per_organization',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        self.code = self.code.strip()
+        self.name = self.name.strip()
+        self.description = self.description.strip()
+        errors = {}
+        if not self.code:
+            errors['code'] = 'Enter a cost code.'
+        if not self.name:
+            errors['name'] = 'Enter a name for this cost code.'
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f'{self.code} - {self.name}'
+
+
 class ChangeOrder(models.Model):
     class Status(models.TextChoices):
         DRAFT = 'draft', 'Draft'
@@ -955,8 +1020,8 @@ class ChangeOrder(models.Model):
                 output_field=models.DecimalField(max_digits=14, decimal_places=2),
             ),
         )
-        self.price_delta = totals['price'] or Decimal('0')
-        self.cost_delta = totals['cost'] or Decimal('0')
+        self.price_delta = money(totals['price'] or Decimal('0'))
+        self.cost_delta = money(totals['cost'] or Decimal('0'))
         self.save(update_fields=('price_delta', 'cost_delta', 'updated_at'))
 
     def clean(self):
@@ -1019,7 +1084,13 @@ class ChangeOrderLineItem(models.Model):
         choices=Category.choices,
         default=Category.OTHER,
     )
-    cost_code = models.CharField(max_length=50, blank=True)
+    cost_code = models.ForeignKey(
+        CostCode,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='change_order_line_items',
+    )
     description = models.CharField(max_length=200)
     quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1)
     unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -1046,7 +1117,6 @@ class ChangeOrderLineItem(models.Model):
     def clean(self):
         super().clean()
         self.description = self.description.strip()
-        self.cost_code = self.cost_code.strip()
         errors = {}
         if not self.description:
             errors['description'] = 'Describe this line item.'
@@ -1056,6 +1126,12 @@ class ChangeOrderLineItem(models.Model):
             errors['unit_price'] = 'Unit price cannot be negative.'
         if self.unit_cost < 0:
             errors['unit_cost'] = 'Unit cost cannot be negative.'
+        if (
+            self.cost_code_id
+            and self.change_order_id
+            and self.cost_code.organization_id != self.change_order.project.organization_id
+        ):
+            errors['cost_code'] = 'Choose a cost code from this company.'
         if errors:
             raise ValidationError(errors)
 
@@ -1095,6 +1171,290 @@ class ChangeOrderDecision(models.Model):
         return (
             f'{self.decided_by.email} {self.get_decision_display().lower()} '
             f'{self.change_order.display_number}'
+        )
+
+
+class Estimate(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = 'draft', 'Draft'
+        PENDING = 'pending', 'Awaiting client'
+        APPROVED = 'approved', 'Approved'
+        DECLINED = 'declined', 'Declined'
+        VOIDED = 'voided', 'Voided'
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='estimates',
+    )
+    number = models.PositiveIntegerField()
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    price_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    cost_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='estimates_created',
+    )
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='estimates_submitted',
+    )
+    submitted_at = models.DateTimeField(blank=True, null=True)
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='estimates_decided',
+    )
+    decided_at = models.DateTimeField(blank=True, null=True)
+    client_comment = models.TextField(blank=True)
+    voided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='estimates_voided',
+    )
+    voided_at = models.DateTimeField(blank=True, null=True)
+    void_reason = models.TextField(blank=True)
+    required_approvals = models.PositiveSmallIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-number', '-pk')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('project', 'number'),
+                name='projects_unique_estimate_number_per_project',
+            ),
+            models.UniqueConstraint(
+                fields=('project',),
+                condition=models.Q(status='approved'),
+                name='projects_unique_approved_estimate_per_project',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        status='draft',
+                        submitted_by__isnull=True,
+                        submitted_at__isnull=True,
+                    )
+                    | models.Q(
+                        status__in=('pending', 'approved', 'declined', 'voided'),
+                        submitted_by__isnull=False,
+                        submitted_at__isnull=False,
+                    )
+                ),
+                name='projects_estimate_submission_matches_status',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        status__in=('approved', 'declined'),
+                        decided_by__isnull=False,
+                        decided_at__isnull=False,
+                    )
+                    | models.Q(
+                        status__in=('draft', 'pending', 'voided'),
+                        decided_by__isnull=True,
+                        decided_at__isnull=True,
+                    )
+                ),
+                name='projects_estimate_decision_matches_status',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        status='voided',
+                        voided_by__isnull=False,
+                        voided_at__isnull=False,
+                    )
+                    | models.Q(
+                        status__in=('draft', 'pending', 'approved', 'declined'),
+                        voided_by__isnull=True,
+                        voided_at__isnull=True,
+                    )
+                ),
+                name='projects_estimate_void_matches_status',
+            ),
+        ]
+
+    @property
+    def display_number(self):
+        return f'EST-{self.number:03d}'
+
+    @property
+    def margin_total(self):
+        return self.price_total - self.cost_total
+
+    def recalculate_from_line_items(self):
+        totals = self.line_items.aggregate(
+            price=Sum(
+                F('quantity') * F('unit_price'),
+                output_field=models.DecimalField(max_digits=14, decimal_places=2),
+            ),
+            cost=Sum(
+                F('quantity') * F('unit_cost'),
+                output_field=models.DecimalField(max_digits=14, decimal_places=2),
+            ),
+        )
+        self.price_total = money(totals['price'] or Decimal('0'))
+        self.cost_total = money(totals['cost'] or Decimal('0'))
+        self.save(update_fields=('price_total', 'cost_total', 'updated_at'))
+
+    def clean(self):
+        super().clean()
+        self.title = self.title.strip()
+        self.description = self.description.strip()
+        self.client_comment = self.client_comment.strip()
+        self.void_reason = self.void_reason.strip()
+        errors = {}
+        if not self.title:
+            errors['title'] = 'Title cannot be blank.'
+        if self.required_approvals < 1:
+            errors['required_approvals'] = 'At least one approval must be required.'
+        if self.status in (self.Status.APPROVED, self.Status.DECLINED):
+            if not self.decided_by_id or not self.decided_at:
+                errors['status'] = 'A completed decision requires an authenticated client.'
+        elif self.decided_by_id or self.decided_at:
+            errors['status'] = 'Only approved or declined estimates can have a decision.'
+        if self.status == self.Status.DRAFT:
+            if self.submitted_by_id or self.submitted_at:
+                errors['status'] = 'Draft estimates cannot have submission details.'
+        elif not self.submitted_by_id or not self.submitted_at:
+            errors['status'] = 'Submitted estimates require an authenticated sender.'
+        if self.status == self.Status.VOIDED:
+            if not self.voided_by_id or not self.voided_at:
+                errors['status'] = 'Voided estimates require an authenticated actor.'
+        elif self.voided_by_id or self.voided_at:
+            errors['status'] = 'Only voided estimates can have void details.'
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f'{self.project}: {self.display_number} {self.title}'
+
+
+class EstimateLineItem(models.Model):
+    class Category(models.TextChoices):
+        PRODUCT = 'product', 'Product'
+        MATERIAL = 'material', 'Material'
+        LABOR = 'labor', 'Labor'
+        SUBCONTRACTOR = 'subcontractor', 'Subcontractor'
+        COMMISSION = 'commission', 'Commission/markup'
+        TAX = 'tax', 'Tax'
+        ALLOWANCE = 'allowance', 'Allowance'
+        OTHER = 'other', 'Other'
+
+    estimate = models.ForeignKey(
+        Estimate,
+        on_delete=models.CASCADE,
+        related_name='line_items',
+    )
+    category = models.CharField(
+        max_length=20,
+        choices=Category.choices,
+        default=Category.OTHER,
+    )
+    cost_code = models.ForeignKey(
+        CostCode,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='estimate_line_items',
+    )
+    description = models.CharField(max_length=200)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1)
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    unit_cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('sort_order', 'pk')
+
+    @property
+    def total_price(self):
+        return self.quantity * self.unit_price
+
+    @property
+    def total_cost(self):
+        return self.quantity * self.unit_cost
+
+    @property
+    def total_margin(self):
+        return self.total_price - self.total_cost
+
+    def clean(self):
+        super().clean()
+        self.description = self.description.strip()
+        errors = {}
+        if not self.description:
+            errors['description'] = 'Describe this line item.'
+        if self.quantity <= 0:
+            errors['quantity'] = 'Quantity must be greater than zero.'
+        if self.unit_price < 0:
+            errors['unit_price'] = 'Unit price cannot be negative.'
+        if self.unit_cost < 0:
+            errors['unit_cost'] = 'Unit cost cannot be negative.'
+        if (
+            self.cost_code_id
+            and self.estimate_id
+            and self.cost_code.organization_id != self.estimate.project.organization_id
+        ):
+            errors['cost_code'] = 'Choose a cost code from this company.'
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f'{self.estimate.display_number}: {self.description}'
+
+
+class EstimateDecision(models.Model):
+    class Decision(models.TextChoices):
+        APPROVED = 'approved', 'Approved'
+        DECLINED = 'declined', 'Declined'
+
+    estimate = models.ForeignKey(
+        Estimate,
+        on_delete=models.CASCADE,
+        related_name='decisions',
+    )
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='estimate_decisions',
+    )
+    decision = models.CharField(max_length=10, choices=Decision.choices)
+    comment = models.TextField(blank=True)
+    decided_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('decided_at', 'pk')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('estimate', 'decided_by'),
+                name='projects_unique_estimate_decision_per_user',
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f'{self.decided_by.email} {self.get_decision_display().lower()} '
+            f'{self.estimate.display_number}'
         )
 
 

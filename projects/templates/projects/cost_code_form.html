@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block title %}{% if cost_code %}Edit {{ cost_code.code }}{% else %}New cost code{% endif %} | {{ organization.name }}{% endblock %}
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:cost_code_list' organization.slug %}">Cost codes</a><i class="bi bi-chevron-right"></i><span>{% if cost_code %}Edit {{ cost_code.code }}{% else %}New{% endif %}</span></nav>
+<div class="form-shell"><section class="form-card"><p class="eyebrow">{{ organization.name }}</p><h1>{% if cost_code %}Edit {{ cost_code.code }}{% else %}New cost code{% endif %}</h1><form method="post" class="stacked-form">{% csrf_token %}{{ form.non_field_errors }}{% for field in form %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}<div class="form-actions"><a class="btn btn-outline-secondary" href="{% url 'projects:cost_code_list' organization.slug %}">Cancel</a><button class="btn btn-primary" type="submit">Save</button></div></form></section></div>
+{% endblock %}

@@ -20,14 +20,16 @@ from .access import (
     visible_invoice_or_404,
     visible_invoices,
 )
-from .forms import InvoiceDraftForm, InvoiceLineItemForm, InvoiceVoidForm
+from .forms import InvoiceDraftForm, InvoiceLineItemForm, InvoiceVoidForm, PaymentForm
 from .models import Invoice, InvoiceLineItem
 from .pdf import build_invoice_pdf
 from .services import (
     create_invoice_from_change_order,
+    delete_payment,
     discard_invoice_draft,
     issue_invoice,
     record_invoice_draft_created,
+    record_payment,
     send_invoice_issued_notification,
     void_invoice,
 )
@@ -176,10 +178,18 @@ class InvoiceDetailView(LoginRequiredMixin, TemplateView):
                 'project': self.project,
                 'invoice': self.invoice,
                 'line_items': self.invoice.line_items.all(),
+                'payments': self.invoice.payments.select_related('recorded_by'),
                 'can_manage_invoices': can_manage,
                 'viewer_is_client': is_project_client(
                     self.request.user,
                     self.project,
+                ),
+                'payment_form': (
+                    PaymentForm()
+                    if can_manage
+                    and self.invoice.status
+                    in (Invoice.Status.ISSUED, Invoice.Status.PARTIALLY_PAID)
+                    else None
                 ),
                 'void_form': (
                     InvoiceVoidForm()
@@ -280,6 +290,11 @@ class InvoiceLineItemCreateView(LoginRequiredMixin, FormView):
         )
         return super().dispatch(request, *args, **kwargs)
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['organization'] = self.project.organization
+        return kwargs
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context.update(
@@ -326,6 +341,7 @@ class InvoiceLineItemUpdateView(LoginRequiredMixin, FormView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['instance'] = self.line_item
+        kwargs['organization'] = self.project.organization
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -352,6 +368,7 @@ class InvoiceLineItemUpdateView(LoginRequiredMixin, FormView):
             )
             for field_name in (
                 'category',
+                'cost_code',
                 'description',
                 'quantity',
                 'unit_price',
@@ -454,4 +471,54 @@ class InvoiceVoidView(LoginRequiredMixin, View):
                 messages.error(request, validation_message(exc))
             else:
                 messages.success(request, f'{invoice.display_number} was voided.')
+        return redirect('billing:invoice_detail', project.pk, invoice.pk)
+
+
+class PaymentCreateView(LoginRequiredMixin, FormView):
+    form_class = PaymentForm
+    template_name = 'billing/payment_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = invoice_project_or_404(request.user, kwargs['project_id'])
+        require_invoice_manager(request.user, self.project)
+        self.invoice = get_object_or_404(Invoice, project=self.project, pk=kwargs['invoice_id'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({'project': self.project, 'invoice': self.invoice})
+        return context
+
+    def form_valid(self, form):
+        try:
+            record_payment(
+                invoice_id=self.invoice.pk,
+                actor=self.request.user,
+                amount=form.cleaned_data['amount'],
+                method=form.cleaned_data['method'],
+                reference=form.cleaned_data['reference'],
+                paid_date=form.cleaned_data['paid_date'],
+                note=form.cleaned_data['note'],
+            )
+        except ValidationError as exc:
+            form.add_error(None, validation_message(exc))
+            return self.form_invalid(form)
+        messages.success(self.request, 'Payment recorded.')
+        return redirect('billing:invoice_detail', self.project.pk, self.invoice.pk)
+
+
+class PaymentDeleteView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, project_id, invoice_id, payment_id):
+        project = invoice_project_or_404(request.user, project_id)
+        require_invoice_manager(request.user, project)
+        invoice = get_object_or_404(Invoice, project=project, pk=invoice_id)
+        payment = get_object_or_404(invoice.payments, pk=payment_id)
+        try:
+            delete_payment(payment_id=payment.pk, actor=request.user)
+        except ValidationError as exc:
+            messages.error(request, validation_message(exc))
+        else:
+            messages.success(request, 'Payment removed.')
         return redirect('billing:invoice_detail', project.pk, invoice.pk)

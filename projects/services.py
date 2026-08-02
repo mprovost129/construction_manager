@@ -335,6 +335,82 @@ def send_change_order_voided_notification(request, change_order):
     )
 
 
+def send_estimate_review_notification(request, estimate):
+    recipients = document_client_recipients(estimate.project)
+    if not recipients:
+        return 0
+    detail_url = request.build_absolute_uri(
+        reverse(
+            'projects:estimate_detail',
+            args=(estimate.project_id, estimate.pk),
+        )
+    )
+    return send_notification_email(
+        subject=(
+            f'Estimate review requested - {estimate.project.name}: '
+            f'{estimate.display_number}'
+        ),
+        message=(
+            f'{estimate.display_number} - {estimate.title} is ready for '
+            f'your review for {estimate.project.name}.\n\n'
+            f'Total: ${estimate.price_total:,.2f}\n\n'
+            f'Review and decide: {detail_url}'
+        ),
+        recipient_list=recipients,
+    )
+
+
+def send_estimate_decision_notification(request, estimate):
+    recipients = document_internal_recipients(
+        estimate.project, exclude_user=estimate.decided_by
+    )
+    if not recipients:
+        return 0
+    detail_url = request.build_absolute_uri(
+        reverse(
+            'projects:estimate_detail',
+            args=(estimate.project_id, estimate.pk),
+        )
+    )
+    return send_notification_email(
+        subject=(
+            f'Estimate {estimate.get_status_display().lower()} - '
+            f'{estimate.project.name}: {estimate.display_number}'
+        ),
+        message=(
+            f'{estimate.decided_by.email} '
+            f'{estimate.get_status_display().lower()} '
+            f'{estimate.display_number} - {estimate.title}.\n\n'
+            f'Comment: {estimate.client_comment or "No comment provided."}\n\n'
+            f'View estimate: {detail_url}'
+        ),
+        recipient_list=recipients,
+    )
+
+
+def send_estimate_voided_notification(request, estimate):
+    recipients = document_client_recipients(estimate.project)
+    if not recipients:
+        return 0
+    detail_url = request.build_absolute_uri(
+        reverse(
+            'projects:estimate_detail',
+            args=(estimate.project_id, estimate.pk),
+        )
+    )
+    return send_notification_email(
+        subject=(
+            f'Estimate withdrawn - {estimate.project.name}: '
+            f'{estimate.display_number}'
+        ),
+        message=(
+            f'{estimate.display_number} - {estimate.title} has been '
+            f'withdrawn and no decision is required.\n\nView: {detail_url}'
+        ),
+        recipient_list=recipients,
+    )
+
+
 def format_allowance_variance(option):
     variance = option.allowance_variance
     if variance > 0:
