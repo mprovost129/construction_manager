@@ -1,6 +1,6 @@
 # Construction Manager Implementation Roadmap
 
-Last updated: August 1, 2026
+Last updated: August 2, 2026
 
 This is the authoritative implementation-status document for Construction Manager.
 It translates the answers in [Construction Manager.md](./Construction%20Manager.md)
@@ -180,7 +180,7 @@ These decisions govern remaining implementation work:
   balance, date, currency, and linked-transaction snapshots. Read, create, sparse-update, and void
   API primitives enforce required references, stable request IDs, and current external identity;
   no live invoice orchestration or automatic local issue-time call is enabled yet.
-- Current automated baseline: 254 passing tests plus 6 passing subtests, Ruff clean, no pending migrations,
+- Current automated baseline: 263 passing tests, Ruff clean, no pending migrations,
   and build-settings `collectstatic` passing as of this update. Django's expected
   development warning remains when QuickBooks credentials are intentionally unset.
 
