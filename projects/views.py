@@ -56,6 +56,7 @@ from .forms import (
     EstimateVoidForm,
     FinishSelectionForm,
     InvitationSignupForm,
+    OrganizationTaxSettingsForm,
     ProjectCostEntryForm,
     ProjectDocumentCreateForm,
     ProjectDocumentVersionForm,
@@ -1949,6 +1950,11 @@ class EstimateCreateView(LoginRequiredMixin, FormView):
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['organization'] = self.project.organization
+        return kwargs
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context.update({'project': self.project, 'estimate': None})
@@ -2003,6 +2009,7 @@ class EstimateUpdateView(LoginRequiredMixin, FormView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['instance'] = self.estimate
+        kwargs['organization'] = self.project.organization
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -2024,6 +2031,7 @@ class EstimateUpdateView(LoginRequiredMixin, FormView):
                 setattr(estimate, field_name, form.cleaned_data[field_name])
             estimate.full_clean()
             estimate.save(update_fields=editable_fields + ('updated_at',))
+            estimate.recalculate_from_line_items()
             record_activity(
                 organization=self.project.organization,
                 project=self.project,
@@ -2361,6 +2369,9 @@ class EstimateReplaceView(LoginRequiredMixin, View):
                 number=(current_number or 0) + 1,
                 title=original.title,
                 description=original.description,
+                subtotal_total=original.subtotal_total,
+                tax_rate=original.tax_rate,
+                tax_amount=original.tax_amount,
                 price_total=original.price_total,
                 cost_total=original.cost_total,
                 required_approvals=original.required_approvals,
@@ -4174,6 +4185,33 @@ class TeamInviteView(LoginRequiredMixin, FormView):
             self.request,
             delivery_result,
             invitation.email,
+        )
+        return redirect('projects:company_team', slug=self.organization.slug)
+
+
+class CompanyTaxSettingsView(LoginRequiredMixin, FormView):
+    form_class = OrganizationTaxSettingsForm
+    template_name = 'projects/company_tax_settings.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.organization = managed_organization_or_404(request.user, kwargs['slug'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['instance'] = self.organization
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['organization'] = self.organization
+        return context
+
+    def form_valid(self, form):
+        organization = form.save()
+        messages.success(
+            self.request,
+            f'Default tax rate updated to {organization.default_tax_rate}%.',
         )
         return redirect('projects:company_team', slug=self.organization.slug)
 

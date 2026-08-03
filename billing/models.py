@@ -48,6 +48,12 @@ class Invoice(models.Model):
         decimal_places=2,
         default=0,
     )
+    tax_rate = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        default=Decimal('0'),
+        help_text='Tax percentage, e.g. 7.250 for 7.25%. Tax is computed automatically from this rate.',
+    )
     tax_amount = models.DecimalField(
         max_digits=14,
         decimal_places=2,
@@ -117,6 +123,10 @@ class Invoice(models.Model):
             models.CheckConstraint(
                 condition=Q(tax_amount__gte=0),
                 name='billing_invoice_tax_nonnegative',
+            ),
+            models.CheckConstraint(
+                condition=Q(tax_rate__gte=0) & Q(tax_rate__lte=100),
+                name='billing_invoice_tax_rate_within_range',
             ),
             models.CheckConstraint(
                 condition=Q(total_amount__gte=0),
@@ -210,12 +220,13 @@ class Invoice(models.Model):
             Decimal('0'),
         )
         self.subtotal_amount = money(subtotal)
-        self.tax_amount = money(self.tax_amount)
+        self.tax_amount = money(self.subtotal_amount * self.tax_rate / Decimal('100'))
         self.total_amount = money(self.subtotal_amount + self.tax_amount)
         if save:
             self.save(
                 update_fields=(
                     'subtotal_amount',
+                    'tax_rate',
                     'tax_amount',
                     'total_amount',
                     'updated_at',
@@ -255,6 +266,8 @@ class Invoice(models.Model):
             errors['source_selection'] = 'An invoice can have only one originating record.'
         if self.tax_amount < 0:
             errors['tax_amount'] = 'Tax cannot be negative.'
+        if self.tax_rate < 0 or self.tax_rate > 100:
+            errors['tax_rate'] = 'Tax rate must be between 0 and 100 percent.'
         if self.amount_paid < 0 or self.amount_paid > self.total_amount:
             errors['amount_paid'] = 'Paid amount must be between zero and the total.'
         if self.due_date and self.issue_date and self.due_date < self.issue_date:
@@ -308,6 +321,7 @@ class Invoice(models.Model):
                 'issue_date',
                 'due_date',
                 'subtotal_amount',
+                'tax_rate',
                 'tax_amount',
                 'total_amount',
                 'source_change_order_id',
@@ -327,6 +341,7 @@ class Invoice(models.Model):
                     'issue_date',
                     'due_date',
                     'subtotal_amount',
+                    'tax_rate',
                     'tax_amount',
                     'total_amount',
                     'source_change_order_id',

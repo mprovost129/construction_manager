@@ -82,10 +82,20 @@ def project_financial_summary(project, *, include_costs=False):
         )
         approved_estimate = project.estimates.filter(status=Estimate.Status.APPROVED).first()
         estimate_cost_total = approved_estimate.cost_total if approved_estimate else None
+
+        # Margin/profitability are computed pre-tax: sales tax is collected on the
+        # client's behalf, not revenue, so it must not inflate these figures even
+        # though the contract amount (and total_project_cost) is tax-inclusive.
+        pretax_total_project_cost = (
+            money(approved_estimate.subtotal_total + approved_change_order_total)
+            if approved_estimate
+            else None
+        )
+
         estimated_margin = None
-        if total_project_cost is not None and estimate_cost_total is not None:
+        if pretax_total_project_cost is not None and estimate_cost_total is not None:
             estimated_margin = money(
-                total_project_cost - estimate_cost_total - approved_change_order_cost_total
+                pretax_total_project_cost - estimate_cost_total - approved_change_order_cost_total
             )
 
         # Budget/committed cost: the approved estimate's internal cost baseline plus
@@ -105,8 +115,8 @@ def project_financial_summary(project, *, include_costs=False):
             else actual_cost_total
         )
         profitability = (
-            money(total_project_cost - estimated_final_cost)
-            if total_project_cost is not None
+            money(pretax_total_project_cost - estimated_final_cost)
+            if pretax_total_project_cost is not None
             else None
         )
 

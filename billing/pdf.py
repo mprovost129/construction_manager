@@ -348,7 +348,7 @@ def build_invoice_pdf(invoice):
     totals = Table(
         [
             [Paragraph('Subtotal', styles['body']), Paragraph(_money(invoice.subtotal_amount), styles['right'])],
-            [Paragraph('Tax', styles['body']), Paragraph(_money(invoice.tax_amount), styles['right'])],
+            [Paragraph(f'Tax ({invoice.tax_rate}%)', styles['body']), Paragraph(_money(invoice.tax_amount), styles['right'])],
             [Paragraph('<b>Total</b>', styles['body']), Paragraph(f'<b>{_money(invoice.total_amount)}</b>', styles['right'])],
             [Paragraph('Paid', styles['body']), Paragraph(_money(invoice.amount_paid), styles['right'])],
             [Paragraph('<b>Balance due</b>', styles['body']), Paragraph(f'<b>{_money(invoice.balance_due)}</b>', styles['right'])],

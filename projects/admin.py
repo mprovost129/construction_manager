@@ -32,7 +32,7 @@ class OrganizationMembershipInline(admin.TabularInline):
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug', 'created_at')
+    list_display = ('name', 'slug', 'default_tax_rate', 'created_at')
     search_fields = ('name', 'slug')
     prepopulated_fields = {'slug': ('name',)}
     inlines = (OrganizationMembershipInline,)
@@ -334,6 +334,9 @@ class EstimateAdmin(admin.ModelAdmin):
         'number',
         'title',
         'description',
+        'subtotal_total',
+        'tax_rate',
+        'tax_amount',
         'price_total',
         'cost_total',
         'status',

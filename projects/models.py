@@ -41,10 +41,23 @@ def selection_option_upload_path(instance, filename):
 class Organization(models.Model):
     name = models.CharField(max_length=200)
     slug = models.SlugField(unique=True)
+    default_tax_rate = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        default=Decimal('0'),
+        help_text='Default sales tax percentage applied to new invoice and estimate drafts, e.g. 7.250 for 7.25%.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ('name',)
+
+    def clean(self):
+        super().clean()
+        if self.default_tax_rate < 0 or self.default_tax_rate > 100:
+            raise ValidationError(
+                {'default_tax_rate': 'Tax rate must be between 0 and 100 percent.'}
+            )
 
     def __str__(self):
         return self.name
@@ -565,6 +578,26 @@ class ActivityEvent(models.Model):
         QUICKBOOKS_INVOICE_MAPPED = (
             'quickbooks_invoice_mapped',
             'QuickBooks invoice mapped',
+        )
+        QUICKBOOKS_ITEM_MAPPED = (
+            'quickbooks_item_mapped',
+            'Cost code mapped to QuickBooks item',
+        )
+        QUICKBOOKS_ITEM_UNLINKED = (
+            'quickbooks_item_unlinked',
+            'Cost code unlinked from QuickBooks item',
+        )
+        QUICKBOOKS_ITEM_MAPPING_TOMBSTONED = (
+            'quickbooks_item_mapping_tombstoned',
+            'QuickBooks item mapping tombstoned',
+        )
+        QUICKBOOKS_ITEM_SYNC_SUCCEEDED = (
+            'quickbooks_item_sync_succeeded',
+            'QuickBooks item sync succeeded',
+        )
+        QUICKBOOKS_ITEM_SYNC_FAILED = (
+            'quickbooks_item_sync_failed',
+            'QuickBooks item sync failed',
         )
         INVOICE_DRAFT_CREATED = (
             'invoice_draft_created',
@@ -1203,6 +1236,14 @@ class Estimate(models.Model):
     number = models.PositiveIntegerField()
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+    subtotal_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    tax_rate = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        default=Decimal('0'),
+        help_text='Tax percentage, e.g. 7.250 for 7.25%. Tax is computed automatically from this rate.',
+    )
+    tax_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     price_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     cost_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     status = models.CharField(
@@ -1265,6 +1306,10 @@ class Estimate(models.Model):
                 name='projects_unique_approved_estimate_per_project',
             ),
             models.CheckConstraint(
+                condition=models.Q(tax_rate__gte=0) & models.Q(tax_rate__lte=100),
+                name='projects_estimate_tax_rate_within_range',
+            ),
+            models.CheckConstraint(
                 condition=(
                     models.Q(
                         status='draft',
@@ -1317,7 +1362,8 @@ class Estimate(models.Model):
 
     @property
     def margin_total(self):
-        return self.price_total - self.cost_total
+        """Margin before tax: tax is collected on the client's behalf, not revenue."""
+        return self.subtotal_total - self.cost_total
 
     def recalculate_from_line_items(self):
         totals = self.line_items.aggregate(
@@ -1330,9 +1376,20 @@ class Estimate(models.Model):
                 output_field=models.DecimalField(max_digits=14, decimal_places=2),
             ),
         )
-        self.price_total = money(totals['price'] or Decimal('0'))
+        self.subtotal_total = money(totals['price'] or Decimal('0'))
         self.cost_total = money(totals['cost'] or Decimal('0'))
-        self.save(update_fields=('price_total', 'cost_total', 'updated_at'))
+        self.tax_amount = money(self.subtotal_total * self.tax_rate / Decimal('100'))
+        self.price_total = money(self.subtotal_total + self.tax_amount)
+        self.save(
+            update_fields=(
+                'subtotal_total',
+                'cost_total',
+                'tax_rate',
+                'tax_amount',
+                'price_total',
+                'updated_at',
+            )
+        )
 
     def clean(self):
         super().clean()
@@ -1345,6 +1402,8 @@ class Estimate(models.Model):
             errors['title'] = 'Title cannot be blank.'
         if self.required_approvals < 1:
             errors['required_approvals'] = 'At least one approval must be required.'
+        if self.tax_rate < 0 or self.tax_rate > 100:
+            errors['tax_rate'] = 'Tax rate must be between 0 and 100 percent.'
         if self.status in (self.Status.APPROVED, self.Status.DECLINED):
             if not self.decided_by_id or not self.decided_at:
                 errors['status'] = 'A completed decision requires an authenticated client.'

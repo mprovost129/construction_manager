@@ -364,6 +364,11 @@ urlpatterns = [
         name='company_team',
     ),
     path(
+        'companies/<slug:slug>/tax-settings/',
+        views.CompanyTaxSettingsView.as_view(),
+        name='company_tax_settings',
+    ),
+    path(
         'companies/<slug:slug>/cost-codes/',
         views.CostCodeListView.as_view(),
         name='cost_code_list',

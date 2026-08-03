@@ -635,7 +635,7 @@ class QuickBooksCustomerSyncTests(TestCase):
             {'organization': self.organization.slug},
         )
 
-        self.assertContains(response, 'Customer sync error queue')
+        self.assertContains(response, 'Sync error queue')
         self.assertContains(response, 'That name is already in use.')
         self.assertContains(response, 'Mark resolved')
 

@@ -12,7 +12,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
 from projects.access import can_manage_organization
-from projects.models import Organization, OrganizationMembership, Project
+from projects.models import CostCode, Organization, OrganizationMembership, Project
 
 from .customer_sync import (
     QuickBooksSyncError,
@@ -21,9 +21,15 @@ from .customer_sync import (
     start_project_customer_sync,
     start_project_customer_update,
 )
-from .forms import QuickBooksProjectCustomerMappingForm
+from .forms import QuickBooksItemMappingForm, QuickBooksProjectCustomerMappingForm
+from .item_sync import (
+    resolve_item_sync_attempt,
+    retry_item_sync_attempt,
+    start_cost_code_item_sync,
+)
 from .models import (
     QuickBooksConnection,
+    QuickBooksItemMapping,
     QuickBooksProjectCustomerMapping,
     QuickBooksSyncAttempt,
 )
@@ -39,9 +45,12 @@ from .services import (
     disconnect_connection,
     record_capability_unavailable,
     refresh_company_capabilities,
+    refresh_cost_code_item_mapping,
     refresh_project_customer_mapping,
     save_authorized_connection,
+    save_cost_code_item_mapping,
     save_project_customer_mapping,
+    unlink_cost_code_item_mapping,
     unlink_project_customer_mapping,
 )
 
@@ -81,7 +90,9 @@ def quickbooks_connect(request):
 
     connections = QuickBooksConnection.objects.none()
     projects = Project.objects.none()
+    cost_codes = CostCode.objects.none()
     mapping_form = None
+    item_mapping_form = None
     failed_sync_attempts = QuickBooksSyncAttempt.objects.none()
     recent_sync_attempts = QuickBooksSyncAttempt.objects.none()
     if selected_organization:
@@ -89,16 +100,22 @@ def quickbooks_connect(request):
         projects = selected_organization.projects.select_related(
             'quickbooks_customer_mapping__connection'
         )
+        cost_codes = selected_organization.cost_codes.filter(is_active=True).select_related(
+            'quickbooks_item_mapping__connection'
+        )
         mapping_form = QuickBooksProjectCustomerMappingForm(
+            organization=selected_organization
+        )
+        item_mapping_form = QuickBooksItemMappingForm(
             organization=selected_organization
         )
         failed_sync_attempts = QuickBooksSyncAttempt.objects.filter(
             connection__organization=selected_organization,
             status=QuickBooksSyncAttempt.Status.FAILED,
-        ).select_related('project', 'connection')
+        ).select_related('project', 'connection', 'cost_code')
         recent_sync_attempts = QuickBooksSyncAttempt.objects.filter(
             connection__organization=selected_organization,
-        ).select_related('project', 'connection')[:20]
+        ).select_related('project', 'connection', 'cost_code')[:20]
     return render(
         request,
         'integrations/quickbooks_connect.html',
@@ -107,7 +124,9 @@ def quickbooks_connect(request):
             'selected_organization': selected_organization,
             'connections': connections,
             'projects': projects,
+            'cost_codes': cost_codes,
             'mapping_form': mapping_form,
+            'item_mapping_form': item_mapping_form,
             'failed_sync_attempts': failed_sync_attempts,
             'recent_sync_attempts': recent_sync_attempts,
             'quickbooks_configured': settings.QUICKBOOKS_CONFIGURED,
@@ -404,10 +423,129 @@ def quickbooks_customer_update(request, project_id):
     return _connect_redirect(project.organization)
 
 
+@login_required
+@require_POST
+def quickbooks_item_mapping_save(request):
+    organization = get_object_or_404(
+        Organization,
+        slug=request.POST.get('organization', ''),
+    )
+    if not can_manage_organization(request.user, organization):
+        raise PermissionDenied('Only company administrators can map QuickBooks items.')
+    form = QuickBooksItemMappingForm(
+        request.POST,
+        organization=organization,
+    )
+    if not form.is_valid():
+        error = next(iter(form.errors.values()))[0]
+        messages.error(request, str(error))
+        return _connect_redirect(organization)
+
+    connection = form.cleaned_data['connection']
+    item_id = form.cleaned_data['quickbooks_item_id']
+    try:
+        item = QuickBooksAccountingClient().get_item(
+            connection,
+            item_id,
+        )
+        mapping = save_cost_code_item_mapping(
+            cost_code=form.cleaned_data['cost_code'],
+            connection=connection,
+            item=item,
+            actor=request.user,
+        )
+    except QuickBooksAPIError as exc:
+        if exc.is_feature_unsupported:
+            record_capability_unavailable(connection.pk, 'item_read', exc)
+        messages.error(request, exc.public_message)
+        return _connect_redirect(organization)
+    except QuickBooksMappingError as exc:
+        messages.error(request, str(exc))
+        return _connect_redirect(organization)
+
+    messages.success(
+        request,
+        f'{mapping.cost_code.code} is mapped to {mapping.quickbooks_item_name}.',
+    )
+    return _connect_redirect(organization)
+
+
+def _item_mapping_for_admin(request, mapping_id):
+    mapping = get_object_or_404(
+        QuickBooksItemMapping.objects.select_related(
+            'cost_code__organization', 'connection'
+        ),
+        pk=mapping_id,
+    )
+    if not can_manage_organization(request.user, mapping.cost_code.organization):
+        raise PermissionDenied('Only company administrators can manage this mapping.')
+    return mapping
+
+
+@login_required
+@require_POST
+def quickbooks_item_mapping_refresh(request, mapping_id):
+    mapping = _item_mapping_for_admin(request, mapping_id)
+    try:
+        mapping = refresh_cost_code_item_mapping(
+            mapping.pk,
+            actor=request.user,
+        )
+    except (QuickBooksAPIError, QuickBooksMappingError) as exc:
+        messages.error(request, getattr(exc, 'public_message', str(exc)))
+    else:
+        if mapping.status == QuickBooksItemMapping.Status.TOMBSTONED:
+            messages.warning(
+                request,
+                'The QuickBooks item no longer exists. The mapping history was preserved.',
+            )
+        else:
+            messages.success(request, 'QuickBooks item details were refreshed.')
+    return _connect_redirect(mapping.cost_code.organization)
+
+
+@login_required
+@require_POST
+def quickbooks_item_mapping_unlink(request, mapping_id):
+    mapping = _item_mapping_for_admin(request, mapping_id)
+    mapping = unlink_cost_code_item_mapping(mapping.pk, actor=request.user)
+    messages.success(request, 'The cost code was unlinked; mapping history was preserved.')
+    return _connect_redirect(mapping.cost_code.organization)
+
+
+@login_required
+@require_POST
+def quickbooks_cost_code_item_sync(request, cost_code_id):
+    cost_code = get_object_or_404(
+        CostCode.objects.select_related('organization'), pk=cost_code_id
+    )
+    if not can_manage_organization(request.user, cost_code.organization):
+        raise PermissionDenied('Only company administrators can synchronize items.')
+    connection = get_object_or_404(
+        QuickBooksConnection,
+        pk=request.POST.get('connection'),
+        organization=cost_code.organization,
+    )
+    try:
+        attempt = start_cost_code_item_sync(
+            cost_code_id=cost_code.pk,
+            connection_id=connection.pk,
+            actor=request.user,
+        )
+    except QuickBooksSyncError as exc:
+        messages.error(request, str(exc))
+    else:
+        if attempt.status == QuickBooksSyncAttempt.Status.SUCCEEDED:
+            messages.success(request, 'QuickBooks item synchronization succeeded.')
+        else:
+            messages.error(request, attempt.error_message)
+    return _connect_redirect(cost_code.organization)
+
+
 def _sync_attempt_for_admin(request, attempt_id):
     attempt = get_object_or_404(
         QuickBooksSyncAttempt.objects.select_related(
-            'connection__organization', 'project'
+            'connection__organization', 'project', 'cost_code'
         ),
         pk=attempt_id,
     )
@@ -420,13 +558,16 @@ def _sync_attempt_for_admin(request, attempt_id):
 @require_POST
 def quickbooks_sync_retry(request, attempt_id):
     attempt = _sync_attempt_for_admin(request, attempt_id)
+    is_item = attempt.entity_type == QuickBooksSyncAttempt.EntityType.ITEM
+    retry = retry_item_sync_attempt if is_item else retry_customer_sync_attempt
+    entity_label = 'item' if is_item else 'customer'
     try:
-        result = retry_customer_sync_attempt(attempt.pk, actor=request.user)
+        result = retry(attempt.pk, actor=request.user)
     except QuickBooksSyncError as exc:
         messages.error(request, str(exc))
     else:
         if result.status == QuickBooksSyncAttempt.Status.SUCCEEDED:
-            messages.success(request, 'QuickBooks customer synchronization succeeded.')
+            messages.success(request, f'QuickBooks {entity_label} synchronization succeeded.')
         else:
             messages.error(request, result.error_message)
     return _connect_redirect(attempt.connection.organization)
@@ -436,8 +577,10 @@ def quickbooks_sync_retry(request, attempt_id):
 @require_POST
 def quickbooks_sync_resolve(request, attempt_id):
     attempt = _sync_attempt_for_admin(request, attempt_id)
+    is_item = attempt.entity_type == QuickBooksSyncAttempt.EntityType.ITEM
+    resolve = resolve_item_sync_attempt if is_item else resolve_customer_sync_attempt
     try:
-        resolve_customer_sync_attempt(
+        resolve(
             attempt.pk,
             actor=request.user,
             note=request.POST.get('resolution_note', ''),

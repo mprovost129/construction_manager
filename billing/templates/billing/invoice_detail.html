@@ -14,7 +14,7 @@
 
 <section class="summary-strip" aria-label="Invoice totals">
     <article><span>Subtotal</span><strong>${{ invoice.subtotal_amount|floatformat:2 }}</strong></article>
-    <article><span>Tax</span><strong>${{ invoice.tax_amount|floatformat:2 }}</strong></article>
+    <article><span>Tax ({{ invoice.tax_rate }}%)</span><strong>${{ invoice.tax_amount|floatformat:2 }}</strong></article>
     <article><span>Total</span><strong>${{ invoice.total_amount|floatformat:2 }}</strong></article>
     <article><span>Paid</span><strong>${{ invoice.amount_paid|floatformat:2 }}</strong></article>
     <article><span>Balance due</span><strong>${{ invoice.balance_due|floatformat:2 }}</strong></article>

@@ -73,6 +73,7 @@ class ProjectFinancialSummaryTests(TestCase):
             project=cls.project,
             number=1,
             title='Base contract',
+            subtotal_total=Decimal('100000.00'),
             price_total=Decimal('100000.00'),
             cost_total=Decimal('70000.00'),
             status=Estimate.Status.APPROVED,
@@ -307,3 +308,37 @@ class ProjectFinancialSummaryTests(TestCase):
             },
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_margin_and_profitability_exclude_tax(self):
+        """Sales tax is collected on the client's behalf and must not inflate margin."""
+        tax_project = Project.objects.create(
+            organization=self.organization,
+            name='Elm Street',
+            status=Project.Status.ACTIVE,
+            contract_amount=Decimal('11000.00'),  # $10,000 subtotal + 10% tax
+        )
+        now = timezone.now()
+        Estimate.objects.create(
+            project=tax_project,
+            number=1,
+            title='Base contract',
+            subtotal_total=Decimal('10000.00'),
+            tax_rate=Decimal('10.000'),
+            tax_amount=Decimal('1000.00'),
+            price_total=Decimal('11000.00'),
+            cost_total=Decimal('6000.00'),
+            status=Estimate.Status.APPROVED,
+            created_by=self.admin_user,
+            submitted_by=self.admin_user,
+            submitted_at=now,
+            decided_by=self.client_user,
+            decided_at=now,
+        )
+        summary = project_financial_summary(tax_project, include_costs=True)
+        # Pre-tax revenue (10,000) minus cost (6,000) = 4,000, not 5,000 as it
+        # would be if the tax-inclusive contract amount (11,000) leaked in.
+        self.assertEqual(summary['estimated_margin'], Decimal('4000.00'))
+        self.assertEqual(summary['profitability'], Decimal('4000.00'))
+        # The headline "total project cost" still reflects the real, tax-inclusive
+        # amount the client owes.
+        self.assertEqual(summary['total_project_cost'], Decimal('11000.00'))

@@ -56,6 +56,26 @@ urlpatterns = [
         name='quickbooks_customer_update',
     ),
     path(
+        'quickbooks/item-mappings/save/',
+        views.quickbooks_item_mapping_save,
+        name='quickbooks_item_mapping_save',
+    ),
+    path(
+        'quickbooks/item-mappings/<int:mapping_id>/refresh/',
+        views.quickbooks_item_mapping_refresh,
+        name='quickbooks_item_mapping_refresh',
+    ),
+    path(
+        'quickbooks/item-mappings/<int:mapping_id>/unlink/',
+        views.quickbooks_item_mapping_unlink,
+        name='quickbooks_item_mapping_unlink',
+    ),
+    path(
+        'quickbooks/item-sync/cost-codes/<int:cost_code_id>/',
+        views.quickbooks_cost_code_item_sync,
+        name='quickbooks_cost_code_item_sync',
+    ),
+    path(
         'quickbooks/sync-attempts/<int:attempt_id>/retry/',
         views.quickbooks_sync_retry,
         name='quickbooks_sync_retry',

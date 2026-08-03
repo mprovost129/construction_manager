@@ -7,26 +7,39 @@ from .models import Invoice, InvoiceLineItem, Payment
 
 
 class InvoiceDraftForm(forms.ModelForm):
+    tax_rate = forms.DecimalField(
+        required=False,
+        min_value=0,
+        max_value=100,
+        label='Tax rate (%)',
+        help_text='Tax is computed automatically from this rate. Set to 0 for tax-exempt.',
+        widget=forms.NumberInput(attrs={'step': '0.001', 'min': '0', 'max': '100'}),
+    )
+
     class Meta:
         model = Invoice
-        fields = ('title', 'due_date', 'tax_amount', 'notes')
+        fields = ('title', 'due_date', 'tax_rate', 'notes')
         widgets = {
             'due_date': forms.DateInput(attrs={'type': 'date'}),
-            'tax_amount': forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
             'notes': forms.Textarea(attrs={'rows': 4}),
         }
-        labels = {'tax_amount': 'Tax'}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, organization, **kwargs):
         super().__init__(*args, **kwargs)
+        self.organization = organization
         if not self.is_bound and not self.instance.pk:
             self.initial.setdefault('due_date', timezone.localdate() + timedelta(days=30))
+            self.initial.setdefault('tax_rate', organization.default_tax_rate)
 
     def clean_due_date(self):
         due_date = self.cleaned_data['due_date']
         if not due_date:
             raise forms.ValidationError('Enter the invoice due date.')
         return due_date
+
+    def clean_tax_rate(self):
+        tax_rate = self.cleaned_data.get('tax_rate')
+        return tax_rate if tax_rate is not None else self.organization.default_tax_rate
 
 
 class InvoiceLineItemForm(forms.ModelForm):

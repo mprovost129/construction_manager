@@ -48,13 +48,13 @@ class InvoiceTestCase(TestCase):
             role=OrganizationMembership.Role.CLIENT,
         )
 
-    def create_draft(self, *, title='Progress invoice', tax='0.00'):
+    def create_draft(self, *, title='Progress invoice', tax_rate='0.000'):
         return Invoice.objects.create(
             organization=self.organization,
             project=self.project,
             title=title,
             due_date=timezone.localdate() + timedelta(days=30),
-            tax_amount=Decimal(tax),
+            tax_rate=Decimal(tax_rate),
             created_by=self.admin,
         )
 
@@ -78,14 +78,15 @@ class InvoiceTestCase(TestCase):
 
 class InvoiceModelAndServiceTests(InvoiceTestCase):
     def test_line_items_recalculate_subtotal_tax_total_and_balance(self):
-        invoice = self.create_draft(tax='5.25')
+        invoice = self.create_draft(tax_rate='10.000')
         self.add_line(invoice, price='10.50')
         self.add_line(invoice, description='Materials', price='20.00')
         invoice.refresh_from_db()
 
         self.assertEqual(invoice.subtotal_amount, Decimal('30.50'))
-        self.assertEqual(invoice.total_amount, Decimal('35.75'))
-        self.assertEqual(invoice.balance_due, Decimal('35.75'))
+        self.assertEqual(invoice.tax_amount, Decimal('3.05'))
+        self.assertEqual(invoice.total_amount, Decimal('33.55'))
+        self.assertEqual(invoice.balance_due, Decimal('33.55'))
 
     def test_issue_assigns_company_wide_sequential_immutable_numbers(self):
         first = self.create_issued(title='First')
@@ -194,7 +195,7 @@ class InvoiceModelAndServiceTests(InvoiceTestCase):
             form_data={
                 'title': 'Built-ins invoice',
                 'due_date': timezone.localdate() + timedelta(days=30),
-                'tax_amount': Decimal('0'),
+                'tax_rate': Decimal('0'),
                 'notes': '',
             },
         )
@@ -209,7 +210,7 @@ class InvoiceModelAndServiceTests(InvoiceTestCase):
                 form_data={
                     'title': 'Duplicate',
                     'due_date': timezone.localdate() + timedelta(days=30),
-                    'tax_amount': Decimal('0'),
+                    'tax_rate': Decimal('0'),
                     'notes': '',
                 },
             )
@@ -237,10 +238,60 @@ class InvoiceModelAndServiceTests(InvoiceTestCase):
                 form_data={
                     'title': 'Credit',
                     'due_date': timezone.localdate() + timedelta(days=30),
-                    'tax_amount': Decimal('0'),
+                    'tax_rate': Decimal('0'),
                     'notes': '',
                 },
             )
+
+
+class InvoiceTaxRateTests(InvoiceTestCase):
+    def test_new_draft_defaults_tax_rate_from_organization(self):
+        self.organization.default_tax_rate = Decimal('6.500')
+        self.organization.save(update_fields=('default_tax_rate',))
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse('billing:invoice_create', args=(self.project.pk,)))
+        self.assertContains(response, '6.5')
+
+    def test_creating_invoice_without_explicit_rate_uses_organization_default(self):
+        self.organization.default_tax_rate = Decimal('8.000')
+        self.organization.save(update_fields=('default_tax_rate',))
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse('billing:invoice_create', args=(self.project.pk,)),
+            {
+                'title': 'Deposit invoice',
+                'due_date': timezone.localdate() + timedelta(days=14),
+                'notes': '',
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        invoice = Invoice.objects.get(title='Deposit invoice')
+        self.assertEqual(invoice.tax_rate, Decimal('8.000'))
+
+    def test_editing_draft_tax_rate_recalculates_tax_and_total(self):
+        invoice = self.create_draft()
+        self.add_line(invoice, price='100.00')
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse('billing:invoice_edit', args=(self.project.pk, invoice.pk)),
+            {
+                'title': invoice.title,
+                'due_date': invoice.due_date.isoformat(),
+                'tax_rate': '20.000',
+                'notes': '',
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.tax_rate, Decimal('20.000'))
+        self.assertEqual(invoice.tax_amount, Decimal('20.00'))
+        self.assertEqual(invoice.total_amount, Decimal('120.00'))
+
+    def test_tax_rate_immutable_once_issued(self):
+        invoice = self.create_issued(price='100.00')
+        invoice.tax_rate = Decimal('99.000')
+        with self.assertRaisesMessage(ValidationError, 'immutable'):
+            invoice.save()
 
 
 class InvoicePortalTests(InvoiceTestCase):
@@ -251,7 +302,7 @@ class InvoicePortalTests(InvoiceTestCase):
             {
                 'title': 'Deposit invoice',
                 'due_date': timezone.localdate() + timedelta(days=14),
-                'tax_amount': '5.00',
+                'tax_rate': '5.00',
                 'notes': 'Thank you.',
             },
         )
@@ -449,7 +500,7 @@ class InvoicePortalTests(InvoiceTestCase):
             form_data={
                 'title': 'Built-ins invoice',
                 'due_date': timezone.localdate() + timedelta(days=30),
-                'tax_amount': Decimal('0'),
+                'tax_rate': Decimal('0'),
                 'notes': '',
             },
         )

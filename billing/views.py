@@ -91,6 +91,11 @@ class InvoiceCreateView(LoginRequiredMixin, FormView):
         require_invoice_manager(request.user, self.project)
         return super().dispatch(request, *args, **kwargs)
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['organization'] = self.project.organization
+        return kwargs
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context.update({'project': self.project, 'invoice': None, 'source': None})
@@ -128,6 +133,11 @@ class InvoiceFromChangeOrderCreateView(LoginRequiredMixin, FormView):
             f'{self.change_order.display_number} - {self.change_order.title}'
         )
         return initial
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['organization'] = self.project.organization
+        return kwargs
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -250,6 +260,7 @@ class InvoiceUpdateView(LoginRequiredMixin, FormView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['instance'] = self.invoice
+        kwargs['organization'] = self.project.organization
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -266,7 +277,7 @@ class InvoiceUpdateView(LoginRequiredMixin, FormView):
                 project=self.project,
                 status=Invoice.Status.DRAFT,
             )
-            for field_name in ('title', 'due_date', 'tax_amount', 'notes'):
+            for field_name in ('title', 'due_date', 'tax_rate', 'notes'):
                 setattr(invoice, field_name, form.cleaned_data[field_name])
             invoice.recalculate_totals(save=False)
             invoice.full_clean()

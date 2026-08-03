@@ -91,11 +91,11 @@
 
 {% if failed_sync_attempts %}
 <section class="integration-panel" aria-labelledby="sync-errors-heading">
-    <div class="integration-panel__heading"><div><p class="eyebrow">Action required</p><h2 id="sync-errors-heading">Customer sync error queue</h2><p class="text-secondary mb-0">Retry transient failures or document how a permanent issue was resolved.</p></div></div>
+    <div class="integration-panel__heading"><div><p class="eyebrow">Action required</p><h2 id="sync-errors-heading">Sync error queue</h2><p class="text-secondary mb-0">Retry transient failures or document how a permanent issue was resolved.</p></div></div>
     <div class="integration-list">
         {% for attempt in failed_sync_attempts %}
         <article class="integration-row">
-            <div><h3>{{ attempt.project.name|default:"Deleted project" }} &middot; {{ attempt.get_operation_display }}</h3><p>{{ attempt.error_message }} &middot; Code {{ attempt.error_code|default:"unknown" }} &middot; Attempt {{ attempt.attempt_number }}</p>{% if attempt.next_retry_at %}<p>Automatic retry eligible after {{ attempt.next_retry_at|date:"M j, Y g:i A" }}</p>{% endif %}</div>
+            <div><h3>{% firstof attempt.project.name attempt.cost_code.code "Deleted record" %} &middot; {{ attempt.get_operation_display }}</h3><p>{{ attempt.error_message }} &middot; Code {{ attempt.error_code|default:"unknown" }} &middot; Attempt {{ attempt.attempt_number }}</p>{% if attempt.next_retry_at %}<p>Automatic retry eligible after {{ attempt.next_retry_at|date:"M j, Y g:i A" }}</p>{% endif %}</div>
             <span class="status-pill status-pill--declined">Failed</span>
             <div class="integration-error-actions">
                 {% if attempt.retryable %}<form method="post" action="{% url 'integrations:quickbooks_sync_retry' attempt.pk %}">{% csrf_token %}<button class="btn btn-sm btn-primary" type="submit">Retry now</button></form>{% endif %}
@@ -109,12 +109,44 @@
 
 {% if recent_sync_attempts %}
 <section class="integration-panel" aria-labelledby="sync-history-heading">
-    <div class="integration-panel__heading"><div><p class="eyebrow">Audit history</p><h2 id="sync-history-heading">Recent customer synchronization</h2></div></div>
+    <div class="integration-panel__heading"><div><p class="eyebrow">Audit history</p><h2 id="sync-history-heading">Recent synchronization</h2></div></div>
     <div class="integration-list">
-        {% for attempt in recent_sync_attempts %}<article class="integration-row"><div><h3>{{ attempt.project.name|default:"Deleted project" }} &middot; {{ attempt.get_operation_display }}</h3><p>{{ attempt.get_direction_display }} &middot; Attempt {{ attempt.attempt_number }} &middot; {{ attempt.created_at|date:"M j, Y g:i A" }}</p></div><span class="status-pill status-pill--{% if attempt.status == 'succeeded' %}active{% elif attempt.status == 'failed' %}declined{% else %}completed{% endif %}">{{ attempt.get_status_display }}</span><span></span></article>{% endfor %}
+        {% for attempt in recent_sync_attempts %}<article class="integration-row"><div><h3>{% firstof attempt.project.name attempt.cost_code.code "Deleted record" %} &middot; {{ attempt.get_operation_display }}</h3><p>{{ attempt.get_direction_display }} &middot; Attempt {{ attempt.attempt_number }} &middot; {{ attempt.created_at|date:"M j, Y g:i A" }}</p></div><span class="status-pill status-pill--{% if attempt.status == 'succeeded' %}active{% elif attempt.status == 'failed' %}declined{% else %}completed{% endif %}">{{ attempt.get_status_display }}</span><span></span></article>{% endfor %}
     </div>
 </section>
 {% endif %}
+
+<section class="integration-panel" aria-labelledby="item-mapping-heading">
+    <div class="integration-panel__heading">
+        <div><p class="eyebrow">Stable accounting identity</p><h2 id="item-mapping-heading">Cost-code-to-item mappings</h2><p class="text-secondary mb-0">Each cost code maps to a QuickBooks Product/Service item, so invoice line items can eventually reference it.</p></div>
+    </div>
+    <form method="post" action="{% url 'integrations:quickbooks_item_mapping_save' %}" class="integration-mapping-form">
+        {% csrf_token %}<input type="hidden" name="organization" value="{{ selected_organization.slug }}">
+        <div class="form-field"><label for="{{ item_mapping_form.cost_code.id_for_label }}">Cost code</label>{{ item_mapping_form.cost_code }}</div>
+        <div class="form-field"><label for="{{ item_mapping_form.connection.id_for_label }}">QuickBooks company</label>{{ item_mapping_form.connection }}</div>
+        <div class="form-field"><label for="{{ item_mapping_form.quickbooks_item_id.id_for_label }}">QuickBooks item ID</label>{{ item_mapping_form.quickbooks_item_id }}<small>{{ item_mapping_form.quickbooks_item_id.help_text }}</small></div>
+        <button class="btn btn-primary" type="submit">Validate and save mapping</button>
+    </form>
+    <div class="integration-list integration-list--spaced">
+        {% for cost_code in cost_codes %}{% with mapping=cost_code.quickbooks_item_mapping %}
+        <article class="integration-row">
+            <div>
+                <h3>{{ cost_code.code }} &middot; {{ cost_code.name }}</h3>
+                {% if mapping %}<p>{{ mapping.quickbooks_item_name }} &middot; Item {{ mapping.quickbooks_item_id }} &middot; {{ mapping.connection.display_name }}</p><p>Ownership: QuickBooks authoritative &middot; Conflict rule: QuickBooks wins</p>{% if mapping.last_seen_at %}<p>Last verified {{ mapping.last_seen_at|date:"M j, Y g:i A" }}</p>{% endif %}{% else %}<p>Not mapped to a QuickBooks item.</p>{% endif %}
+            </div>
+            {% if mapping %}<span class="status-pill status-pill--{% if mapping.status == 'active' %}active{% elif mapping.status == 'unlinked' %}completed{% else %}declined{% endif %}">{{ mapping.get_status_display }}</span>{% endif %}
+            <div class="button-row">
+                <form method="post" action="{% url 'integrations:quickbooks_cost_code_item_sync' cost_code.pk %}" class="integration-sync-form">
+                    {% csrf_token %}
+                    {% if mapping.status == 'active' %}<input type="hidden" name="connection" value="{{ mapping.connection_id }}"><button class="btn btn-sm btn-primary" type="submit">Sync item</button>
+                    {% else %}<select name="connection" aria-label="QuickBooks company for {{ cost_code.code }}" required>{% for connection in connections %}{% if connection.status == 'connected' %}<option value="{{ connection.pk }}">{{ connection.display_name }}</option>{% endif %}{% endfor %}</select><button class="btn btn-sm btn-primary" type="submit">Find or create item</button>{% endif %}
+                </form>
+                {% if mapping.status == 'active' %}<form method="post" action="{% url 'integrations:quickbooks_item_mapping_unlink' mapping.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit">Unlink</button></form>{% endif %}
+            </div>
+        </article>
+        {% endwith %}{% empty %}<div class="empty-state"><h2>No active cost codes</h2><p>Add a cost code before mapping it to a QuickBooks item.</p></div>{% endfor %}
+    </div>
+</section>
 {% endif %}
 {% elif organizations %}<div class="empty-state"><h2>Choose a company</h2><p>Select the company whose QuickBooks connections you want to manage.</p></div>
 {% else %}<div class="empty-state"><h2>Administrator access required</h2><p>Only company administrators can manage QuickBooks connections.</p></div>{% endif %}

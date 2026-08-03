@@ -14,6 +14,8 @@
 </section>
 
 <section class="change-order-summary">
+    <article><span>Subtotal</span><strong>${{ estimate.subtotal_total|floatformat:2 }}</strong></article>
+    <article><span>Tax ({{ estimate.tax_rate }}%)</span><strong>${{ estimate.tax_amount|floatformat:2 }}</strong></article>
     <article><span>Total price</span><strong>${{ estimate.price_total|floatformat:2 }}</strong></article>
     {% if can_manage_project %}<article class="change-order-summary__internal"><span>Estimated project cost</span><strong>${{ estimate.cost_total|floatformat:2 }}</strong><small>Internal</small></article><article class="change-order-summary__internal"><span>Estimated margin</span><strong>${{ estimate.margin_total|floatformat:2 }}</strong><small>Internal</small></article>{% endif %}
 </section>

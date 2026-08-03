@@ -211,6 +211,22 @@ class QuickBooksAccountingClient:
             request_id=request_id,
         )
 
+    def get_item(self, connection, item_id):
+        return self._get_entity(
+            connection,
+            f'item/{quote(str(item_id), safe="")}',
+            'Item',
+        )
+
+    def create_item(self, connection, item, *, request_id):
+        return self._write_entity(
+            connection,
+            'item',
+            'Item',
+            item,
+            request_id=request_id,
+        )
+
     def create_invoice(self, connection, invoice, *, request_id):
         self._validate_invoice_create_payload(invoice)
         return self._write_entity(
@@ -316,6 +332,51 @@ class QuickBooksAccountingClient:
                 'QuickBooks returned an invalid customer list.',
             )
         return customers
+
+    def find_items_by_name(self, connection, name):
+        escaped = str(name).replace('\\', '\\\\').replace("'", "\\'")
+        query = (
+            "SELECT * FROM Item WHERE Name = "
+            f"'{escaped}' MAXRESULTS 2"
+        )
+        return self._query_items(connection, query)
+
+    def iter_items(self, connection, *, page_size=100):
+        if page_size < 1 or page_size > 1000:
+            raise ValueError('page_size must be between 1 and 1000.')
+        start_position = 1
+        while True:
+            query = (
+                'SELECT * FROM Item WHERE Active IN (true, false) '
+                f'STARTPOSITION {start_position} MAXRESULTS {page_size}'
+            )
+            items = self._query_items(connection, query)
+            yield from items
+            if len(items) < page_size:
+                break
+            start_position += len(items)
+
+    def _query_items(self, connection, query):
+        payload = self._request(
+            connection,
+            'query',
+            params={'query': query},
+        )
+        query_response = payload.get('QueryResponse') if isinstance(payload, dict) else None
+        if not isinstance(query_response, dict):
+            raise QuickBooksAPIError(
+                'invalid_api_response',
+                'QuickBooks returned an incomplete item query response.',
+            )
+        items = query_response.get('Item') or []
+        if not isinstance(items, list) or not all(
+            isinstance(item, dict) for item in items
+        ):
+            raise QuickBooksAPIError(
+                'invalid_api_response',
+                'QuickBooks returned an invalid item list.',
+            )
+        return items
 
     def _write_entity(
         self,

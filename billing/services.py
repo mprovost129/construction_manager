@@ -67,7 +67,7 @@ def create_invoice_from_change_order(*, change_order_id, actor, form_data):
         created_by=actor,
         title=form_data['title'],
         due_date=form_data['due_date'],
-        tax_amount=form_data['tax_amount'],
+        tax_rate=form_data['tax_rate'],
         notes=form_data['notes'],
     )
     invoice.full_clean()

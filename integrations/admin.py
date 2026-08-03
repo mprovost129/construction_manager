@@ -3,6 +3,7 @@ from django.contrib import admin
 from .models import (
     QuickBooksConnection,
     QuickBooksInvoiceMapping,
+    QuickBooksItemMapping,
     QuickBooksProjectCustomerMapping,
     QuickBooksSyncAttempt,
 )
@@ -42,6 +43,50 @@ class QuickBooksConnectionAdmin(admin.ModelAdmin):
         'last_refreshed_at',
         'last_error_code',
         'last_error_message',
+        'created_at',
+        'updated_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(QuickBooksItemMapping)
+class QuickBooksItemMappingAdmin(admin.ModelAdmin):
+    list_display = (
+        'cost_code',
+        'quickbooks_item_name',
+        'connection',
+        'status',
+        'last_seen_at',
+    )
+    list_filter = ('status', 'connection__environment')
+    search_fields = (
+        'cost_code__code',
+        'quickbooks_item_name',
+        'quickbooks_item_id',
+    )
+    readonly_fields = (
+        'cost_code',
+        'connection',
+        'quickbooks_item_id',
+        'quickbooks_sync_token',
+        'quickbooks_item_name',
+        'status',
+        'external_active',
+        'ownership_policy',
+        'conflict_policy',
+        'last_synced_values',
+        'last_synced_at',
+        'last_seen_at',
+        'tombstoned_at',
+        'unlinked_at',
         'created_at',
         'updated_at',
     )

@@ -15,6 +15,7 @@ from .models import (
     Estimate,
     EstimateLineItem,
     FinishSelection,
+    Organization,
     OrganizationInvitation,
     OrganizationMembership,
     Project,
@@ -240,6 +241,24 @@ class ChangeOrderDecisionForm(forms.Form):
     )
 
 
+class OrganizationTaxSettingsForm(forms.ModelForm):
+    class Meta:
+        model = Organization
+        fields = ('default_tax_rate',)
+        labels = {'default_tax_rate': 'Default tax rate (%)'}
+        help_texts = {
+            'default_tax_rate': (
+                'Applied automatically to new invoice and estimate drafts. '
+                'Each draft can still override its own rate.'
+            ),
+        }
+        widgets = {
+            'default_tax_rate': forms.NumberInput(
+                attrs={'step': '0.001', 'min': '0', 'max': '100'}
+            ),
+        }
+
+
 class CostCodeForm(forms.ModelForm):
     class Meta:
         model = CostCode
@@ -268,14 +287,32 @@ class EstimateForm(forms.ModelForm):
         label='Required client approvals',
         help_text='Number of distinct client approvals needed before this is approved.',
     )
+    tax_rate = forms.DecimalField(
+        required=False,
+        min_value=0,
+        max_value=100,
+        label='Tax rate (%)',
+        help_text='Applied to the line-item subtotal. Set to 0 for tax-exempt.',
+        widget=forms.NumberInput(attrs={'step': '0.001', 'min': '0', 'max': '100'}),
+    )
 
     class Meta:
         model = Estimate
-        fields = ('title', 'description', 'required_approvals')
+        fields = ('title', 'description', 'tax_rate', 'required_approvals')
         widgets = {'description': forms.Textarea(attrs={'rows': 5})}
+
+    def __init__(self, *args, organization, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.organization = organization
+        if not self.is_bound and not self.instance.pk:
+            self.initial.setdefault('tax_rate', organization.default_tax_rate)
 
     def clean_required_approvals(self):
         return self.cleaned_data['required_approvals'] or 1
+
+    def clean_tax_rate(self):
+        tax_rate = self.cleaned_data.get('tax_rate')
+        return tax_rate if tax_rate is not None else self.organization.default_tax_rate
 
 
 class EstimateLineItemForm(forms.ModelForm):

@@ -6,11 +6,12 @@ from integrations.customer_sync import (
     QuickBooksSyncError,
     retry_customer_sync_attempt,
 )
+from integrations.item_sync import retry_item_sync_attempt
 from integrations.models import QuickBooksSyncAttempt
 
 
 class Command(BaseCommand):
-    help = 'Retry due, retryable QuickBooks customer synchronization failures.'
+    help = 'Retry due, retryable QuickBooks synchronization failures (customers and items).'
 
     def add_arguments(self, parser):
         parser.add_argument('--limit', type=int, default=25)
@@ -19,7 +20,10 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         limit = max(1, options['limit'])
         candidates = QuickBooksSyncAttempt.objects.filter(
-            entity_type=QuickBooksSyncAttempt.EntityType.CUSTOMER,
+            entity_type__in=(
+                QuickBooksSyncAttempt.EntityType.CUSTOMER,
+                QuickBooksSyncAttempt.EntityType.ITEM,
+            ),
             status=QuickBooksSyncAttempt.Status.FAILED,
             retryable=True,
             next_retry_at__lte=timezone.now(),
@@ -34,7 +38,10 @@ class Command(BaseCommand):
         skipped = 0
         for candidate in candidates:
             try:
-                result = retry_customer_sync_attempt(candidate.pk, actor=None)
+                if candidate.entity_type == QuickBooksSyncAttempt.EntityType.ITEM:
+                    result = retry_item_sync_attempt(candidate.pk, actor=None)
+                else:
+                    result = retry_customer_sync_attempt(candidate.pk, actor=None)
             except QuickBooksSyncError:
                 skipped += 1
                 continue

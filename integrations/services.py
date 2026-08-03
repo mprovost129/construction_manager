@@ -7,7 +7,11 @@ from django.utils import timezone
 from projects.models import ActivityEvent
 from projects.services import record_activity
 
-from .models import QuickBooksConnection, QuickBooksProjectCustomerMapping
+from .models import (
+    QuickBooksConnection,
+    QuickBooksItemMapping,
+    QuickBooksProjectCustomerMapping,
+)
 from .quickbooks import (
     QuickBooksAccountingClient,
     QuickBooksAPIError,
@@ -401,6 +405,143 @@ def unlink_project_customer_mapping(mapping_id, *, actor):
             f'{mapping.quickbooks_display_name}.'
         ),
         metadata={'quickbooks_customer_id': mapping.quickbooks_customer_id},
+    )
+    return mapping
+
+
+def _item_snapshot(item):
+    return {
+        key: item.get(key)
+        for key in ('Id', 'SyncToken', 'Name', 'FullyQualifiedName', 'Active', 'Type')
+        if key in item
+    }
+
+
+@transaction.atomic
+def save_cost_code_item_mapping(*, cost_code, connection, item, actor):
+    if cost_code.organization_id != connection.organization_id:
+        raise QuickBooksMappingError(
+            'The cost code and QuickBooks connection must belong to the same company.'
+        )
+    if connection.status != QuickBooksConnection.Status.CONNECTED:
+        raise QuickBooksMappingError(
+            'Reconnect the QuickBooks company before saving an item mapping.'
+        )
+    item_id = str(item.get('Id') or '')
+    item_name = str(item.get('Name') or item.get('FullyQualifiedName') or '')
+    if not item_id or not item_name:
+        raise QuickBooksMappingError(
+            'QuickBooks returned incomplete item information.'
+        )
+    conflict = QuickBooksItemMapping.objects.filter(
+        connection=connection,
+        quickbooks_item_id=item_id,
+        status=QuickBooksItemMapping.Status.ACTIVE,
+    ).exclude(cost_code=cost_code)
+    if conflict.exists():
+        raise QuickBooksMappingError(
+            'That QuickBooks item is already mapped to another cost code.'
+        )
+
+    now = timezone.now()
+    mapping, created = QuickBooksItemMapping.objects.select_for_update().get_or_create(
+        cost_code=cost_code,
+        defaults={
+            'connection': connection,
+            'quickbooks_item_id': item_id,
+            'quickbooks_item_name': item_name,
+        },
+    )
+    identity_changed = (
+        not created
+        and (
+            mapping.connection_id != connection.pk
+            or mapping.quickbooks_item_id != item_id
+            or mapping.status != QuickBooksItemMapping.Status.ACTIVE
+        )
+    )
+    mapping.connection = connection
+    mapping.quickbooks_item_id = item_id
+    mapping.quickbooks_sync_token = str(item.get('SyncToken') or '')
+    mapping.quickbooks_item_name = item_name[:255]
+    mapping.status = QuickBooksItemMapping.Status.ACTIVE
+    mapping.external_active = bool(item.get('Active', True))
+    mapping.last_synced_values = _item_snapshot(item)
+    mapping.last_synced_at = now
+    mapping.last_seen_at = now
+    mapping.tombstoned_at = None
+    mapping.unlinked_at = None
+    mapping.save()
+    if created or identity_changed:
+        record_activity(
+            organization=cost_code.organization,
+            actor=actor,
+            event_type=ActivityEvent.Type.QUICKBOOKS_ITEM_MAPPED,
+            summary=f'{cost_code.code} was mapped to QuickBooks item {item_name}.',
+            metadata={
+                'realm_id': connection.realm_id,
+                'quickbooks_item_id': item_id,
+            },
+        )
+    return mapping
+
+
+def refresh_cost_code_item_mapping(mapping_id, *, actor, api_client=None):
+    mapping = QuickBooksItemMapping.objects.select_related(
+        'connection', 'cost_code__organization'
+    ).get(pk=mapping_id)
+    api_client = api_client or QuickBooksAccountingClient()
+    try:
+        item = api_client.get_item(
+            mapping.connection,
+            mapping.quickbooks_item_id,
+        )
+    except QuickBooksAPIError as exc:
+        if not exc.is_not_found:
+            raise
+        with transaction.atomic():
+            mapping = QuickBooksItemMapping.objects.select_for_update().get(
+                pk=mapping_id
+            )
+            mapping.mark_tombstoned()
+            mapping.save()
+            record_activity(
+                organization=mapping.cost_code.organization,
+                actor=actor,
+                event_type=ActivityEvent.Type.QUICKBOOKS_ITEM_MAPPING_TOMBSTONED,
+                summary=(
+                    f'QuickBooks item {mapping.quickbooks_item_name} '
+                    'is no longer available; the mapping was preserved.'
+                ),
+                metadata={
+                    'quickbooks_item_id': mapping.quickbooks_item_id,
+                },
+            )
+        return mapping
+    return save_cost_code_item_mapping(
+        cost_code=mapping.cost_code,
+        connection=mapping.connection,
+        item=item,
+        actor=actor,
+    )
+
+
+@transaction.atomic
+def unlink_cost_code_item_mapping(mapping_id, *, actor):
+    mapping = QuickBooksItemMapping.objects.select_for_update().select_related(
+        'cost_code__organization'
+    ).get(pk=mapping_id)
+    mapping.mark_unlinked()
+    mapping.save()
+    record_activity(
+        organization=mapping.cost_code.organization,
+        actor=actor,
+        event_type=ActivityEvent.Type.QUICKBOOKS_ITEM_UNLINKED,
+        summary=(
+            f'{mapping.cost_code.code} was unlinked from QuickBooks item '
+            f'{mapping.quickbooks_item_name}.'
+        ),
+        metadata={'quickbooks_item_id': mapping.quickbooks_item_id},
     )
     return mapping
 

@@ -352,3 +352,56 @@ class EstimateTests(TestCase):
             reverse('projects:estimate_detail', args=(self.project.pk, replacement.pk))
         )
         self.assertContains(replacement_response, estimate.display_number)
+
+    def test_new_estimate_defaults_tax_rate_from_organization(self):
+        self.organization.default_tax_rate = Decimal('7.500')
+        self.organization.save(update_fields=('default_tax_rate',))
+        self.client.force_login(self.admin_user)
+        response = self.client.post(
+            reverse('projects:estimate_create', args=(self.project.pk,)),
+            {'title': 'Full build', 'description': 'Whole house.'},
+        )
+        self.assertEqual(response.status_code, 302)
+        estimate = Estimate.objects.get(title='Full build')
+        self.assertEqual(estimate.tax_rate, Decimal('7.500'))
+
+    def test_line_items_compute_subtotal_tax_and_price_total(self):
+        estimate = self.create_estimate()
+        self.client.force_login(self.admin_user)
+        self.client.post(
+            reverse('projects:estimate_edit', args=(self.project.pk, estimate.pk)),
+            {
+                'title': estimate.title,
+                'description': estimate.description,
+                'tax_rate': '10.000',
+            },
+        )
+        estimate = self.add_line(estimate, price='500.00', cost='300.00')
+        self.assertEqual(estimate.subtotal_total, Decimal('500.00'))
+        self.assertEqual(estimate.tax_amount, Decimal('50.00'))
+        self.assertEqual(estimate.price_total, Decimal('550.00'))
+        # Margin is computed pre-tax: tax is a pass-through, not revenue.
+        self.assertEqual(estimate.margin_total, Decimal('200.00'))
+
+    def test_approval_sets_contract_amount_inclusive_of_tax(self):
+        estimate = self.create_estimate()
+        self.client.force_login(self.admin_user)
+        self.client.post(
+            reverse('projects:estimate_edit', args=(self.project.pk, estimate.pk)),
+            {
+                'title': estimate.title,
+                'description': estimate.description,
+                'tax_rate': '10.000',
+            },
+        )
+        estimate = self.add_line(estimate, price='500.00', cost='300.00')
+        self.client.post(
+            reverse('projects:estimate_submit', args=(self.project.pk, estimate.pk))
+        )
+        self.client.force_login(self.client_user)
+        self.client.post(
+            reverse('projects:estimate_decision', args=(self.project.pk, estimate.pk)),
+            {'decision': Estimate.Status.APPROVED, 'comment': ''},
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.contract_amount, Decimal('550.00'))

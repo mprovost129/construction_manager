@@ -30,9 +30,9 @@ implemented and verified.
 | Finish selections | Complete | Options, allowance math, publishing, client choice, overage flag, reopening, package grouping for multi-area choices, vendor/link/spec/image/lead-time option metadata, client custom-option requests routed to a change order, credit disposition tracking, and manual + scheduler-driven overdue reminders exist. |
 | Schedule | Partial | Internal milestone/calendar workflow exists; dependencies, recurrence, and external calendar integration do not. |
 | Notifications | Partial | Transactional email exists with project-level recipient preferences; per-event settings, reminders, and digest delivery do not. |
-| Project pricing and financials | Partial | An organization-scoped cost-code catalog, an estimate/proposal workflow with client approval that sets a project's fixed contract amount, a staff+client-safe financial rollup view (contract, change orders, selection overage/credit, invoicing, payments), a role-gated budget/committed/actual-cost/profitability view backed by a staff-recorded job-costing ledger, and a manual invoice payment ledger exist. Tax-rate calculation and QuickBooks Item/CostCode mapping do not. |
+| Project pricing and financials | Partial | An organization-scoped cost-code catalog (now also mappable to a QuickBooks Item), an estimate/proposal workflow (with a revision chain) and client approval that sets a project's fixed, tax-inclusive contract amount, an organization-level tax-rate engine applied to invoices and estimates, a staff+client-safe financial rollup view (contract, change orders, selection overage/credit, invoicing, payments), a role-gated budget/committed/actual-cost/profitability view backed by a staff-recorded job-costing ledger, and a manual invoice payment ledger exist. Every confirmed APP-1 item is now delivered; remaining accounting integration work (outbound Invoice orchestration, live sandbox verification) lives under QB-3. |
 | Invoices and payment visibility | Partial | Local drafts, approved-change-order conversion, immutable company numbering, line items, totals, client-visible issued invoices, authenticated PDF downloads, balances, status fields, notification, questions, unpaid voiding, and a manual payment ledger (status transitions from issued to partially paid to paid) exist. Selection-origin rules, QuickBooks payment import/synchronization remain. Online payment is deferred. |
-| QuickBooks Online | Partial | Company-scoped OAuth, encrypted tokens, capability/subscription discovery, stable customer/invoice mappings, customer sync, and tested Invoice API primitives exist. Live sandbox acceptance plus invoice orchestration, Item mapping, credit-memo, payment, and change-detection work remain. |
+| QuickBooks Online | Partial | Company-scoped OAuth, encrypted tokens, capability/subscription discovery, stable customer/invoice/item mappings, customer sync, cost-code item sync, and tested Invoice API primitives exist. Live sandbox acceptance plus invoice orchestration (including wiring mapped Item IDs into outbound Invoice lines), credit-memo, payment, and change-detection work remain. |
 | SaaS subscription billing | Partial | Organization-level Stripe Billing, hosted Checkout, Customer Portal, signed webhook reconciliation, audit records, grace-period access rules, and staged entitlement enforcement exist. The Sandbox Product, monthly/yearly Prices, default Portal, and webhook are configured; a real end-to-end Sandbox test plus live-mode setup and validation remain. |
 | Tasks and punch lists | Not started | Confirmed as required, but no models or workflow exist. |
 | Two-factor authentication | Not started | Confirmed as optional per user/admin policy, but not implemented. |
@@ -68,6 +68,9 @@ These decisions govern remaining implementation work:
   total project cost without altering the contract amount, matching current practice.
 - Clients see contract amount, change orders, selection allowances/overages/credits, invoices,
   and payments; they do not see budget, committed-cost, or internal margin data.
+- Tax is a single organization-wide rate (not per-jurisdiction/per-product), defaulted onto new
+  invoice and estimate drafts and overridable per draft; margin/profitability figures always
+  exclude tax since it is collected on the client's behalf, not revenue.
 - Subcontractor login, subcontractor financial access, daily logs, and online payments are deferred.
 
 ## Delivered baseline
@@ -168,6 +171,15 @@ These decisions govern remaining implementation work:
   against an issued invoice (rejecting overpayment), the invoice's paid amount and status
   (issued/partially paid/paid) recompute automatically, and clients see payment date/amount on
   the invoice detail page.
+- A tax-rate engine: `Organization.default_tax_rate` (admin-editable at
+  `companies/<slug>/tax-settings/`) seeds new invoice and estimate drafts; each draft can
+  override its own `tax_rate`, and `tax_amount`/the tax-inclusive total recompute automatically
+  from the line-item subtotal whenever line items or the rate change. An invoice's tax rate is
+  immutable once issued, matching its other totals. Estimate `margin_total` and the financial
+  rollup's `estimated_margin`/`profitability` are computed from the pre-tax subtotal so sales
+  tax collected on the client's behalf never inflates them, while the contract amount and
+  "total project cost" remain correctly tax-inclusive. Change orders continue to express tax
+  only through their existing per-line `Tax` category, not a rate field.
 
 ### Schedule
 
@@ -220,7 +232,12 @@ These decisions govern remaining implementation work:
   balance, date, currency, and linked-transaction snapshots. Read, create, sparse-update, and void
   API primitives enforce required references, stable request IDs, and current external identity;
   no live invoice orchestration or automatic local issue-time call is enabled yet.
-- Current automated baseline: 297 passing tests, Ruff clean, no pending migrations,
+- Stable CostCode-to-QuickBooks-Item mappings mirroring the Customer mapping pattern exactly:
+  sync tokens, last-known values, tombstones, ownership/conflict policy, administrator manual
+  match-by-ID and automated find-or-create sync actions, durable per-attempt retry/backoff/
+  resolve handling sharing the same `retry_quickbooks_syncs` and admin queue as Customer sync.
+  Not yet wired into outbound Invoice line-item payloads (separate Invoice sync orchestration).
+- Current automated baseline: 329 passing tests, Ruff clean, no pending migrations,
   and build-settings `collectstatic` passing as of this update. Django's expected
   development warning remains when QuickBooks credentials are intentionally unset.
 
@@ -254,7 +271,9 @@ These decisions govern remaining implementation work:
   invoice source today; staff can also create manual drafts.
 - Wire the existing QuickBooks Invoice identity/sync-token mapping and API primitives into
   both-direction synchronization before treating local payment-status fields as live accounting
-  data. Product/Service Item mapping is still required before outbound creation can be enabled.
+  data. A `CostCode`-to-QuickBooks-Item mapping layer now exists (`QuickBooksItemMapping`,
+  mirroring the Customer mapping pattern), but outbound Invoice `Line` payloads do not yet
+  reference mapped Item IDs — that wiring is part of this still-open Invoice sync orchestration.
 - Import QuickBooks payments and credit applications. Payments today are staff-recorded manually
   through the local `Payment` ledger; there is no reconciliation against QuickBooks-sourced
   payment records yet.
@@ -293,7 +312,7 @@ Current questionnaire truth as of this update:
 
 | Question | Accurate answer today |
 | --- | --- |
-| API calls per customer | There is no periodic customer polling. Initial manual sync makes one exact-name Customer query plus, only when no match exists, one Customer create. A mapped manual refresh makes one Customer read. The separate outbound name update makes one Customer read and, only when the names differ, one sparse Customer update. A retry repeats the applicable operation; writes reuse the same Intuit `requestid`. Due retryable failures run only when `retry_quickbooks_syncs` is scheduled. Company refresh makes two reads (`CompanyInfo` and Preferences), and an expired access token adds one token-refresh call. Local invoice draft, issue, discard, and void actions currently make zero Intuit calls because Invoice synchronization is deliberately disabled. |
+| API calls per customer | There is no periodic customer polling. Initial manual sync makes one exact-name Customer query plus, only when no match exists, one Customer create. A mapped manual refresh makes one Customer read. The separate outbound name update makes one Customer read and, only when the names differ, one sparse Customer update. A retry repeats the applicable operation; writes reuse the same Intuit `requestid`. Due retryable failures run only when `retry_quickbooks_syncs` is scheduled. Company refresh makes two reads (`CompanyInfo` and Preferences), and an expired access token adds one token-refresh call. A manual cost-code item mapping makes one Item read; an item sync makes one exact-name Item query plus, only when no match exists, one Item create — the same request pattern, idempotency, and retry/backoff as Customer sync. Local invoice draft, issue, discard, and void actions currently make zero Intuit calls because Invoice synchronization is deliberately disabled. |
 | Handles QBO edition feature gains/losses | Not yet a portal “Yes.” Subscription/preference capability changes and feature-not-supported errors are handled without deleting data, but the sandbox edition matrix remains. |
 | Uses webhooks | No |
 | Uses CDC | No |
@@ -382,8 +401,18 @@ Invoice synchronization preparation:
   prevent source change-order reversal while an active invoice exists.
 - [x] Add durable QuickBooks Invoice identity/sync-token mappings and tested create/read/sparse-
   update/void API primitives with stable request IDs.
-- [ ] Add Invoice sync orchestration, retry/reconciliation handling, and Product/Service Item
-  mapping. External Invoice writes remain disabled pending sandbox credentials and Item mapping.
+- [x] Add a `CostCode`-to-QuickBooks-Item (Product/Service) mapping layer: `QuickBooksItemMapping`,
+  `get_item`/`create_item`/`find_items_by_name`/`iter_items` API primitives, manual match-by-ID
+  mapping plus an automated find-or-create sync action, and the same durable-attempt/retry/
+  backoff/resolve machinery as Customer sync (a dedicated `QuickBooksSyncAttempt.EntityType.ITEM`
+  with its own retry/resolve functions, since the attempt model uses per-entity FK slots rather
+  than a generic one). The automated create path sends a minimal payload and has not been
+  verified against a live sandbox company — most QuickBooks company configurations require an
+  `IncomeAccountRef` this app does not yet collect, so matching an existing item (by ID or name)
+  is the reliable path; creating a brand-new item may need further account-mapping support.
+- [ ] Add Invoice sync orchestration and retry/reconciliation handling so outbound Invoice `Line`
+  payloads reference mapped Item IDs. External Invoice writes remain disabled pending sandbox
+  credentials and this orchestration work.
 
 For each entity:
 
@@ -431,8 +460,14 @@ Acceptance gate:
 - [x] Define rounding (shared `money()`/`ROUND_HALF_UP` helper used consistently across change
   orders, estimates, and invoices) and void/audit rules (estimate void, payment
   record/delete with activity events).
-- [ ] Define a tax-rate calculation engine; tax remains a manually entered flat amount on
-  invoices, as before.
+- [x] Define a tax-rate calculation engine: an organization-level default tax rate
+  (admin-editable), a `tax_rate` field on invoices and estimates that computes `tax_amount`
+  automatically from the line-item subtotal (`subtotal * rate / 100`, rounded via the shared
+  `money()` helper), a per-draft override, and immutability of the rate once an invoice is
+  issued. Margin and profitability are computed from the pre-tax subtotal so sales tax
+  collected on the client's behalf never inflates them. Change orders are intentionally left
+  out of the rate-based engine; their existing per-line `Tax` category remains adequate for
+  the smaller, discrete adjustments they represent.
 - [x] Add an estimate revision/replacement chain equivalent to change orders' revise/replace
   workflow: a declined estimate can be revised in place (reopened as a draft) or replaced by
   a new estimate that copies its title, description, required-approval count, and line items,
@@ -448,8 +483,10 @@ Acceptance gate:
   client interview left staff-side budget visibility unanswered; this implements the
   standard job-costing pattern (budget vs. committed vs. actual vs. profitability) rather
   than leaving it unbuilt.
-- [ ] Add QuickBooks Item/CostCode mapping so cost codes can drive outbound QuickBooks
-  Invoice line items (see QB-3 Invoice synchronization preparation).
+- [x] Add QuickBooks Item/CostCode mapping (`QuickBooksItemMapping`, mirroring the Customer
+  mapping pattern, with manual match and automated find-or-create sync). Cost codes can now be
+  linked to a QuickBooks Item; actually driving outbound QuickBooks Invoice line items from that
+  mapping is separate Invoice sync orchestration work, still open under QB-3.
 
 ### Phase APP-2: Invoices and client visibility - P0
 

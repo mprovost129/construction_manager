@@ -6,7 +6,7 @@ from django.db import models
 from django.utils import timezone
 
 from billing.models import Invoice
-from projects.models import Organization, Project
+from projects.models import CostCode, Organization, Project
 
 from .crypto import decrypt_token, encrypt_token
 
@@ -182,6 +182,78 @@ class QuickBooksProjectCustomerMapping(models.Model):
         self.unlinked_at = timezone.now()
 
 
+class QuickBooksItemMapping(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = 'active', 'Active'
+        UNLINKED = 'unlinked', 'Unlinked'
+        TOMBSTONED = 'tombstoned', 'Removed in QuickBooks'
+
+    class OwnershipPolicy(models.TextChoices):
+        QUICKBOOKS_AUTHORITATIVE = (
+            'quickbooks_authoritative',
+            'QuickBooks is authoritative',
+        )
+
+    cost_code = models.OneToOneField(
+        CostCode,
+        on_delete=models.CASCADE,
+        related_name='quickbooks_item_mapping',
+    )
+    connection = models.ForeignKey(
+        QuickBooksConnection,
+        on_delete=models.CASCADE,
+        related_name='cost_code_item_mappings',
+    )
+    quickbooks_item_id = models.CharField(max_length=50)
+    quickbooks_sync_token = models.CharField(max_length=50, blank=True)
+    quickbooks_item_name = models.CharField(max_length=255)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+    )
+    external_active = models.BooleanField(default=True)
+    ownership_policy = models.CharField(
+        max_length=40,
+        choices=OwnershipPolicy.choices,
+        default=OwnershipPolicy.QUICKBOOKS_AUTHORITATIVE,
+    )
+    conflict_policy = models.CharField(
+        max_length=40,
+        default='quickbooks_wins',
+        editable=False,
+    )
+    last_synced_values = models.JSONField(default=dict, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    tombstoned_at = models.DateTimeField(null=True, blank=True)
+    unlinked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('cost_code__code',)
+        constraints = [
+            models.UniqueConstraint(
+                fields=('connection', 'quickbooks_item_id'),
+                condition=models.Q(status='active'),
+                name='integrations_unique_active_cost_code_item',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.cost_code} -> {self.quickbooks_item_name}'
+
+    def mark_tombstoned(self):
+        self.status = self.Status.TOMBSTONED
+        self.external_active = False
+        self.tombstoned_at = timezone.now()
+
+    def mark_unlinked(self):
+        self.status = self.Status.UNLINKED
+        self.unlinked_at = timezone.now()
+
+
 class QuickBooksInvoiceMapping(models.Model):
     class Status(models.TextChoices):
         ACTIVE = 'active', 'Active'
@@ -340,6 +412,7 @@ class QuickBooksSyncAttempt(models.Model):
     class EntityType(models.TextChoices):
         CUSTOMER = 'customer', 'Customer'
         INVOICE = 'invoice', 'Invoice'
+        ITEM = 'item', 'Item'
 
     class Operation(models.TextChoices):
         CREATE = 'create', 'Create'
@@ -385,6 +458,20 @@ class QuickBooksSyncAttempt(models.Model):
     )
     invoice_mapping = models.ForeignKey(
         QuickBooksInvoiceMapping,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='sync_attempts',
+    )
+    cost_code = models.ForeignKey(
+        CostCode,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='quickbooks_sync_attempts',
+    )
+    item_mapping = models.ForeignKey(
+        QuickBooksItemMapping,
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
