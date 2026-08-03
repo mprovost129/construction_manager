@@ -264,3 +264,91 @@ class EstimateTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, 'EST-001')
+
+    def decline_estimate(self):
+        estimate = self.create_estimate()
+        estimate = self.add_line(estimate, price='500.00', cost='300.00')
+        self.client.force_login(self.admin_user)
+        self.client.post(
+            reverse('projects:estimate_submit', args=(self.project.pk, estimate.pk))
+        )
+        self.client.force_login(self.client_user)
+        self.client.post(
+            reverse('projects:estimate_decision', args=(self.project.pk, estimate.pk)),
+            {'decision': Estimate.Status.DECLINED, 'comment': 'Too expensive.'},
+        )
+        estimate.refresh_from_db()
+        self.assertEqual(estimate.status, Estimate.Status.DECLINED)
+        return estimate
+
+    def test_declined_estimate_can_be_revised_in_place(self):
+        estimate = self.decline_estimate()
+        self.client.force_login(self.admin_user)
+        response = self.client.post(
+            reverse('projects:estimate_revise', args=(self.project.pk, estimate.pk))
+        )
+        self.assertEqual(response.status_code, 302)
+        estimate.refresh_from_db()
+        self.assertEqual(estimate.status, Estimate.Status.DRAFT)
+        self.assertIsNone(estimate.submitted_by)
+        self.assertIsNone(estimate.decided_by)
+        self.assertEqual(estimate.client_comment, '')
+        self.assertTrue(
+            ActivityEvent.objects.filter(
+                event_type=ActivityEvent.Type.ESTIMATE_REVISED,
+            ).exists()
+        )
+
+    def test_only_declined_estimates_can_be_revised(self):
+        estimate = self.create_estimate()
+        self.client.force_login(self.admin_user)
+        response = self.client.post(
+            reverse('projects:estimate_revise', args=(self.project.pk, estimate.pk))
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_declined_estimate_can_be_replaced_preserving_chain(self):
+        estimate = self.decline_estimate()
+        self.client.force_login(self.admin_user)
+        response = self.client.post(
+            reverse('projects:estimate_replace', args=(self.project.pk, estimate.pk))
+        )
+        self.assertEqual(response.status_code, 302)
+        estimate.refresh_from_db()
+        self.assertEqual(estimate.status, Estimate.Status.DECLINED)
+
+        replacement = Estimate.objects.get(replaces=estimate)
+        self.assertEqual(replacement.status, Estimate.Status.DRAFT)
+        self.assertEqual(replacement.number, estimate.number + 1)
+        self.assertEqual(replacement.price_total, estimate.price_total)
+        self.assertEqual(replacement.cost_total, estimate.cost_total)
+        self.assertEqual(replacement.line_items.count(), estimate.line_items.count())
+        self.assertEqual(estimate.replaced_by, replacement)
+        self.assertTrue(
+            ActivityEvent.objects.filter(
+                event_type=ActivityEvent.Type.ESTIMATE_REPLACEMENT_CREATED,
+            ).exists()
+        )
+
+        second_attempt = self.client.post(
+            reverse('projects:estimate_replace', args=(self.project.pk, estimate.pk))
+        )
+        self.assertEqual(second_attempt.status_code, 403)
+
+    def test_replacement_chain_visible_on_detail_pages(self):
+        estimate = self.decline_estimate()
+        self.client.force_login(self.admin_user)
+        self.client.post(
+            reverse('projects:estimate_replace', args=(self.project.pk, estimate.pk))
+        )
+        replacement = Estimate.objects.get(replaces=estimate)
+
+        original_response = self.client.get(
+            reverse('projects:estimate_detail', args=(self.project.pk, estimate.pk))
+        )
+        self.assertContains(original_response, replacement.display_number)
+
+        replacement_response = self.client.get(
+            reverse('projects:estimate_detail', args=(self.project.pk, replacement.pk))
+        )
+        self.assertContains(replacement_response, estimate.display_number)

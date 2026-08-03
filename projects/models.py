@@ -583,6 +583,11 @@ class ActivityEvent(models.Model):
         ESTIMATE_SUBMITTED = 'estimate_submitted', 'Estimate submitted'
         ESTIMATE_DECIDED = 'estimate_decided', 'Estimate decided'
         ESTIMATE_VOIDED = 'estimate_voided', 'Estimate voided'
+        ESTIMATE_REVISED = 'estimate_revised', 'Estimate revised'
+        ESTIMATE_REPLACEMENT_CREATED = (
+            'estimate_replacement_created',
+            'Estimate replacement created',
+        )
         ESTIMATE_LINE_ITEM_ADDED = (
             'estimate_line_item_added',
             'Estimate line item added',
@@ -1237,6 +1242,13 @@ class Estimate(models.Model):
     voided_at = models.DateTimeField(blank=True, null=True)
     void_reason = models.TextField(blank=True)
     required_approvals = models.PositiveSmallIntegerField(default=1)
+    replaces = models.OneToOneField(
+        'self',
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name='replaced_by',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

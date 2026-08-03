@@ -2083,6 +2083,7 @@ class EstimateDetailView(LoginRequiredMixin, TemplateView):
                     if can_manage and self.estimate.status == Estimate.Status.PENDING
                     else None
                 ),
+                'replacement': getattr(self.estimate, 'replaced_by', None),
             }
         )
         return context
@@ -2290,6 +2291,116 @@ class EstimateVoidView(LoginRequiredMixin, View):
         warn_if_notification_failed(request, delivery_result)
         messages.success(request, 'The estimate was voided.')
         return redirect('projects:estimate_detail', pk=project.pk, estimate_pk=estimate.pk)
+
+
+class EstimateReviseView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, estimate_pk):
+        project = managed_project_or_404(request.user, pk)
+        with transaction.atomic():
+            estimate = get_object_or_404(
+                Estimate.objects.select_for_update(),
+                project=project,
+                pk=estimate_pk,
+            )
+            if estimate.status != Estimate.Status.DECLINED:
+                raise PermissionDenied('Only declined estimates can be revised.')
+            estimate.status = Estimate.Status.DRAFT
+            estimate.submitted_by = None
+            estimate.submitted_at = None
+            estimate.decided_by = None
+            estimate.decided_at = None
+            estimate.client_comment = ''
+            estimate.full_clean()
+            estimate.save(
+                update_fields=(
+                    'status',
+                    'submitted_by',
+                    'submitted_at',
+                    'decided_by',
+                    'decided_at',
+                    'client_comment',
+                    'updated_at',
+                )
+            )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.ESTIMATE_REVISED,
+                summary=(
+                    f'{request.user.email} reopened {estimate.display_number} '
+                    f'- "{estimate.title}" for revision.'
+                ),
+                metadata={'estimate_id': estimate.pk, 'number': estimate.number},
+            )
+        messages.success(request, f'{estimate.display_number} was reopened as a draft.')
+        return redirect('projects:estimate_edit', pk=project.pk, estimate_pk=estimate.pk)
+
+
+class EstimateReplaceView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, estimate_pk):
+        project = managed_project_or_404(request.user, pk)
+        with transaction.atomic():
+            original = get_object_or_404(
+                Estimate.objects.select_for_update(),
+                project=project,
+                pk=estimate_pk,
+            )
+            if original.status != Estimate.Status.DECLINED:
+                raise PermissionDenied('Only declined estimates can be replaced.')
+            if getattr(original, 'replaced_by', None):
+                raise PermissionDenied('This estimate already has a replacement.')
+            Project.objects.select_for_update().get(pk=project.pk)
+            current_number = project.estimates.aggregate(maximum=Max('number'))['maximum']
+            replacement = Estimate(
+                project=project,
+                number=(current_number or 0) + 1,
+                title=original.title,
+                description=original.description,
+                price_total=original.price_total,
+                cost_total=original.cost_total,
+                required_approvals=original.required_approvals,
+                created_by=request.user,
+                replaces=original,
+            )
+            replacement.full_clean()
+            replacement.save()
+            for line_item in original.line_items.all():
+                EstimateLineItem.objects.create(
+                    estimate=replacement,
+                    category=line_item.category,
+                    cost_code=line_item.cost_code,
+                    description=line_item.description,
+                    quantity=line_item.quantity,
+                    unit_price=line_item.unit_price,
+                    unit_cost=line_item.unit_cost,
+                    sort_order=line_item.sort_order,
+                )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.ESTIMATE_REPLACEMENT_CREATED,
+                summary=(
+                    f'{request.user.email} created {replacement.display_number} '
+                    f'to replace {original.display_number}.'
+                ),
+                metadata={
+                    'estimate_id': replacement.pk,
+                    'replaces_estimate_id': original.pk,
+                    'number': replacement.number,
+                },
+            )
+        messages.success(
+            request,
+            f'{replacement.display_number} was created to replace '
+            f'{original.display_number}.',
+        )
+        return redirect('projects:estimate_edit', pk=project.pk, estimate_pk=replacement.pk)
 
 
 class EstimateLineItemCreateView(LoginRequiredMixin, FormView):

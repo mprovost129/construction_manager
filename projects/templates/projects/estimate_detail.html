@@ -5,9 +5,12 @@
 {% block content %}
 <nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:estimate_list' project.pk %}">Estimates</a><i class="bi bi-chevron-right"></i><span>{{ estimate.display_number }}</span></nav>
 
+{% if estimate.replaces_id %}<div class="role-banner"><i class="bi bi-arrow-return-right"></i><span>This replaces <a href="{% url 'projects:estimate_detail' project.pk estimate.replaces_id %}">{{ estimate.replaces.display_number }}</a>, which was declined.</span></div>{% endif %}
+{% if replacement %}<div class="role-banner"><i class="bi bi-arrow-right-circle"></i><span>This was replaced by <a href="{% url 'projects:estimate_detail' project.pk replacement.pk %}">{{ replacement.display_number }}</a>.</span></div>{% endif %}
+
 <section class="page-heading">
     <div><p class="eyebrow">{{ estimate.display_number }}</p><h1>{{ estimate.title }}</h1><span class="status-pill {% if estimate.status == 'approved' %}status-pill--active{% elif estimate.status == 'pending' %}status-pill--on_hold{% elif estimate.status == 'declined' %}status-pill--declined{% endif %}">{{ estimate.get_status_display }}</span></div>
-    {% if can_manage_project and estimate.status == 'draft' %}<div class="button-row"><a class="btn btn-outline-secondary" href="{% url 'projects:estimate_edit' project.pk estimate.pk %}"><i class="bi bi-pencil"></i> Edit draft</a><form class="inline-form" method="post" action="{% url 'projects:estimate_submit' project.pk estimate.pk %}">{% csrf_token %}<button class="btn btn-primary" type="submit"><i class="bi bi-send"></i> Send to client</button></form></div>{% endif %}
+    {% if can_manage_project %}<div class="button-row">{% if estimate.status == 'draft' %}<a class="btn btn-outline-secondary" href="{% url 'projects:estimate_edit' project.pk estimate.pk %}"><i class="bi bi-pencil"></i> Edit draft</a><form class="inline-form" method="post" action="{% url 'projects:estimate_submit' project.pk estimate.pk %}">{% csrf_token %}<button class="btn btn-primary" type="submit"><i class="bi bi-send"></i> Send to client</button></form>{% elif estimate.status == 'declined' and not replacement %}<form class="inline-form" method="post" action="{% url 'projects:estimate_revise' project.pk estimate.pk %}">{% csrf_token %}<button class="btn btn-outline-secondary" type="submit">Revise</button></form><form class="inline-form" method="post" action="{% url 'projects:estimate_replace' project.pk estimate.pk %}">{% csrf_token %}<button class="btn btn-primary" type="submit">Create replacement</button></form>{% endif %}</div>{% endif %}
 </section>
 
 <section class="change-order-summary">

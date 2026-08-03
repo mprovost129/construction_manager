@@ -183,6 +183,16 @@ urlpatterns = [
         name='estimate_void',
     ),
     path(
+        'projects/<int:pk>/estimates/<int:estimate_pk>/revise/',
+        views.EstimateReviseView.as_view(),
+        name='estimate_revise',
+    ),
+    path(
+        'projects/<int:pk>/estimates/<int:estimate_pk>/replace/',
+        views.EstimateReplaceView.as_view(),
+        name='estimate_replace',
+    ),
+    path(
         'projects/<int:pk>/estimates/<int:estimate_pk>/line-items/add/',
         views.EstimateLineItemCreateView.as_view(),
         name='estimate_line_item_create',

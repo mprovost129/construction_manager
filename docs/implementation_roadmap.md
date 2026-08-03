@@ -142,7 +142,8 @@ These decisions govern remaining implementation work:
 - `Estimate`/`EstimateLineItem`/`EstimateDecision` workflow mirroring change orders: sequential
   numbering, draft/pending/approved/declined/voided states, category/cost-code/quantity/
   unit-price/unit-cost line items with automatic price/cost recalculation, client approval
-  (configurable required-approval count), and void.
+  (configurable required-approval count), void, and revise-in-place/create-replacement actions
+  after a decline with a visible, linked revision chain (a voided estimate stays terminal).
 - Approving an estimate sets `Project.contract_amount` exactly once; a database constraint
   guarantees only one estimate per project can ever reach approved status, matching "the
   contract stays fixed."
@@ -219,7 +220,7 @@ These decisions govern remaining implementation work:
   balance, date, currency, and linked-transaction snapshots. Read, create, sparse-update, and void
   API primitives enforce required references, stable request IDs, and current external identity;
   no live invoice orchestration or automatic local issue-time call is enabled yet.
-- Current automated baseline: 293 passing tests, Ruff clean, no pending migrations,
+- Current automated baseline: 297 passing tests, Ruff clean, no pending migrations,
   and build-settings `collectstatic` passing as of this update. Django's expected
   development warning remains when QuickBooks credentials are intentionally unset.
 
@@ -432,8 +433,11 @@ Acceptance gate:
   record/delete with activity events).
 - [ ] Define a tax-rate calculation engine; tax remains a manually entered flat amount on
   invoices, as before.
-- [ ] Add an estimate revision/replacement chain equivalent to change orders' revise/replace
-  workflow; a declined or voided estimate today requires a brand-new estimate.
+- [x] Add an estimate revision/replacement chain equivalent to change orders' revise/replace
+  workflow: a declined estimate can be revised in place (reopened as a draft) or replaced by
+  a new estimate that copies its title, description, required-approval count, and line items,
+  preserving a visible, linked chain between the original and its replacement. A voided
+  estimate remains terminal, matching change-order behavior.
 - [x] Add staff budget/committed-cost/actual-cost/profitability visibility: an approved
   estimate's cost total is the budget baseline, committed cost adds approved change-order
   cost deltas, a staff-recorded `ProjectCostEntry` job-costing ledger supplies actual cost,
