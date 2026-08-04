@@ -1,9 +1,11 @@
 import logging
 
+import stripe
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import IntegrityError
 from django.http import HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils.decorators import method_decorator
@@ -136,7 +138,7 @@ class StripeWebhookView(View):
             outcome = process_stripe_webhook(request.body, signature)
         except StripeWebhookInvalid:
             return HttpResponseBadRequest('Invalid Stripe signature.')
-        except (ValueError, ValidationError):
+        except (ValueError, ValidationError, IntegrityError, stripe.StripeError):
             logger.exception('Stripe subscription webhook processing failed.')
             return HttpResponse(status=500)
         return JsonResponse({'received': True, 'outcome': outcome})

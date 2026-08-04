@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# Local dev TLS certs (runserver_plus self-signed)
+.certs/
+
 # Python
 __pycache__/
 *.py[cod]

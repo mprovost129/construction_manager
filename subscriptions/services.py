@@ -311,11 +311,18 @@ def _handle_checkout_completed(checkout, event_created):
     if _value(checkout, 'mode') != 'subscription':
         raise ValueError('Stripe Checkout mode is not subscription.')
     metadata = _value(checkout, 'metadata', {}) or {}
-    attempt = (
-        SubscriptionCheckoutAttempt.objects.select_for_update()
-        .select_related('organization')
-        .get(stripe_checkout_session_id=_value(checkout, 'id', ''))
-    )
+    try:
+        attempt = (
+            SubscriptionCheckoutAttempt.objects.select_for_update()
+            .select_related('organization')
+            .get(stripe_checkout_session_id=_value(checkout, 'id', ''))
+        )
+    except SubscriptionCheckoutAttempt.DoesNotExist:
+        logger.warning(
+            'Stripe checkout.session.completed for an unknown local attempt: %s',
+            _value(checkout, 'id', ''),
+        )
+        return False
     if metadata.get('checkout_attempt_id') != str(attempt.public_id):
         raise ValueError('Stripe Checkout attempt metadata does not match.')
     if metadata.get('organization_id') != str(attempt.organization_id):
@@ -377,7 +384,14 @@ def _find_subscription(stripe_subscription):
         return subscription
     if metadata.get('integration') != INTEGRATION_MARKER or not organization_id:
         return None
-    organization = Organization.objects.select_for_update().get(pk=organization_id)
+    try:
+        organization = Organization.objects.select_for_update().get(pk=organization_id)
+    except (Organization.DoesNotExist, ValueError, TypeError):
+        logger.warning(
+            'Stripe subscription metadata references an unknown organization: %s',
+            organization_id,
+        )
+        return None
     subscription, _ = OrganizationSubscription.objects.select_for_update().get_or_create(
         organization=organization,
         defaults={'livemode': bool(_value(stripe_subscription, 'livemode', False))},
