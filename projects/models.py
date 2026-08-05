@@ -623,6 +623,14 @@ class ActivityEvent(models.Model):
             'quickbooks_payment_mapping_tombstoned',
             'QuickBooks payment mapping tombstoned',
         )
+        QUICKBOOKS_CREDIT_MEMO_IMPORTED = (
+            'quickbooks_credit_memo_imported',
+            'Credit memo imported from QuickBooks',
+        )
+        QUICKBOOKS_CREDIT_MEMO_MAPPING_TOMBSTONED = (
+            'quickbooks_credit_memo_tombstoned',
+            'QuickBooks credit memo mapping tombstoned',
+        )
         INVOICE_DRAFT_CREATED = (
             'invoice_draft_created',
             'Invoice draft created',

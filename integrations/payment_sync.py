@@ -14,12 +14,17 @@ from projects.services import record_activity
 from .customer_sync import QuickBooksSyncBusy, QuickBooksSyncError
 from .models import (
     QuickBooksConnection,
+    QuickBooksCreditMemoMapping,
     QuickBooksInvoiceMapping,
     QuickBooksPaymentMapping,
     QuickBooksSyncAttempt,
 )
 from .quickbooks import QuickBooksAccountingClient, QuickBooksAPIError
-from .services import QuickBooksMappingError, save_payment_mapping
+from .services import (
+    QuickBooksMappingError,
+    save_credit_memo_mapping,
+    save_payment_mapping,
+)
 
 _METHOD_KEYWORDS = {
     Payment.Method.CHECK: ('check',),
@@ -50,6 +55,7 @@ def _find_possible_duplicate(invoice, amount, paid_date):
         paid_date__gte=txn_date - timedelta(days=3),
         paid_date__lte=txn_date + timedelta(days=3),
         quickbooks_mapping__isnull=True,
+        quickbooks_credit_memo_mapping__isnull=True,
     ).first()
 
 
@@ -205,20 +211,120 @@ def execute_invoice_payment_sync_attempt(attempt_id, *, api_client=None):
                 actor=attempt.requested_by,
             )
             created.append(payment_id)
+
+        credit_memos_reverified = []
+        for mapping in QuickBooksCreditMemoMapping.objects.filter(
+            invoice_mapping=invoice_mapping,
+            status=QuickBooksCreditMemoMapping.Status.ACTIVE,
+        ):
+            try:
+                credit_memo = api_client.get_credit_memo(
+                    connection, mapping.quickbooks_credit_memo_id
+                )
+            except QuickBooksAPIError as exc:
+                if not exc.is_not_found:
+                    raise
+                with transaction.atomic():
+                    stale = QuickBooksCreditMemoMapping.objects.select_for_update().get(
+                        pk=mapping.pk
+                    )
+                    stale.mark_tombstoned()
+                    stale.save()
+                credit_memos_reverified.append(
+                    {
+                        'quickbooks_credit_memo_id': mapping.quickbooks_credit_memo_id,
+                        'status': 'tombstoned',
+                    }
+                )
+                continue
+            save_credit_memo_mapping(
+                invoice_mapping=invoice_mapping,
+                connection=connection,
+                quickbooks_credit_memo=credit_memo,
+                local_payment=mapping.payment,
+                actor=attempt.requested_by,
+            )
+            credit_memos_reverified.append(
+                {
+                    'quickbooks_credit_memo_id': mapping.quickbooks_credit_memo_id,
+                    'status': 'updated',
+                }
+            )
+
+        mapped_credit_memo_ids = set(
+            QuickBooksCreditMemoMapping.objects.filter(
+                invoice_mapping=invoice_mapping,
+            ).values_list('quickbooks_credit_memo_id', flat=True)
+        )
+        found_credit_memos = api_client.find_credit_memos_for_invoice(
+            connection,
+            invoice_mapping.quickbooks_customer_id,
+            invoice_mapping.quickbooks_invoice_id,
+        )
+        credit_memos_created = []
+        credit_memo_possible_duplicates = []
+        for qb_credit_memo in found_credit_memos:
+            credit_memo_id = str(qb_credit_memo.get('Id') or '')
+            if not credit_memo_id or credit_memo_id in mapped_credit_memo_ids:
+                continue
+            amount = qb_credit_memo.get('TotalAmt')
+            txn_date = qb_credit_memo.get('TxnDate')
+            duplicate = _find_possible_duplicate(invoice, amount, txn_date)
+            if duplicate:
+                credit_memo_possible_duplicates.append(
+                    {
+                        'quickbooks_credit_memo_id': credit_memo_id,
+                        'local_payment_id': duplicate.pk,
+                    }
+                )
+                continue
+            local_payment = record_payment(
+                invoice_id=invoice.pk,
+                actor=attempt.requested_by,
+                amount=amount,
+                method=Payment.Method.CREDIT_MEMO,
+                reference=str(qb_credit_memo.get('DocNumber') or ''),
+                paid_date=txn_date,
+                note=f'Imported from QuickBooks credit memo {credit_memo_id}.',
+            )
+            save_credit_memo_mapping(
+                invoice_mapping=invoice_mapping,
+                connection=connection,
+                quickbooks_credit_memo=qb_credit_memo,
+                local_payment=local_payment,
+                actor=attempt.requested_by,
+            )
+            credit_memos_created.append(credit_memo_id)
     except (QuickBooksAPIError, QuickBooksMappingError, ValidationError) as exc:
         return _mark_attempt_failed(attempt.pk, exc)
 
     summary = {
         'created': created,
+        'credit_memos_created': credit_memos_created,
         'reverified': reverified,
+        'credit_memos_reverified': credit_memos_reverified,
         'possible_duplicates': possible_duplicates,
+        'credit_memo_possible_duplicates': credit_memo_possible_duplicates,
     }
-    if possible_duplicates:
-        ids = ', '.join(entry['quickbooks_payment_id'] for entry in possible_duplicates)
+    if possible_duplicates or credit_memo_possible_duplicates:
+        ids = ', '.join(
+            entry['quickbooks_payment_id'] for entry in possible_duplicates
+        )
+        credit_memo_ids = ', '.join(
+            entry['quickbooks_credit_memo_id'] for entry in credit_memo_possible_duplicates
+        )
+        messages = [
+            part
+            for part in (
+                f'payment(s) {ids}' if ids else '',
+                f'credit memo(s) {credit_memo_ids}' if credit_memo_ids else '',
+            )
+            if part
+        ]
         return _mark_attempt_failed(
             attempt.pk,
             QuickBooksSyncError(
-                f'Possible duplicate QuickBooks payment(s) need review: {ids}.'
+                f'Possible duplicate QuickBooks {" and ".join(messages)} need review.'
             ),
             response_snapshot=summary,
         )

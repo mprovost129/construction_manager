@@ -666,10 +666,16 @@ def quickbooks_invoice_payment_sync(request, invoice_id):
     else:
         if attempt.status == QuickBooksSyncAttempt.Status.SUCCEEDED:
             summary = attempt.response_snapshot or {}
+            imported = len(summary.get('created', [])) + len(
+                summary.get('credit_memos_created', [])
+            )
+            reverified = len(summary.get('reverified', [])) + len(
+                summary.get('credit_memos_reverified', [])
+            )
             messages.success(
                 request,
-                f'QuickBooks payment sync complete: {len(summary.get("created", []))} '
-                f'imported, {len(summary.get("reverified", []))} re-verified.',
+                f'QuickBooks payment sync complete: {imported} imported, '
+                f'{reverified} re-verified.',
             )
         else:
             messages.error(request, attempt.error_message)

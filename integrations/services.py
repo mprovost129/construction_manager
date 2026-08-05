@@ -10,6 +10,7 @@ from projects.services import record_activity
 
 from .models import (
     QuickBooksConnection,
+    QuickBooksCreditMemoMapping,
     QuickBooksInvoiceMapping,
     QuickBooksItemMapping,
     QuickBooksPaymentMapping,
@@ -787,6 +788,125 @@ def refresh_payment_mapping(mapping_id, *, actor, api_client=None):
         invoice_mapping=mapping.invoice_mapping,
         connection=mapping.connection,
         quickbooks_payment=payment,
+        local_payment=mapping.payment,
+        actor=actor,
+    )
+
+
+def _credit_memo_snapshot(credit_memo):
+    return {
+        key: credit_memo.get(key)
+        for key in ('Id', 'SyncToken', 'TotalAmt', 'Balance', 'TxnDate', 'DocNumber')
+        if key in credit_memo
+    }
+
+
+@transaction.atomic
+def save_credit_memo_mapping(
+    *, invoice_mapping, connection, quickbooks_credit_memo, local_payment, actor
+):
+    if invoice_mapping.connection_id != connection.pk:
+        raise QuickBooksMappingError(
+            'The invoice mapping and QuickBooks connection must match.'
+        )
+    if local_payment.invoice_id != invoice_mapping.invoice_id:
+        raise QuickBooksMappingError('The payment must belong to the mapped invoice.')
+    quickbooks_credit_memo_id = str(quickbooks_credit_memo.get('Id') or '')
+    if not quickbooks_credit_memo_id or quickbooks_credit_memo.get('SyncToken') is None:
+        raise QuickBooksMappingError(
+            'QuickBooks returned incomplete credit memo information.'
+        )
+    conflict = QuickBooksCreditMemoMapping.objects.filter(
+        connection=connection,
+        quickbooks_credit_memo_id=quickbooks_credit_memo_id,
+        invoice_mapping=invoice_mapping,
+        status=QuickBooksCreditMemoMapping.Status.ACTIVE,
+    ).exclude(payment=local_payment)
+    if conflict.exists():
+        raise QuickBooksMappingError(
+            'That QuickBooks credit memo is already mapped to another local payment.'
+        )
+
+    now = timezone.now()
+    mapping, created = QuickBooksCreditMemoMapping.objects.select_for_update().get_or_create(
+        payment=local_payment,
+        defaults={
+            'connection': connection,
+            'invoice_mapping': invoice_mapping,
+            'quickbooks_credit_memo_id': quickbooks_credit_memo_id,
+        },
+    )
+    total_amt = quickbooks_credit_memo.get('TotalAmt')
+    mapping.connection = connection
+    mapping.invoice_mapping = invoice_mapping
+    mapping.quickbooks_credit_memo_id = quickbooks_credit_memo_id
+    mapping.quickbooks_sync_token = str(quickbooks_credit_memo.get('SyncToken') or '')
+    mapping.status = (
+        QuickBooksCreditMemoMapping.Status.VOIDED
+        if total_amt is not None and Decimal(str(total_amt)) <= 0
+        else QuickBooksCreditMemoMapping.Status.ACTIVE
+    )
+    mapping.external_amount = total_amt
+    mapping.last_synced_values = _credit_memo_snapshot(quickbooks_credit_memo)
+    mapping.last_synced_at = now
+    mapping.last_seen_at = now
+    mapping.tombstoned_at = None
+    mapping.full_clean()
+    mapping.save()
+    if created:
+        record_activity(
+            organization=local_payment.invoice.organization,
+            project=local_payment.invoice.project,
+            actor=actor,
+            event_type=ActivityEvent.Type.QUICKBOOKS_CREDIT_MEMO_IMPORTED,
+            summary=(
+                f'Imported a ${local_payment.amount:,.2f} credit memo from QuickBooks on '
+                f'{local_payment.invoice.display_number}.'
+            ),
+            metadata={
+                'realm_id': connection.realm_id,
+                'quickbooks_credit_memo_id': quickbooks_credit_memo_id,
+                'payment_id': local_payment.pk,
+            },
+        )
+    return mapping
+
+
+def refresh_credit_memo_mapping(mapping_id, *, actor, api_client=None):
+    mapping = QuickBooksCreditMemoMapping.objects.select_related(
+        'connection',
+        'invoice_mapping',
+        'payment__invoice__organization',
+        'payment__invoice__project',
+    ).get(pk=mapping_id)
+    api_client = api_client or QuickBooksAccountingClient()
+    try:
+        credit_memo = api_client.get_credit_memo(
+            mapping.connection, mapping.quickbooks_credit_memo_id
+        )
+    except QuickBooksAPIError as exc:
+        if not exc.is_not_found:
+            raise
+        with transaction.atomic():
+            mapping = QuickBooksCreditMemoMapping.objects.select_for_update().get(pk=mapping_id)
+            mapping.mark_tombstoned()
+            mapping.save()
+            record_activity(
+                organization=mapping.payment.invoice.organization,
+                project=mapping.payment.invoice.project,
+                actor=actor,
+                event_type=ActivityEvent.Type.QUICKBOOKS_CREDIT_MEMO_MAPPING_TOMBSTONED,
+                summary=(
+                    f'QuickBooks credit memo {mapping.quickbooks_credit_memo_id} is no longer '
+                    'available; the mapping was preserved.'
+                ),
+                metadata={'quickbooks_credit_memo_id': mapping.quickbooks_credit_memo_id},
+            )
+        return mapping
+    return save_credit_memo_mapping(
+        invoice_mapping=mapping.invoice_mapping,
+        connection=mapping.connection,
+        quickbooks_credit_memo=credit_memo,
         local_payment=mapping.payment,
         actor=actor,
     )

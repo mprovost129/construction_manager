@@ -14,6 +14,7 @@ from billing.models import Invoice, InvoiceLineItem, Payment
 from billing.services import issue_invoice, record_payment
 from integrations.models import (
     QuickBooksConnection,
+    QuickBooksCreditMemoMapping,
     QuickBooksPaymentMapping,
     QuickBooksProjectCustomerMapping,
     QuickBooksSyncAttempt,
@@ -88,6 +89,32 @@ def qb_payment(
     }
 
 
+def qb_credit_memo(
+    credit_memo_id='77',
+    amount='50.00',
+    txn_date='2026-08-01',
+    invoice_txn_id='9',
+    customer_id='42',
+    sync_token='0',
+    doc_number='CM-1001',
+):
+    return {
+        'Id': credit_memo_id,
+        'SyncToken': sync_token,
+        'TotalAmt': amount,
+        'Balance': amount,
+        'TxnDate': txn_date,
+        'DocNumber': doc_number,
+        'CustomerRef': {'value': customer_id},
+        'Line': [
+            {
+                'Amount': amount,
+                'LinkedTxn': [{'TxnId': invoice_txn_id, 'TxnType': 'Invoice'}],
+            }
+        ],
+    }
+
+
 @override_settings(**SYNC_SETTINGS)
 class QuickBooksPaymentReadClientTests(TestCase):
     def setUp(self):
@@ -127,6 +154,36 @@ class QuickBooksPaymentReadClientTests(TestCase):
         )
 
         self.assertEqual([entry['Id'] for entry in matches], ['55'])
+        query = get.call_args.kwargs['params']['query']
+        self.assertIn("CustomerRef = '42'", query)
+
+    @patch('integrations.quickbooks.requests.get')
+    def test_get_credit_memo_reads_by_id(self, get):
+        get.return_value = Mock(
+            status_code=200,
+            json=Mock(return_value={'CreditMemo': qb_credit_memo()}),
+        )
+
+        result = QuickBooksAccountingClient().get_credit_memo(self.connection, '77')
+
+        self.assertEqual(result['Id'], '77')
+
+    @patch('integrations.quickbooks.requests.get')
+    def test_find_credit_memos_for_invoice_filters_by_linked_txn(self, get):
+        matching = qb_credit_memo(credit_memo_id='77', invoice_txn_id='9')
+        other_invoice = qb_credit_memo(credit_memo_id='78', invoice_txn_id='99')
+        get.return_value = Mock(
+            status_code=200,
+            json=Mock(
+                return_value={'QueryResponse': {'CreditMemo': [matching, other_invoice]}}
+            ),
+        )
+
+        matches = QuickBooksAccountingClient().find_credit_memos_for_invoice(
+            self.connection, '42', '9'
+        )
+
+        self.assertEqual([entry['Id'] for entry in matches], ['77'])
         query = get.call_args.kwargs['params']['query']
         self.assertIn("CustomerRef = '42'", query)
 
@@ -204,6 +261,7 @@ class QuickBooksInvoicePaymentSyncTests(TestCase):
     def test_scan_imports_clean_payment_and_updates_invoice_balance(self):
         api = Mock()
         api.find_payments_for_invoice.return_value = [qb_payment()]
+        api.find_credit_memos_for_invoice.return_value = []
 
         attempt = start_invoice_payment_sync(
             invoice_id=self.invoice.pk,
@@ -242,6 +300,7 @@ class QuickBooksInvoicePaymentSyncTests(TestCase):
             qb_payment(payment_id='55', amount='100.00', txn_date='2026-08-01'),
             qb_payment(payment_id='56', amount='100.00', txn_date='2026-08-05'),
         ]
+        api.find_credit_memos_for_invoice.return_value = []
 
         attempt = start_invoice_payment_sync(
             invoice_id=self.invoice.pk,
@@ -268,6 +327,7 @@ class QuickBooksInvoicePaymentSyncTests(TestCase):
     def test_reverify_tombstones_missing_payment(self):
         api = Mock()
         api.find_payments_for_invoice.return_value = [qb_payment()]
+        api.find_credit_memos_for_invoice.return_value = []
         start_invoice_payment_sync(
             invoice_id=self.invoice.pk,
             connection_id=self.connection.pk,
@@ -283,6 +343,7 @@ class QuickBooksInvoicePaymentSyncTests(TestCase):
             status_code=400,
         )
         second_api.find_payments_for_invoice.return_value = []
+        second_api.find_credit_memos_for_invoice.return_value = []
 
         attempt = start_invoice_payment_sync(
             invoice_id=self.invoice.pk,
@@ -299,6 +360,7 @@ class QuickBooksInvoicePaymentSyncTests(TestCase):
     def test_reverify_marks_zero_amount_payment_as_voided(self):
         api = Mock()
         api.find_payments_for_invoice.return_value = [qb_payment()]
+        api.find_credit_memos_for_invoice.return_value = []
         start_invoice_payment_sync(
             invoice_id=self.invoice.pk,
             connection_id=self.connection.pk,
@@ -310,6 +372,7 @@ class QuickBooksInvoicePaymentSyncTests(TestCase):
         second_api = Mock()
         second_api.get_payment.return_value = qb_payment(amount='0.00', sync_token='1')
         second_api.find_payments_for_invoice.return_value = []
+        second_api.find_credit_memos_for_invoice.return_value = []
 
         start_invoice_payment_sync(
             invoice_id=self.invoice.pk,
@@ -320,6 +383,122 @@ class QuickBooksInvoicePaymentSyncTests(TestCase):
 
         mapping.refresh_from_db()
         self.assertEqual(mapping.status, QuickBooksPaymentMapping.Status.VOIDED)
+
+    def test_scan_imports_credit_memo_and_updates_invoice_balance(self):
+        api = Mock()
+        api.find_payments_for_invoice.return_value = []
+        api.find_credit_memos_for_invoice.return_value = [qb_credit_memo()]
+
+        attempt = start_invoice_payment_sync(
+            invoice_id=self.invoice.pk,
+            connection_id=self.connection.pk,
+            actor=self.admin,
+            api_client=api,
+        )
+
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
+        self.assertEqual(attempt.response_snapshot['credit_memos_created'], ['77'])
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, Invoice.Status.PARTIALLY_PAID)
+        self.assertEqual(self.invoice.amount_paid, Decimal('50.00'))
+        payment = Payment.objects.get(invoice=self.invoice)
+        self.assertEqual(payment.amount, Decimal('50.00'))
+        self.assertEqual(payment.method, Payment.Method.CREDIT_MEMO)
+        self.assertIsNone(payment.credit_memo)
+        self.assertEqual(payment.reference, 'CM-1001')
+        self.assertTrue(
+            QuickBooksCreditMemoMapping.objects.filter(
+                payment=payment, quickbooks_credit_memo_id='77'
+            ).exists()
+        )
+
+    def test_scan_imports_both_payment_and_credit_memo_in_same_pass(self):
+        api = Mock()
+        api.find_payments_for_invoice.return_value = [qb_payment()]
+        api.find_credit_memos_for_invoice.return_value = [qb_credit_memo()]
+
+        attempt = start_invoice_payment_sync(
+            invoice_id=self.invoice.pk,
+            connection_id=self.connection.pk,
+            actor=self.admin,
+            api_client=api,
+        )
+
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
+        self.assertEqual(attempt.response_snapshot['created'], ['55'])
+        self.assertEqual(attempt.response_snapshot['credit_memos_created'], ['77'])
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.amount_paid, Decimal('150.00'))
+        self.assertEqual(Payment.objects.filter(invoice=self.invoice).count(), 2)
+
+    def test_credit_memo_reverify_tombstones_missing_credit_memo(self):
+        api = Mock()
+        api.find_payments_for_invoice.return_value = []
+        api.find_credit_memos_for_invoice.return_value = [qb_credit_memo()]
+        start_invoice_payment_sync(
+            invoice_id=self.invoice.pk,
+            connection_id=self.connection.pk,
+            actor=self.admin,
+            api_client=api,
+        )
+        mapping = QuickBooksCreditMemoMapping.objects.get(quickbooks_credit_memo_id='77')
+
+        second_api = Mock()
+        second_api.get_credit_memo.side_effect = QuickBooksAPIError(
+            '610',
+            'The requested QuickBooks record no longer exists.',
+            status_code=400,
+        )
+        second_api.find_payments_for_invoice.return_value = []
+        second_api.find_credit_memos_for_invoice.return_value = []
+
+        attempt = start_invoice_payment_sync(
+            invoice_id=self.invoice.pk,
+            connection_id=self.connection.pk,
+            actor=self.admin,
+            api_client=second_api,
+        )
+
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
+        mapping.refresh_from_db()
+        self.assertEqual(mapping.status, QuickBooksCreditMemoMapping.Status.TOMBSTONED)
+        self.assertEqual(
+            attempt.response_snapshot['credit_memos_reverified'][0]['status'], 'tombstoned'
+        )
+
+    def test_duplicate_check_excludes_payments_already_linked_to_a_credit_memo_mapping(self):
+        # An already-imported $50 credit memo (77) must not block a second, distinct $50
+        # credit memo (78) with the same amount/date from importing cleanly — it should only
+        # be compared against *unmapped* local payments when checking for duplicates.
+        api = Mock()
+        api.find_payments_for_invoice.return_value = []
+        api.find_credit_memos_for_invoice.return_value = [qb_credit_memo()]
+        start_invoice_payment_sync(
+            invoice_id=self.invoice.pk,
+            connection_id=self.connection.pk,
+            actor=self.admin,
+            api_client=api,
+        )
+
+        second_api = Mock()
+        second_api.find_payments_for_invoice.return_value = []
+        second_api.get_credit_memo.return_value = qb_credit_memo(credit_memo_id='77')
+        second_api.find_credit_memos_for_invoice.return_value = [
+            qb_credit_memo(credit_memo_id='77'),
+            qb_credit_memo(credit_memo_id='78', amount='50.00', txn_date='2026-08-01'),
+        ]
+
+        attempt = start_invoice_payment_sync(
+            invoice_id=self.invoice.pk,
+            connection_id=self.connection.pk,
+            actor=self.admin,
+            api_client=second_api,
+        )
+
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
+        self.assertEqual(attempt.response_snapshot['credit_memos_created'], ['78'])
+        self.assertEqual(attempt.response_snapshot['credit_memo_possible_duplicates'], [])
+        self.assertEqual(Payment.objects.filter(invoice=self.invoice).count(), 2)
 
     def test_sync_requires_active_invoice_mapping(self):
         self.invoice_mapping.delete()
@@ -350,6 +529,7 @@ class QuickBooksInvoicePaymentSyncTests(TestCase):
 
         retry_api = Mock()
         retry_api.find_payments_for_invoice.return_value = [qb_payment()]
+        retry_api.find_credit_memos_for_invoice.return_value = []
 
         succeeded = retry_invoice_payment_sync_attempt(
             failed.pk,

@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     QuickBooksConnection,
+    QuickBooksCreditMemoMapping,
     QuickBooksInvoiceMapping,
     QuickBooksItemMapping,
     QuickBooksPaymentMapping,
@@ -193,6 +194,35 @@ class QuickBooksPaymentMappingAdmin(admin.ModelAdmin):
     )
     readonly_fields = tuple(
         field.name for field in QuickBooksPaymentMapping._meta.fields
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(QuickBooksCreditMemoMapping)
+class QuickBooksCreditMemoMappingAdmin(admin.ModelAdmin):
+    list_display = (
+        'payment',
+        'quickbooks_credit_memo_id',
+        'connection',
+        'status',
+        'external_amount',
+        'last_seen_at',
+    )
+    list_filter = ('status', 'connection__environment')
+    search_fields = (
+        'payment__invoice__title',
+        'quickbooks_credit_memo_id',
+    )
+    readonly_fields = tuple(
+        field.name for field in QuickBooksCreditMemoMapping._meta.fields
     )
 
     def has_add_permission(self, request):

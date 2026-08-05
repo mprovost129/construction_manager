@@ -193,6 +193,13 @@ class QuickBooksAccountingClient:
             'Payment',
         )
 
+    def get_credit_memo(self, connection, credit_memo_id):
+        return self._get_entity(
+            connection,
+            f'creditmemo/{quote(str(credit_memo_id), safe="")}',
+            'CreditMemo',
+        )
+
     def create_customer(self, connection, customer, *, request_id):
         return self._write_entity(
             connection,
@@ -448,6 +455,52 @@ class QuickBooksAccountingClient:
                 ):
                     return True
         return False
+
+    def find_credit_memos_for_invoice(
+        self, connection, customer_id, invoice_txn_id, *, page_size=100
+    ):
+        if page_size < 1 or page_size > 1000:
+            raise ValueError('page_size must be between 1 and 1000.')
+        escaped_customer_id = str(customer_id).replace('\\', '\\\\').replace("'", "\\'")
+        matches = []
+        start_position = 1
+        while True:
+            query = (
+                "SELECT * FROM CreditMemo WHERE CustomerRef = "
+                f"'{escaped_customer_id}' STARTPOSITION {start_position} MAXRESULTS {page_size}"
+            )
+            credit_memos = self._query_credit_memos(connection, query)
+            matches.extend(
+                credit_memo
+                for credit_memo in credit_memos
+                if self._payment_links_invoice(credit_memo, invoice_txn_id)
+            )
+            if len(credit_memos) < page_size:
+                break
+            start_position += len(credit_memos)
+        return matches
+
+    def _query_credit_memos(self, connection, query):
+        payload = self._request(
+            connection,
+            'query',
+            params={'query': query},
+        )
+        query_response = payload.get('QueryResponse') if isinstance(payload, dict) else None
+        if not isinstance(query_response, dict):
+            raise QuickBooksAPIError(
+                'invalid_api_response',
+                'QuickBooks returned an incomplete credit memo query response.',
+            )
+        credit_memos = query_response.get('CreditMemo') or []
+        if not isinstance(credit_memos, list) or not all(
+            isinstance(credit_memo, dict) for credit_memo in credit_memos
+        ):
+            raise QuickBooksAPIError(
+                'invalid_api_response',
+                'QuickBooks returned an invalid credit memo list.',
+            )
+        return credit_memos
 
     def _write_entity(
         self,

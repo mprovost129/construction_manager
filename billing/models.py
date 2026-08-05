@@ -674,8 +674,7 @@ class Payment(models.Model):
             ),
             models.CheckConstraint(
                 condition=(
-                    Q(method='credit_memo', credit_memo__isnull=False)
-                    | (~Q(method='credit_memo') & Q(credit_memo__isnull=True))
+                    Q(credit_memo__isnull=True) | Q(method='credit_memo')
                 ),
                 name='billing_payment_credit_memo_matches_method',
             ),
