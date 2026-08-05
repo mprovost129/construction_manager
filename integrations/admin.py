@@ -4,6 +4,7 @@ from .models import (
     QuickBooksConnection,
     QuickBooksInvoiceMapping,
     QuickBooksItemMapping,
+    QuickBooksPaymentMapping,
     QuickBooksProjectCustomerMapping,
     QuickBooksSyncAttempt,
 )
@@ -163,6 +164,35 @@ class QuickBooksInvoiceMappingAdmin(admin.ModelAdmin):
     )
     readonly_fields = tuple(
         field.name for field in QuickBooksInvoiceMapping._meta.fields
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(QuickBooksPaymentMapping)
+class QuickBooksPaymentMappingAdmin(admin.ModelAdmin):
+    list_display = (
+        'payment',
+        'quickbooks_payment_id',
+        'connection',
+        'status',
+        'external_amount',
+        'last_seen_at',
+    )
+    list_filter = ('status', 'connection__environment')
+    search_fields = (
+        'payment__invoice__title',
+        'quickbooks_payment_id',
+    )
+    readonly_fields = tuple(
+        field.name for field in QuickBooksPaymentMapping._meta.fields
     )
 
     def has_add_permission(self, request):

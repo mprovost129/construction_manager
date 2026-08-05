@@ -599,6 +599,30 @@ class ActivityEvent(models.Model):
             'quickbooks_item_sync_failed',
             'QuickBooks item sync failed',
         )
+        QUICKBOOKS_INVOICE_SYNC_SUCCEEDED = (
+            'quickbooks_invoice_sync_succeeded',
+            'QuickBooks invoice sync succeeded',
+        )
+        QUICKBOOKS_INVOICE_SYNC_FAILED = (
+            'quickbooks_invoice_sync_failed',
+            'QuickBooks invoice sync failed',
+        )
+        QUICKBOOKS_INVOICE_MAPPING_TOMBSTONED = (
+            'quickbooks_invoice_mapping_tombstoned',
+            'QuickBooks invoice mapping tombstoned',
+        )
+        QUICKBOOKS_PAYMENT_IMPORTED = (
+            'quickbooks_payment_imported',
+            'Payment imported from QuickBooks',
+        )
+        QUICKBOOKS_PAYMENT_SYNC_FAILED = (
+            'quickbooks_payment_sync_failed',
+            'QuickBooks payment sync failed',
+        )
+        QUICKBOOKS_PAYMENT_MAPPING_TOMBSTONED = (
+            'quickbooks_payment_mapping_tombstoned',
+            'QuickBooks payment mapping tombstoned',
+        )
         INVOICE_DRAFT_CREATED = (
             'invoice_draft_created',
             'Invoice draft created',
@@ -611,6 +635,10 @@ class ActivityEvent(models.Model):
         INVOICE_VOIDED = 'invoice_voided', 'Invoice voided'
         PAYMENT_RECORDED = 'payment_recorded', 'Payment recorded'
         PAYMENT_DELETED = 'payment_deleted', 'Payment deleted'
+        CREDIT_MEMO_CREATED = 'credit_memo_created', 'Credit memo created'
+        CREDIT_MEMO_ISSUED = 'credit_memo_issued', 'Credit memo issued'
+        CREDIT_MEMO_APPLIED = 'credit_memo_applied', 'Credit memo applied'
+        CREDIT_MEMO_VOIDED = 'credit_memo_voided', 'Credit memo voided'
         ESTIMATE_CREATED = 'estimate_created', 'Estimate created'
         ESTIMATE_UPDATED = 'estimate_updated', 'Estimate updated'
         ESTIMATE_SUBMITTED = 'estimate_submitted', 'Estimate submitted'
@@ -977,6 +1005,13 @@ class ChangeOrder(models.Model):
         on_delete=models.SET_NULL,
         related_name='replaced_by',
     )
+    source_selection = models.ForeignKey(
+        'FinishSelection',
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='credit_change_orders',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1102,6 +1137,37 @@ class ChangeOrder(models.Model):
                 errors['status'] = 'Only voided change orders can have void details.'
             if self.requires_financial_reversal:
                 errors['status'] = 'Only voided change orders require a financial reversal.'
+        if self.source_selection_id:
+            selection = self.source_selection
+            if self.project_id and selection.project_id != self.project_id:
+                errors['source_selection'] = 'The selection must belong to this project.'
+            elif selection.status != selection.Status.SELECTED or not selection.has_credit:
+                errors['source_selection'] = 'The selection has no credit to apply.'
+            elif selection.credit_disposition != selection.CreditDisposition.APPLY_ELSEWHERE:
+                errors['source_selection'] = (
+                    'Set the selection credit disposition to "Apply to another selection" '
+                    'first.'
+                )
+            elif self.price_delta >= 0:
+                errors['price_delta'] = 'A credit change order requires a negative price change.'
+            elif abs(self.price_delta) > abs(selection.selected_variance):
+                errors['price_delta'] = (
+                    "The credit cannot exceed the selection's available credit."
+                )
+            elif self.pk and self.line_items.exists():
+                errors['source_selection'] = (
+                    'A credit change order cannot also have line items.'
+                )
+            else:
+                conflict = (
+                    ChangeOrder.objects.filter(source_selection=selection)
+                    .exclude(status=self.Status.VOIDED)
+                    .exclude(pk=self.pk)
+                )
+                if conflict.exists():
+                    errors['source_selection'] = (
+                        'This selection already has an active credit change order.'
+                    )
         if errors:
             raise ValidationError(errors)
 

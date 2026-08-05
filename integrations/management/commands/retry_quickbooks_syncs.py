@@ -6,12 +6,17 @@ from integrations.customer_sync import (
     QuickBooksSyncError,
     retry_customer_sync_attempt,
 )
+from integrations.invoice_sync import retry_invoice_sync_attempt
 from integrations.item_sync import retry_item_sync_attempt
 from integrations.models import QuickBooksSyncAttempt
+from integrations.payment_sync import retry_invoice_payment_sync_attempt
 
 
 class Command(BaseCommand):
-    help = 'Retry due, retryable QuickBooks synchronization failures (customers and items).'
+    help = (
+        'Retry due, retryable QuickBooks synchronization failures '
+        '(customers, items, invoices, and payments).'
+    )
 
     def add_arguments(self, parser):
         parser.add_argument('--limit', type=int, default=25)
@@ -23,6 +28,8 @@ class Command(BaseCommand):
             entity_type__in=(
                 QuickBooksSyncAttempt.EntityType.CUSTOMER,
                 QuickBooksSyncAttempt.EntityType.ITEM,
+                QuickBooksSyncAttempt.EntityType.INVOICE,
+                QuickBooksSyncAttempt.EntityType.PAYMENT,
             ),
             status=QuickBooksSyncAttempt.Status.FAILED,
             retryable=True,
@@ -40,6 +47,10 @@ class Command(BaseCommand):
             try:
                 if candidate.entity_type == QuickBooksSyncAttempt.EntityType.ITEM:
                     result = retry_item_sync_attempt(candidate.pk, actor=None)
+                elif candidate.entity_type == QuickBooksSyncAttempt.EntityType.INVOICE:
+                    result = retry_invoice_sync_attempt(candidate.pk, actor=None)
+                elif candidate.entity_type == QuickBooksSyncAttempt.EntityType.PAYMENT:
+                    result = retry_invoice_payment_sync_attempt(candidate.pk, actor=None)
                 else:
                     result = retry_customer_sync_attempt(candidate.pk, actor=None)
             except QuickBooksSyncError:

@@ -75,4 +75,29 @@ urlpatterns = [
         views.InvoiceLineItemDeleteView.as_view(),
         name='invoice_line_delete',
     ),
+    path(
+        'projects/<int:project_id>/credit-memos/from-change-order/<int:change_order_id>/',
+        views.CreditMemoFromChangeOrderCreateView.as_view(),
+        name='credit_memo_from_change_order',
+    ),
+    path(
+        'projects/<int:project_id>/credit-memos/<int:credit_memo_id>/',
+        views.CreditMemoDetailView.as_view(),
+        name='credit_memo_detail',
+    ),
+    path(
+        'projects/<int:project_id>/credit-memos/<int:credit_memo_id>/issue/',
+        views.CreditMemoIssueView.as_view(),
+        name='credit_memo_issue',
+    ),
+    path(
+        'projects/<int:project_id>/credit-memos/<int:credit_memo_id>/apply/',
+        views.CreditMemoApplyView.as_view(),
+        name='credit_memo_apply',
+    ),
+    path(
+        'projects/<int:project_id>/credit-memos/<int:credit_memo_id>/void/',
+        views.CreditMemoVoidView.as_view(),
+        name='credit_memo_void',
+    ),
 ]

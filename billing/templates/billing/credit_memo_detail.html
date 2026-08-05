@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ credit_memo.display_number }} | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:change_order_detail' project.pk credit_memo.source_change_order.pk %}">{{ credit_memo.source_change_order.display_number }}</a><i class="bi bi-chevron-right"></i><span>{{ credit_memo.display_number }}</span></nav>
+
+<section class="page-heading">
+    <div><p class="eyebrow">{{ credit_memo.display_number }}</p><h1>Credit memo</h1><p class="text-secondary mb-0">{% if credit_memo.issued_at %}Issued {{ credit_memo.issued_at|date:"F j, Y" }} &middot; From {{ credit_memo.source_change_order.display_number }}{% else %}Internal draft &middot; Not visible to clients{% endif %}</p></div>
+    <div class="button-row"><span class="status-pill status-pill--{% if credit_memo.status == 'voided' %}declined{% elif credit_memo.status == 'issued' %}active{% endif %}">{{ credit_memo.get_status_display }}</span></div>
+</section>
+
+{% if credit_memo.status == 'voided' %}<div class="role-banner"><i class="bi bi-slash-circle"></i><span>Voided {{ credit_memo.voided_at|date:"M j, Y g:i A" }}. Reason: {{ credit_memo.void_reason }}</span></div>{% endif %}
+
+<section class="summary-strip" aria-label="Credit memo totals">
+    <article><span>Amount</span><strong>${{ credit_memo.amount|floatformat:2 }}</strong></article>
+    <article><span>Applied</span><strong>${{ credit_memo.applied_amount|floatformat:2 }}</strong></article>
+    <article><span>Remaining balance</span><strong>${{ credit_memo.remaining_balance|floatformat:2 }}</strong></article>
+</section>
+
+{% if credit_memo.client_visible %}<section class="admin-panel">
+    <div class="section-heading"><div><p class="eyebrow">Application history</p><h2>Applied to invoices</h2></div></div>
+    {% if applications %}<div class="table-responsive"><table class="admin-table"><thead><tr><th>Date</th><th>Invoice</th><th>Amount</th>{% if can_manage_invoices %}<th class="text-end">Actions</th>{% endif %}</tr></thead><tbody>{% for application in applications %}<tr><td>{{ application.paid_date|date:"M j, Y" }}</td><td><a href="{% url 'billing:invoice_detail' project.pk application.invoice.pk %}">{{ application.invoice.display_number }}</a></td><td>${{ application.amount|floatformat:2 }}</td>{% if can_manage_invoices %}<td class="text-end"><form class="inline-form" method="post" action="{% url 'billing:payment_delete' project.pk application.invoice.pk application.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit">Remove</button></form></td>{% endif %}</tr>{% endfor %}</tbody></table></div>{% else %}<p class="empty-copy">Not applied to an invoice yet.</p>{% endif %}
+</section>{% endif %}
+
+{% if can_manage_invoices and credit_memo.status == 'draft' %}<section class="decision-panel"><div><p class="eyebrow">Issue credit memo</p><h2>Make this credit memo permanent and client-visible</h2><p>Issuing assigns the next company credit memo number. It can then be applied to an issued invoice for this project.</p></div><form method="post" action="{% url 'billing:credit_memo_issue' project.pk credit_memo.pk %}">{% csrf_token %}<button class="btn btn-primary" type="submit">Issue credit memo</button></form></section>{% endif %}
+
+{% if apply_form %}<section class="decision-panel"><div><p class="eyebrow">Apply credit</p><h2>Apply {{ credit_memo.display_number }} to an invoice</h2><p>Reduces the chosen invoice's balance due by the amount applied. Never exceeds either the credit memo's remaining balance or the invoice's own balance due.</p></div><form method="post" action="{% url 'billing:credit_memo_apply' project.pk credit_memo.pk %}" class="stacked-form">{% csrf_token %}<div class="form-field"><label for="{{ apply_form.invoice.id_for_label }}">Invoice</label>{{ apply_form.invoice }}{{ apply_form.invoice.errors }}</div><div class="form-field"><label for="{{ apply_form.amount.id_for_label }}">Amount</label>{{ apply_form.amount }}{{ apply_form.amount.errors }}</div><button class="btn btn-primary" type="submit">Apply credit</button></form></section>{% endif %}
+
+{% if void_form %}<section class="decision-panel"><div><p class="eyebrow">Void credit memo</p><h2>Void {{ credit_memo.display_number }}</h2><p>Only a credit memo with nothing applied can be voided locally. The number and audit history will be preserved.</p></div><form method="post" action="{% url 'billing:credit_memo_void' project.pk credit_memo.pk %}" class="stacked-form">{% csrf_token %}<div class="form-field"><label for="{{ void_form.reason.id_for_label }}">Reason</label>{{ void_form.reason }}{{ void_form.reason.errors }}</div><button class="btn btn-outline-danger" type="submit">Void credit memo</button></form></section>{% endif %}
+{% endblock %}

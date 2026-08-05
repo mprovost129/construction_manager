@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 
 from django import forms
 from django.utils import timezone
@@ -91,5 +92,34 @@ class InvoiceVoidForm(forms.Form):
         reason = self.cleaned_data['reason'].strip()
         if not reason:
             raise forms.ValidationError('Explain why this invoice is being voided.')
+        return reason
+
+
+class CreditMemoApplyForm(forms.Form):
+    invoice = forms.ModelChoiceField(queryset=Invoice.objects.none())
+    amount = forms.DecimalField(
+        min_value=Decimal('0.01'),
+        max_digits=14,
+        decimal_places=2,
+        widget=forms.NumberInput(attrs={'step': '0.01', 'min': '0.01'}),
+    )
+
+    def __init__(self, *args, project, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['invoice'].queryset = project.invoices.filter(
+            status__in=(Invoice.Status.ISSUED, Invoice.Status.PARTIALLY_PAID)
+        )
+
+
+class CreditMemoVoidForm(forms.Form):
+    reason = forms.CharField(
+        max_length=255,
+        widget=forms.Textarea(attrs={'rows': 3}),
+    )
+
+    def clean_reason(self):
+        reason = self.cleaned_data['reason'].strip()
+        if not reason:
+            raise forms.ValidationError('Explain why this credit memo is being voided.')
         return reason
 

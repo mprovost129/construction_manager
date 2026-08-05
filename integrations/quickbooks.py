@@ -186,6 +186,13 @@ class QuickBooksAccountingClient:
             'Invoice',
         )
 
+    def get_payment(self, connection, payment_id):
+        return self._get_entity(
+            connection,
+            f'payment/{quote(str(payment_id), safe="")}',
+            'Payment',
+        )
+
     def create_customer(self, connection, customer, *, request_id):
         return self._write_entity(
             connection,
@@ -377,6 +384,70 @@ class QuickBooksAccountingClient:
                 'QuickBooks returned an invalid item list.',
             )
         return items
+
+    def find_payments_for_invoice(
+        self, connection, customer_id, invoice_txn_id, *, page_size=100
+    ):
+        if page_size < 1 or page_size > 1000:
+            raise ValueError('page_size must be between 1 and 1000.')
+        escaped_customer_id = str(customer_id).replace('\\', '\\\\').replace("'", "\\'")
+        matches = []
+        start_position = 1
+        while True:
+            query = (
+                "SELECT * FROM Payment WHERE CustomerRef = "
+                f"'{escaped_customer_id}' STARTPOSITION {start_position} MAXRESULTS {page_size}"
+            )
+            payments = self._query_payments(connection, query)
+            matches.extend(
+                payment
+                for payment in payments
+                if self._payment_links_invoice(payment, invoice_txn_id)
+            )
+            if len(payments) < page_size:
+                break
+            start_position += len(payments)
+        return matches
+
+    def _query_payments(self, connection, query):
+        payload = self._request(
+            connection,
+            'query',
+            params={'query': query},
+        )
+        query_response = payload.get('QueryResponse') if isinstance(payload, dict) else None
+        if not isinstance(query_response, dict):
+            raise QuickBooksAPIError(
+                'invalid_api_response',
+                'QuickBooks returned an incomplete payment query response.',
+            )
+        payments = query_response.get('Payment') or []
+        if not isinstance(payments, list) or not all(
+            isinstance(payment, dict) for payment in payments
+        ):
+            raise QuickBooksAPIError(
+                'invalid_api_response',
+                'QuickBooks returned an invalid payment list.',
+            )
+        return payments
+
+    @staticmethod
+    def _payment_links_invoice(payment, invoice_txn_id):
+        lines = payment.get('Line') if isinstance(payment, dict) else None
+        if not isinstance(lines, list):
+            return False
+        for line in lines:
+            linked_txns = line.get('LinkedTxn') if isinstance(line, dict) else None
+            if not isinstance(linked_txns, list):
+                continue
+            for linked in linked_txns:
+                if (
+                    isinstance(linked, dict)
+                    and linked.get('TxnType') == 'Invoice'
+                    and str(linked.get('TxnId')) == str(invoice_txn_id)
+                ):
+                    return True
+        return False
 
     def _write_entity(
         self,

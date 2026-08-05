@@ -444,12 +444,197 @@ class InvoiceLineItem(models.Model):
         return f'{self.invoice.display_number}: {self.description}'
 
 
+class CreditMemo(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = 'draft', 'Draft'
+        ISSUED = 'issued', 'Issued'
+        VOIDED = 'voided', 'Voided'
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.PROTECT,
+        related_name='credit_memos',
+    )
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.PROTECT,
+        related_name='credit_memos',
+    )
+    source_change_order = models.OneToOneField(
+        ChangeOrder,
+        on_delete=models.PROTECT,
+        related_name='credit_memo',
+    )
+    number = models.PositiveBigIntegerField(null=True, blank=True)
+    amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='credit_memos_created',
+    )
+    issued_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name='credit_memos_issued',
+    )
+    issued_at = models.DateTimeField(null=True, blank=True)
+    voided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name='credit_memos_voided',
+    )
+    voided_at = models.DateTimeField(null=True, blank=True)
+    void_reason = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-number', '-created_at', '-pk')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('organization', 'number'),
+                condition=Q(number__isnull=False),
+                name='billing_unique_credit_memo_number_per_org',
+            ),
+            models.CheckConstraint(
+                condition=Q(amount__gt=0),
+                name='billing_credit_memo_amount_positive',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        status='draft',
+                        number__isnull=True,
+                        issued_by__isnull=True,
+                        issued_at__isnull=True,
+                    )
+                    | Q(
+                        status__in=('issued', 'voided'),
+                        number__isnull=False,
+                        issued_by__isnull=False,
+                        issued_at__isnull=False,
+                    )
+                ),
+                name='billing_credit_memo_issue_fields_match_status',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        status='voided',
+                        voided_by__isnull=False,
+                        voided_at__isnull=False,
+                    )
+                    | (
+                        ~Q(status='voided')
+                        & Q(
+                            voided_by__isnull=True,
+                            voided_at__isnull=True,
+                            void_reason='',
+                        )
+                    )
+                ),
+                name='billing_credit_memo_void_fields_match_status',
+            ),
+        ]
+
+    @property
+    def display_number(self):
+        return f'CM-{self.number:06d}' if self.number is not None else 'Draft credit memo'
+
+    @property
+    def client_visible(self):
+        return self.status != self.Status.DRAFT
+
+    @property
+    def applied_amount(self):
+        applied = self.payments.aggregate(total=models.Sum('amount'))['total'] or Decimal('0')
+        return money(min(applied, self.amount))
+
+    @property
+    def remaining_balance(self):
+        return money(max(self.amount - self.applied_amount, Decimal('0')))
+
+    def clean(self):
+        super().clean()
+        self.void_reason = self.void_reason.strip()
+        errors = {}
+        if self.project_id and self.organization_id:
+            if self.project.organization_id != self.organization_id:
+                errors['project'] = 'The credit memo project must belong to its company.'
+        if self.source_change_order_id:
+            if self.source_change_order.project_id != self.project_id:
+                errors['source_change_order'] = (
+                    'The change order must belong to the credit memo project.'
+                )
+            if self.source_change_order.status != ChangeOrder.Status.APPROVED:
+                errors['source_change_order'] = (
+                    'Only an approved change order can originate a credit memo.'
+                )
+            if self.source_change_order.price_delta >= 0:
+                errors['source_change_order'] = (
+                    'Only a change order with a client credit can originate a credit memo.'
+                )
+        if self.status == self.Status.DRAFT:
+            if self.number is not None or self.issued_by_id or self.issued_at:
+                errors['status'] = 'Draft credit memos cannot have issue details.'
+        elif self.number is None or not self.issued_by_id or not self.issued_at:
+            errors['status'] = 'Issued credit memos require a number and issue details.'
+        if self.status == self.Status.VOIDED:
+            if not self.voided_by_id or not self.voided_at or not self.void_reason:
+                errors['status'] = 'Voided credit memos require an actor, time, and reason.'
+        elif self.voided_by_id or self.voided_at or self.void_reason:
+            errors['status'] = 'Only voided credit memos can have void details.'
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            original = type(self).objects.filter(pk=self.pk).values(
+                'status',
+                'number',
+                'organization_id',
+                'project_id',
+                'amount',
+                'source_change_order_id',
+            ).first()
+            if original and original['number'] is not None:
+                if original['number'] != self.number:
+                    raise ValidationError(
+                        {'number': 'Issued credit memo numbers are immutable.'}
+                    )
+            if original and original['status'] != self.Status.DRAFT:
+                immutable_fields = (
+                    'organization_id',
+                    'project_id',
+                    'amount',
+                    'source_change_order_id',
+                )
+                if any(original[field] != getattr(self, field) for field in immutable_fields):
+                    raise ValidationError(
+                        'Issued credit memo details and totals are immutable.'
+                    )
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.project}: {self.display_number}'
+
+
 class Payment(models.Model):
     class Method(models.TextChoices):
         CHECK = 'check', 'Check'
         ACH = 'ach', 'ACH/bank transfer'
         CARD = 'card', 'Card'
         CASH = 'cash', 'Cash'
+        CREDIT_MEMO = 'credit_memo', 'Credit memo'
         OTHER = 'other', 'Other'
 
     invoice = models.ForeignKey(
@@ -459,9 +644,16 @@ class Payment(models.Model):
     )
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     method = models.CharField(
-        max_length=10,
+        max_length=12,
         choices=Method.choices,
         default=Method.OTHER,
+    )
+    credit_memo = models.ForeignKey(
+        CreditMemo,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name='payments',
     )
     reference = models.CharField(max_length=100, blank=True)
     paid_date = models.DateField()
@@ -480,7 +672,22 @@ class Payment(models.Model):
                 condition=Q(amount__gt=0),
                 name='billing_payment_amount_positive',
             ),
+            models.CheckConstraint(
+                condition=(
+                    Q(method='credit_memo', credit_memo__isnull=False)
+                    | (~Q(method='credit_memo') & Q(credit_memo__isnull=True))
+                ),
+                name='billing_payment_credit_memo_matches_method',
+            ),
         ]
+
+    def clean(self):
+        super().clean()
+        if self.credit_memo_id and self.invoice_id:
+            if self.credit_memo.project_id != self.invoice.project_id:
+                raise ValidationError(
+                    {'credit_memo': 'The credit memo must belong to the invoice project.'}
+                )
 
     def __str__(self):
         return f'{self.invoice.display_number}: ${self.amount:,.2f} on {self.paid_date}'

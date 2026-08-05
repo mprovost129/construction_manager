@@ -1,6 +1,6 @@
 # Construction Manager Implementation Roadmap
 
-Last updated: August 2, 2026
+Last updated: August 5, 2026
 
 This is the authoritative implementation-status document for Construction Manager.
 It translates the answers in [Construction Manager.md](./Construction%20Manager.md)
@@ -26,13 +26,13 @@ implemented and verified.
 | Authentication and company administration | Complete | Email authentication, invitations, roles, project assignments, password reset, and startup superuser bootstrap exist. |
 | Project and client portal foundation | Complete | Projects, scoped access, dashboard/action center, messaging, activity history, and client invitations exist. |
 | Documents and client uploads | Complete | Private documents, versions, downloads, configurable-approval-count decisions, client uploads, and email notifications exist. |
-| Change orders | Partial | Draft, submission, configurable multi-approval decisions, edit, optional line items, revise/replace with a revision chain, and void (including approved orders) exist; automated financial reversal on void and a formal cost-code catalog do not (blocked on APP-1/APP-2). |
+| Change orders | Partial | Draft, submission, configurable multi-approval decisions, edit, optional cost-coded line items, revise/replace with a revision chain, void (including approved orders), and selection-allowance-credit application (a change order sourced from a selection's unused credit, validated and capped against that credit) exist; automated financial reversal on void does not — voiding still only sets a manual-follow-up flag. |
 | Finish selections | Complete | Options, allowance math, publishing, client choice, overage flag, reopening, package grouping for multi-area choices, vendor/link/spec/image/lead-time option metadata, client custom-option requests routed to a change order, credit disposition tracking, and manual + scheduler-driven overdue reminders exist. |
 | Schedule | Partial | Internal milestone/calendar workflow exists; dependencies, recurrence, and external calendar integration do not. |
 | Notifications | Partial | Transactional email exists with project-level recipient preferences; per-event settings, reminders, and digest delivery do not. |
-| Project pricing and financials | Partial | An organization-scoped cost-code catalog (now also mappable to a QuickBooks Item), an estimate/proposal workflow (with a revision chain) and client approval that sets a project's fixed, tax-inclusive contract amount, an organization-level tax-rate engine applied to invoices and estimates, a staff+client-safe financial rollup view (contract, change orders, selection overage/credit, invoicing, payments), a role-gated budget/committed/actual-cost/profitability view backed by a staff-recorded job-costing ledger, and a manual invoice payment ledger exist. Every confirmed APP-1 item is now delivered; remaining accounting integration work (outbound Invoice orchestration, live sandbox verification) lives under QB-3. |
-| Invoices and payment visibility | Partial | Local drafts, approved-change-order conversion, immutable company numbering, line items, totals, client-visible issued invoices, authenticated PDF downloads, balances, status fields, notification, questions, unpaid voiding, and a manual payment ledger (status transitions from issued to partially paid to paid) exist. Selection-origin rules, QuickBooks payment import/synchronization remain. Online payment is deferred. |
-| QuickBooks Online | Partial | Company-scoped OAuth, encrypted tokens, capability/subscription discovery, stable customer/invoice/item mappings, customer sync, cost-code item sync, and tested Invoice API primitives exist. Live sandbox acceptance plus invoice orchestration (including wiring mapped Item IDs into outbound Invoice lines), credit-memo, payment, and change-detection work remain. |
+| Project pricing and financials | Partial | An organization-scoped cost-code catalog (now also mappable to a QuickBooks Item), an estimate/proposal workflow (with a revision chain) and client approval that sets a project's fixed, tax-inclusive contract amount, an organization-level tax-rate engine applied to invoices and estimates, a staff+client-safe financial rollup view (contract, change orders, selection overage/credit, invoicing, payments), a role-gated budget/committed/actual-cost/profitability view backed by a staff-recorded job-costing ledger, and a manual invoice payment ledger exist. Every confirmed APP-1 item is now delivered; remaining accounting integration work (live sandbox verification) lives under QB-3. |
+| Invoices and payment visibility | Partial | Local drafts, approved-change-order conversion, immutable company numbering, line items, totals, client-visible issued invoices, authenticated PDF downloads, balances, status fields, notification, questions, unpaid voiding, a manual payment ledger (status transitions from issued to partially paid to paid), outbound QuickBooks Invoice create/void synchronization (wiring mapped Item IDs into outbound `Line` payloads, admin-triggered from the invoice detail page), QuickBooks payment import/reconciliation (per-invoice scan, soft duplicate detection against manually-recorded payments, admin-triggered), and a local `CreditMemo` document bridging an approved selection credit to a real invoice (applying one creates an ordinary `Payment` tagged `method=credit_memo`, reusing the existing balance/status machine unchanged) exist. Selection-origin rules and importing QuickBooks-sourced credit memos remain. Online payment is deferred. |
+| QuickBooks Online | Partial | Company-scoped OAuth, encrypted tokens, capability/subscription discovery, stable customer/invoice/item/payment mappings, customer sync, cost-code item sync, tested Invoice API primitives, Invoice sync orchestration (create/void, retry/backoff, admin error queue), read-only Payment import/reconciliation (per-invoice scan, re-verify, retry/backoff, admin error queue), and a local Credit Memo document bridging an approved selection credit to a real invoice exist. Live sandbox acceptance, an Automated-Sales-Tax compatibility check, importing QuickBooks-sourced credit memos, and change-detection work remain. |
 | SaaS subscription billing | Partial | Organization-level Stripe Billing, hosted Checkout, Customer Portal, signed webhook reconciliation, audit records, grace-period access rules, and staged entitlement enforcement exist. The Sandbox Product, monthly/yearly Prices, default Portal, and webhook are configured; a real end-to-end Sandbox test plus live-mode setup and validation remain. |
 | Tasks and punch lists | Not started | Confirmed as required, but no models or workflow exist. |
 | Two-factor authentication | Not started | Confirmed as optional per user/admin policy, but not implemented. |
@@ -269,14 +269,14 @@ These decisions govern remaining implementation work:
 - Define the billable amount and credit behavior for selected finishes after APP-1 establishes the
   base-contract and allowance ledger. Approved positive change orders are the only automated
   invoice source today; staff can also create manual drafts.
-- Wire the existing QuickBooks Invoice identity/sync-token mapping and API primitives into
-  both-direction synchronization before treating local payment-status fields as live accounting
-  data. A `CostCode`-to-QuickBooks-Item mapping layer now exists (`QuickBooksItemMapping`,
-  mirroring the Customer mapping pattern), but outbound Invoice `Line` payloads do not yet
-  reference mapped Item IDs — that wiring is part of this still-open Invoice sync orchestration.
-- Import QuickBooks payments and credit applications. Payments today are staff-recorded manually
-  through the local `Payment` ledger; there is no reconciliation against QuickBooks-sourced
-  payment records yet.
+- Outbound Invoice create/void synchronization now exists (see QB-3's Invoice sync orchestration
+  entry), wiring mapped Item IDs into outbound `Line` payloads.
+- QuickBooks payment import now exists (see QB-3's Payment import entry): local payment-status
+  fields reflect QuickBooks-sourced records for a synchronized invoice, not only staff-recorded
+  entries. Selection allowance credits can now be applied to reduce a change order and, from
+  there, a real invoice via a local `CreditMemo` document (see QB-3's credit entry). Distinct
+  from that, and still open: importing *QuickBooks-sourced* credit applications — credit memos
+  an accountant creates directly in QuickBooks, independent of anything this app originates.
 
 ## Production blockers
 
@@ -312,7 +312,7 @@ Current questionnaire truth as of this update:
 
 | Question | Accurate answer today |
 | --- | --- |
-| API calls per customer | There is no periodic customer polling. Initial manual sync makes one exact-name Customer query plus, only when no match exists, one Customer create. A mapped manual refresh makes one Customer read. The separate outbound name update makes one Customer read and, only when the names differ, one sparse Customer update. A retry repeats the applicable operation; writes reuse the same Intuit `requestid`. Due retryable failures run only when `retry_quickbooks_syncs` is scheduled. Company refresh makes two reads (`CompanyInfo` and Preferences), and an expired access token adds one token-refresh call. A manual cost-code item mapping makes one Item read; an item sync makes one exact-name Item query plus, only when no match exists, one Item create — the same request pattern, idempotency, and retry/backoff as Customer sync. Local invoice draft, issue, discard, and void actions currently make zero Intuit calls because Invoice synchronization is deliberately disabled. |
+| API calls per customer | There is no periodic customer polling. Initial manual sync makes one exact-name Customer query plus, only when no match exists, one Customer create. A mapped manual refresh makes one Customer read. The separate outbound name update makes one Customer read and, only when the names differ, one sparse Customer update. A retry repeats the applicable operation; writes reuse the same Intuit `requestid`. Due retryable failures run only when `retry_quickbooks_syncs` is scheduled. Company refresh makes two reads (`CompanyInfo` and Preferences), and an expired access token adds one token-refresh call. A manual cost-code item mapping makes one Item read; an item sync makes one exact-name Item query plus, only when no match exists, one Item create — the same request pattern, idempotency, and retry/backoff as Customer sync. Local invoice draft, issue, and discard actions make zero Intuit calls. An admin-triggered invoice sync makes one Invoice create; an admin-triggered void re-reads the invoice (one Invoice read, for its current `SyncToken`) then makes one Invoice void call. An admin-triggered payment sync makes one Payment read per already-imported payment on that invoice (re-verify), plus one Payment query (paginated) to discover new ones. None of this is automatic or triggered by local issue/void/payment actions themselves. |
 | Handles QBO edition feature gains/losses | Not yet a portal “Yes.” Subscription/preference capability changes and feature-not-supported errors are handled without deleting data, but the sandbox edition matrix remains. |
 | Uses webhooks | No |
 | Uses CDC | No |
@@ -390,8 +390,38 @@ Customer slice delivered:
 - [x] Add an explicit administrator action that sends the current local project name to an already
   mapped QuickBooks customer. Normal sync remains QuickBooks-authoritative; the outbound action
   re-reads the customer, uses its latest `SyncToken`, and skips the write when the names match.
-- [ ] Implement invoices, credit memos, and payments. These remain disabled until their local
-  accounting models and reconciliation rules exist.
+- [x] Implement invoices and payments (see Invoice synchronization preparation below).
+- [x] Let a selection allowance credit (e.g. Tile comes in $500 under its $5,000 allowance) be
+  applied to reduce a `ChangeOrder`, via a new `source_selection` FK plus a negative `price_delta`
+  (negative `price_delta` was already a supported "client credit" pattern, `projects/forms.py`:
+  *"Use a negative amount for a client credit"*). `ChangeOrder.clean()` validates the source
+  selection has an unapplied credit with disposition "Apply to another selection," the credit
+  amount isn't exceeded, and at most one active (non-voided) change order can draw on a given
+  selection's credit at a time. A credit change order correctly reduces
+  `project_financial_summary`'s `total_project_cost` the moment it's approved (via the normal
+  `approved_change_order_total` sum, no special-casing needed there), and the flagged/unapplied
+  credit total now excludes selections with an active credit change order, so staff aren't
+  double-nagged.
+- [x] Bridge an approved credit change order to a real bill via a new local `CreditMemo`
+  document (`billing/models.py`), separate from `Invoice` since a credit change order can never
+  satisfy `Invoice`/`InvoiceLineItem`'s non-negative `CheckConstraint`s. `create_credit_memo_from_
+  change_order` mirrors `create_invoice_from_change_order`'s lifecycle (draft → `issue_credit_memo`
+  assigns an immutable company-wide `CM-000006`-style number). Applying a credit memo
+  (`apply_credit_memo`) creates an ordinary `Payment` tagged with a new `Payment.Method.
+  CREDIT_MEMO` and a `credit_memo` FK, reusing `record_payment`/`_apply_payment_state`
+  **completely unchanged** — the existing `Invoice` balance/status machine (issued → partially
+  paid → paid) already does exactly what "an amount reduced what's owed" needs, so applying a
+  credit correctly drives an invoice's status with zero new logic on `Invoice` itself. Partial and
+  multi-invoice application works for free (`CreditMemo.remaining_balance` is computed from the
+  linked `Payment`s), an application is capped at both the credit memo's remaining balance and the
+  invoice's own balance due, and voiding is blocked once anything has been applied (staff reverse
+  an application first via the existing `delete_payment`, which — since `remaining_balance` is
+  computed, not stored — automatically and correctly restores the credit with no special-casing).
+  The change order detail page's "Accounting handoff" section gained the mirrored "Create credit
+  memo" action next to the existing "Create invoice draft" one. Still separate and out of scope:
+  importing *QuickBooks-sourced* credit memos (ones an accountant creates directly in QuickBooks)
+  and reconciling this app's `Payment(method=credit_memo)` records against a QuickBooks credit
+  memo object.
 
 Invoice synchronization preparation:
 
@@ -410,9 +440,36 @@ Invoice synchronization preparation:
   verified against a live sandbox company — most QuickBooks company configurations require an
   `IncomeAccountRef` this app does not yet collect, so matching an existing item (by ID or name)
   is the reliable path; creating a brand-new item may need further account-mapping support.
-- [ ] Add Invoice sync orchestration and retry/reconciliation handling so outbound Invoice `Line`
-  payloads reference mapped Item IDs. External Invoice writes remain disabled pending sandbox
-  credentials and this orchestration work.
+- [x] Add Invoice sync orchestration (`integrations/invoice_sync.py`) so outbound Invoice `Line`
+  payloads reference mapped Item IDs: `start_invoice_sync` (CREATE, fails closed with the specific
+  unmapped cost codes if any line lacks an active `QuickBooksItemMapping`) and
+  `start_invoice_void_sync` (VOID, re-reads the invoice at execute time for a fresh `SyncToken`
+  so retries are safe), both using the same durable-attempt/retry/backoff/resolve machinery as
+  Customer and Item sync, wired into `retry_quickbooks_syncs` and an admin-triggered "Sync to
+  QuickBooks" / "Void in QuickBooks" action on the invoice detail page (not the QuickBooks
+  dashboard, since invoices are numerous and per-project). UPDATE is intentionally unsupported —
+  issued invoice line items are immutable, so a correction is void-and-reissue. Tax is sent as an
+  explicit `TxnTaxDetail.TotalTax` override using this app's own computed `tax_amount`
+  (`GlobalTaxCalculation: TaxExcluded`), since Construction Manager is the source of truth for the
+  organization's flat rate — **not yet verified against a live sandbox company with Automated
+  Sales Tax enabled**, where QuickBooks may reject or recompute this instead.
+- [x] Add QuickBooks Payment import (`integrations/payment_sync.py`), the one entity in this
+  phase that is import-only (`FROM_QUICKBOOKS`) rather than outbound — this app never writes
+  payments to QuickBooks. A `QuickBooksPaymentMapping` model tracks identity per
+  (connection, QuickBooks payment, invoice) pair, since a single QuickBooks payment can apply to
+  several invoices via multiple `LinkedTxn` entries. An admin-triggered "Sync payments from
+  QuickBooks" scan on a synchronized invoice both re-verifies already-imported payments
+  (tombstones on delete, marks voided on a zero `TotalAmt`) and discovers new ones via a
+  customer-scoped Payment query filtered client-side by `LinkedTxn`, reusing the existing
+  `record_payment` service so balance/status recalculation is identical to a staff-recorded
+  payment. A soft duplicate check (same invoice, same amount, paid date within 3 days, not
+  already QuickBooks-mapped) blocks auto-creating a payment that might already exist locally;
+  when found, other clean payments in the same scan are still created, but the attempt is marked
+  failed and non-retryable so it surfaces in the admin queue for a human decision. Uses the same
+  durable-attempt/retry/backoff/resolve machinery as Customer/Item/Invoice sync, with a
+  deliberate departure from their one-attempt-per-entity convention: `response_snapshot` holds a
+  `created`/`reverified`/`possible_duplicates` summary instead, since one scan can affect zero to
+  several payments.
 
 For each entity:
 

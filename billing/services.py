@@ -12,7 +12,7 @@ from projects.services import (
     send_notification_email,
 )
 
-from .models import Invoice, InvoiceLineItem, Payment
+from .models import CreditMemo, Invoice, InvoiceLineItem, Payment
 
 
 def record_invoice_draft_created(invoice, actor):
@@ -100,6 +100,41 @@ def create_invoice_from_change_order(*, change_order_id, actor, form_data):
 
 
 @transaction.atomic
+def create_credit_memo_from_change_order(*, change_order_id, actor):
+    change_order = ChangeOrder.objects.select_for_update().select_related(
+        'project__organization'
+    ).get(pk=change_order_id)
+    if change_order.status != ChangeOrder.Status.APPROVED:
+        raise ValidationError('Only approved change orders can become a credit memo.')
+    if change_order.price_delta >= 0:
+        raise ValidationError(
+            'Only a change order with a client credit can become a credit memo.'
+        )
+    if hasattr(change_order, 'credit_memo'):
+        raise ValidationError('This change order already has a credit memo.')
+    credit_memo = CreditMemo(
+        organization=change_order.project.organization,
+        project=change_order.project,
+        source_change_order=change_order,
+        amount=abs(change_order.price_delta),
+        created_by=actor,
+    )
+    credit_memo.full_clean()
+    credit_memo.save()
+    record_activity(
+        organization=credit_memo.organization,
+        project=credit_memo.project,
+        actor=actor,
+        event_type=ActivityEvent.Type.CREDIT_MEMO_CREATED,
+        summary=(
+            f'{actor.email} created a credit memo draft from {change_order.display_number}.'
+        ),
+        metadata={'credit_memo_id': credit_memo.pk, 'change_order_id': change_order.pk},
+    )
+    return credit_memo
+
+
+@transaction.atomic
 def issue_invoice(*, invoice_id, actor):
     invoice = Invoice.objects.select_for_update().select_related(
         'organization', 'project'
@@ -144,6 +179,72 @@ def issue_invoice(*, invoice_id, actor):
         },
     )
     return invoice
+
+
+@transaction.atomic
+def issue_credit_memo(*, credit_memo_id, actor):
+    credit_memo = CreditMemo.objects.select_for_update().select_related(
+        'organization', 'project'
+    ).get(pk=credit_memo_id)
+    if credit_memo.status != CreditMemo.Status.DRAFT:
+        raise ValidationError('Only a draft credit memo can be issued.')
+    Organization.objects.select_for_update().get(pk=credit_memo.organization_id)
+    current_number = credit_memo.organization.credit_memos.aggregate(
+        maximum=Max('number')
+    )['maximum']
+    now = timezone.now()
+    credit_memo.number = (current_number or 0) + 1
+    credit_memo.status = CreditMemo.Status.ISSUED
+    credit_memo.issued_by = actor
+    credit_memo.issued_at = now
+    credit_memo.full_clean()
+    credit_memo.save()
+    record_activity(
+        organization=credit_memo.organization,
+        project=credit_memo.project,
+        actor=actor,
+        event_type=ActivityEvent.Type.CREDIT_MEMO_ISSUED,
+        summary=(
+            f'{actor.email} issued {credit_memo.display_number} for '
+            f'${credit_memo.amount:,.2f}.'
+        ),
+        metadata={
+            'credit_memo_id': credit_memo.pk,
+            'number': credit_memo.number,
+            'amount': str(credit_memo.amount),
+        },
+    )
+    return credit_memo
+
+
+@transaction.atomic
+def void_credit_memo(*, credit_memo_id, actor, reason):
+    credit_memo = CreditMemo.objects.select_for_update().select_related(
+        'organization', 'project'
+    ).get(pk=credit_memo_id)
+    if credit_memo.status != CreditMemo.Status.ISSUED:
+        raise ValidationError('Only an issued credit memo can be voided locally.')
+    if credit_memo.remaining_balance != credit_memo.amount:
+        raise ValidationError('A credit memo with any applied amount cannot be voided locally.')
+    credit_memo.status = CreditMemo.Status.VOIDED
+    credit_memo.voided_by = actor
+    credit_memo.voided_at = timezone.now()
+    credit_memo.void_reason = reason.strip()
+    credit_memo.full_clean()
+    credit_memo.save()
+    record_activity(
+        organization=credit_memo.organization,
+        project=credit_memo.project,
+        actor=actor,
+        event_type=ActivityEvent.Type.CREDIT_MEMO_VOIDED,
+        summary=f'{actor.email} voided {credit_memo.display_number}.',
+        metadata={
+            'credit_memo_id': credit_memo.pk,
+            'number': credit_memo.number,
+            'reason': credit_memo.void_reason,
+        },
+    )
+    return credit_memo
 
 
 @transaction.atomic
@@ -192,7 +293,9 @@ def _apply_payment_state(invoice):
 
 
 @transaction.atomic
-def record_payment(*, invoice_id, actor, amount, method, reference, paid_date, note):
+def record_payment(
+    *, invoice_id, actor, amount, method, reference, paid_date, note, credit_memo=None
+):
     invoice = Invoice.objects.select_for_update().select_related(
         'organization', 'project'
     ).get(pk=invoice_id)
@@ -207,6 +310,7 @@ def record_payment(*, invoice_id, actor, amount, method, reference, paid_date, n
         invoice=invoice,
         amount=amount,
         method=method,
+        credit_memo=credit_memo,
         reference=reference,
         paid_date=paid_date,
         note=note,
@@ -254,6 +358,51 @@ def delete_payment(*, payment_id, actor):
         metadata={'invoice_id': invoice.pk, 'amount': str(amount)},
     )
     return invoice
+
+
+@transaction.atomic
+def apply_credit_memo(*, credit_memo_id, invoice_id, amount, actor):
+    credit_memo = CreditMemo.objects.select_for_update().select_related(
+        'organization', 'project'
+    ).get(pk=credit_memo_id)
+    if credit_memo.status != CreditMemo.Status.ISSUED:
+        raise ValidationError('Only an issued credit memo can be applied.')
+    amount = money(amount)
+    if amount <= 0:
+        raise ValidationError({'amount': 'Applied amount must be greater than zero.'})
+    if amount > credit_memo.remaining_balance:
+        raise ValidationError(
+            {'amount': "The amount exceeds the credit memo's remaining balance."}
+        )
+    if not Invoice.objects.filter(pk=invoice_id, project_id=credit_memo.project_id).exists():
+        raise ValidationError('The invoice must belong to the credit memo project.')
+    payment = record_payment(
+        invoice_id=invoice_id,
+        actor=actor,
+        amount=amount,
+        method=Payment.Method.CREDIT_MEMO,
+        reference=credit_memo.display_number,
+        paid_date=timezone.localdate(),
+        note=f'Applied from {credit_memo.display_number}.',
+        credit_memo=credit_memo,
+    )
+    record_activity(
+        organization=credit_memo.organization,
+        project=credit_memo.project,
+        actor=actor,
+        event_type=ActivityEvent.Type.CREDIT_MEMO_APPLIED,
+        summary=(
+            f'{actor.email} applied ${amount:,.2f} of {credit_memo.display_number} to '
+            f'{payment.invoice.display_number}.'
+        ),
+        metadata={
+            'credit_memo_id': credit_memo.pk,
+            'invoice_id': invoice_id,
+            'payment_id': payment.pk,
+            'amount': str(amount),
+        },
+    )
+    return payment
 
 
 def send_invoice_issued_notification(request, invoice):

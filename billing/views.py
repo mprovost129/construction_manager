@@ -11,6 +11,7 @@ from django.utils.http import content_disposition_header
 from django.views import View
 from django.views.generic import FormView, TemplateView
 
+from integrations.models import QuickBooksConnection, QuickBooksItemMapping
 from projects.access import can_manage_project, is_project_client
 from projects.models import ChangeOrder
 
@@ -20,17 +21,28 @@ from .access import (
     visible_invoice_or_404,
     visible_invoices,
 )
-from .forms import InvoiceDraftForm, InvoiceLineItemForm, InvoiceVoidForm, PaymentForm
-from .models import Invoice, InvoiceLineItem
+from .forms import (
+    CreditMemoApplyForm,
+    CreditMemoVoidForm,
+    InvoiceDraftForm,
+    InvoiceLineItemForm,
+    InvoiceVoidForm,
+    PaymentForm,
+)
+from .models import CreditMemo, Invoice, InvoiceLineItem
 from .pdf import build_invoice_pdf
 from .services import (
+    apply_credit_memo,
+    create_credit_memo_from_change_order,
     create_invoice_from_change_order,
     delete_payment,
     discard_invoice_draft,
+    issue_credit_memo,
     issue_invoice,
     record_invoice_draft_created,
     record_payment,
     send_invoice_issued_notification,
+    void_credit_memo,
     void_invoice,
 )
 
@@ -167,6 +179,34 @@ class InvoiceFromChangeOrderCreateView(LoginRequiredMixin, FormView):
         return redirect('billing:invoice_detail', self.project.pk, invoice.pk)
 
 
+class CreditMemoFromChangeOrderCreateView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, project_id, change_order_id):
+        project = invoice_project_or_404(request.user, project_id)
+        require_invoice_manager(request.user, project)
+        change_order = get_object_or_404(
+            ChangeOrder,
+            project=project,
+            pk=change_order_id,
+        )
+        try:
+            credit_memo = create_credit_memo_from_change_order(
+                change_order_id=change_order.pk,
+                actor=request.user,
+            )
+        except ValidationError as exc:
+            messages.error(request, validation_message(exc))
+            return redirect(
+                'projects:change_order_detail', project.pk, change_order.pk
+            )
+        messages.success(
+            request,
+            f'Credit memo draft created from {change_order.display_number}.',
+        )
+        return redirect('billing:credit_memo_detail', project.pk, credit_memo.pk)
+
+
 class InvoiceDetailView(LoginRequiredMixin, TemplateView):
     template_name = 'billing/invoice_detail.html'
 
@@ -183,6 +223,34 @@ class InvoiceDetailView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         can_manage = can_manage_project(self.request.user, self.project)
         question_subject = f'Question about {self.invoice.display_number}'
+        quickbooks_mapping = (
+            getattr(self.invoice, 'quickbooks_mapping', None) if can_manage else None
+        )
+        quickbooks_connections = (
+            QuickBooksConnection.objects.filter(
+                organization=self.project.organization,
+                status=QuickBooksConnection.Status.CONNECTED,
+            )
+            if can_manage
+            else QuickBooksConnection.objects.none()
+        )
+        quickbooks_connection = quickbooks_connections.first()
+        unmapped_line_cost_codes = []
+        if can_manage and quickbooks_connection and not quickbooks_mapping:
+            mapped_cost_code_ids = set(
+                QuickBooksItemMapping.objects.filter(
+                    connection=quickbooks_connection,
+                    status=QuickBooksItemMapping.Status.ACTIVE,
+                ).values_list('cost_code_id', flat=True)
+            )
+            seen_labels = set()
+            for line in self.invoice.line_items.select_related('cost_code'):
+                if line.cost_code_id and line.cost_code_id in mapped_cost_code_ids:
+                    continue
+                label = line.cost_code.code if line.cost_code_id else line.description
+                if label not in seen_labels:
+                    seen_labels.add(label)
+                    unmapped_line_cost_codes.append(label)
         context.update(
             {
                 'project': self.project,
@@ -210,11 +278,9 @@ class InvoiceDetailView(LoginRequiredMixin, TemplateView):
                     f'{reverse("projects:message_create", args=(self.project.pk,))}'
                     f'?{urlencode({"subject": question_subject})}'
                 ),
-                'quickbooks_mapping': (
-                    getattr(self.invoice, 'quickbooks_mapping', None)
-                    if can_manage
-                    else None
-                ),
+                'quickbooks_mapping': quickbooks_mapping,
+                'quickbooks_connection': quickbooks_connection,
+                'unmapped_line_cost_codes': unmapped_line_cost_codes,
             }
         )
         return context
@@ -533,3 +599,120 @@ class PaymentDeleteView(LoginRequiredMixin, View):
         else:
             messages.success(request, 'Payment removed.')
         return redirect('billing:invoice_detail', project.pk, invoice.pk)
+
+
+class CreditMemoDetailView(LoginRequiredMixin, TemplateView):
+    template_name = 'billing/credit_memo_detail.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = invoice_project_or_404(request.user, kwargs['project_id'])
+        credit_memos = self.project.credit_memos.select_related('source_change_order')
+        if is_project_client(request.user, self.project):
+            credit_memos = credit_memos.exclude(status=CreditMemo.Status.DRAFT)
+        self.credit_memo = get_object_or_404(credit_memos, pk=kwargs['credit_memo_id'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        can_manage = can_manage_project(self.request.user, self.project)
+        context.update(
+            {
+                'project': self.project,
+                'credit_memo': self.credit_memo,
+                'applications': self.credit_memo.payments.select_related(
+                    'invoice', 'recorded_by'
+                ),
+                'can_manage_invoices': can_manage,
+                'apply_form': (
+                    CreditMemoApplyForm(project=self.project)
+                    if can_manage
+                    and self.credit_memo.status == CreditMemo.Status.ISSUED
+                    and self.credit_memo.remaining_balance > 0
+                    else None
+                ),
+                'void_form': (
+                    CreditMemoVoidForm()
+                    if can_manage
+                    and self.credit_memo.status == CreditMemo.Status.ISSUED
+                    and self.credit_memo.remaining_balance == self.credit_memo.amount
+                    else None
+                ),
+            }
+        )
+        return context
+
+
+class CreditMemoIssueView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, project_id, credit_memo_id):
+        project = invoice_project_or_404(request.user, project_id)
+        require_invoice_manager(request.user, project)
+        credit_memo = get_object_or_404(CreditMemo, project=project, pk=credit_memo_id)
+        try:
+            credit_memo = issue_credit_memo(credit_memo_id=credit_memo.pk, actor=request.user)
+        except ValidationError as exc:
+            messages.error(request, validation_message(exc))
+        else:
+            messages.success(request, f'{credit_memo.display_number} was issued.')
+        return redirect('billing:credit_memo_detail', project.pk, credit_memo.pk)
+
+
+class CreditMemoApplyView(LoginRequiredMixin, FormView):
+    form_class = CreditMemoApplyForm
+    template_name = 'billing/credit_memo_detail.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = invoice_project_or_404(request.user, kwargs['project_id'])
+        require_invoice_manager(request.user, self.project)
+        self.credit_memo = get_object_or_404(
+            CreditMemo, project=self.project, pk=kwargs['credit_memo_id']
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['project'] = self.project
+        return kwargs
+
+    def form_valid(self, form):
+        try:
+            apply_credit_memo(
+                credit_memo_id=self.credit_memo.pk,
+                invoice_id=form.cleaned_data['invoice'].pk,
+                amount=form.cleaned_data['amount'],
+                actor=self.request.user,
+            )
+        except ValidationError as exc:
+            messages.error(self.request, validation_message(exc))
+        else:
+            messages.success(self.request, 'Credit memo applied.')
+        return redirect('billing:credit_memo_detail', self.project.pk, self.credit_memo.pk)
+
+    def form_invalid(self, form):
+        messages.error(self.request, 'Choose an invoice and a valid amount to apply.')
+        return redirect('billing:credit_memo_detail', self.project.pk, self.credit_memo.pk)
+
+
+class CreditMemoVoidView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, project_id, credit_memo_id):
+        project = invoice_project_or_404(request.user, project_id)
+        require_invoice_manager(request.user, project)
+        credit_memo = get_object_or_404(CreditMemo, project=project, pk=credit_memo_id)
+        form = CreditMemoVoidForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, 'Provide a reason before voiding the credit memo.')
+        else:
+            try:
+                credit_memo = void_credit_memo(
+                    credit_memo_id=credit_memo.pk,
+                    actor=request.user,
+                    reason=form.cleaned_data['reason'],
+                )
+            except ValidationError as exc:
+                messages.error(request, validation_message(exc))
+            else:
+                messages.success(request, f'{credit_memo.display_number} was voided.')
+        return redirect('billing:credit_memo_detail', project.pk, credit_memo.pk)

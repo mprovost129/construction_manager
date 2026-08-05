@@ -1116,6 +1116,11 @@ class ChangeOrderCreateView(LoginRequiredMixin, FormView):
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['project'] = self.project
+        return kwargs
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context.update({'project': self.project, 'change_order': None})
@@ -1125,6 +1130,7 @@ class ChangeOrderCreateView(LoginRequiredMixin, FormView):
         initial = super().get_initial()
         selection_id = self.request.GET.get('selection')
         custom_request_id = self.request.GET.get('custom_request')
+        credit_selection_id = self.request.GET.get('source_selection')
         if custom_request_id:
             custom_request = SelectionCustomRequest.objects.filter(
                 pk=custom_request_id,
@@ -1140,6 +1146,27 @@ class ChangeOrderCreateView(LoginRequiredMixin, FormView):
                             f'{custom_request.selection.display_number}.'
                         ),
                         'price_delta': custom_request.target_price or 0,
+                    }
+                )
+            return initial
+        if credit_selection_id:
+            selection = self.project.finish_selections.select_related(
+                'chosen_option'
+            ).filter(
+                pk=credit_selection_id,
+                status=FinishSelection.Status.SELECTED,
+            ).first()
+            if selection and selection.has_credit:
+                initial.update(
+                    {
+                        'title': f'{selection.title} allowance credit',
+                        'description': (
+                            f'Credit from {selection.display_number}: '
+                            f'{selection.chosen_option.name} came in under allowance.'
+                        ),
+                        'reason': 'Applying an unused allowance credit to another selection.',
+                        'price_delta': selection.selected_variance,
+                        'source_selection': selection.pk,
                     }
                 )
             return initial
@@ -1217,6 +1244,7 @@ class ChangeOrderUpdateView(LoginRequiredMixin, FormView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['instance'] = self.change_order
+        kwargs['project'] = self.project
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -1303,6 +1331,7 @@ class ChangeOrderDetailView(LoginRequiredMixin, TemplateView):
                 'line_items': self.change_order.line_items.all(),
                 'replacement': getattr(self.change_order, 'replaced_by', None),
                 'source_invoice': getattr(self.change_order, 'invoice', None),
+                'credit_memo': getattr(self.change_order, 'credit_memo', None),
                 'void_form': (
                     ChangeOrderVoidForm()
                     if can_manage
@@ -2799,6 +2828,15 @@ class FinishSelectionDetailView(LoginRequiredMixin, TemplateView):
                     == FinishSelection.CreditDisposition.UNDETERMINED
                 ),
                 'credit_disposition_form': SelectionCreditDispositionForm(),
+                'can_create_credit_change_order': bool(
+                    can_manage
+                    and self.selection.has_credit
+                    and self.selection.credit_disposition
+                    == FinishSelection.CreditDisposition.APPLY_ELSEWHERE
+                    and not self.selection.credit_change_orders.exclude(
+                        status=ChangeOrder.Status.VOIDED
+                    ).exists()
+                ),
                 'can_send_reminder': bool(
                     can_manage
                     and self.selection.status == FinishSelection.Status.OPEN

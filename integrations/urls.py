@@ -76,6 +76,26 @@ urlpatterns = [
         name='quickbooks_cost_code_item_sync',
     ),
     path(
+        'quickbooks/invoice-sync/invoices/<int:invoice_id>/',
+        views.quickbooks_invoice_sync,
+        name='quickbooks_invoice_sync',
+    ),
+    path(
+        'quickbooks/invoice-sync/invoices/<int:invoice_id>/void/',
+        views.quickbooks_invoice_void_sync,
+        name='quickbooks_invoice_void_sync',
+    ),
+    path(
+        'quickbooks/invoice-mappings/<int:mapping_id>/refresh/',
+        views.quickbooks_invoice_mapping_refresh,
+        name='quickbooks_invoice_mapping_refresh',
+    ),
+    path(
+        'quickbooks/payment-sync/invoices/<int:invoice_id>/',
+        views.quickbooks_invoice_payment_sync,
+        name='quickbooks_invoice_payment_sync',
+    ),
+    path(
         'quickbooks/sync-attempts/<int:attempt_id>/retry/',
         views.quickbooks_sync_retry,
         name='quickbooks_sync_retry',

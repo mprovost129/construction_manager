@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
-from billing.models import Invoice
+from billing.models import Invoice, Payment
 from projects.models import CostCode, Organization, Project
 
 from .crypto import decrypt_token, encrypt_token
@@ -408,11 +408,113 @@ class QuickBooksInvoiceMapping(models.Model):
         return f'{self.invoice.display_number} -> QuickBooks invoice {reference}'
 
 
+class QuickBooksPaymentMapping(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = 'active', 'Active'
+        VOIDED = 'voided', 'Voided in QuickBooks'
+        TOMBSTONED = 'tombstoned', 'Removed in QuickBooks'
+
+    payment = models.OneToOneField(
+        Payment,
+        on_delete=models.PROTECT,
+        related_name='quickbooks_mapping',
+    )
+    invoice_mapping = models.ForeignKey(
+        QuickBooksInvoiceMapping,
+        on_delete=models.PROTECT,
+        related_name='payment_mappings',
+    )
+    connection = models.ForeignKey(
+        QuickBooksConnection,
+        on_delete=models.PROTECT,
+        related_name='payment_mappings',
+    )
+    quickbooks_payment_id = models.CharField(max_length=50)
+    quickbooks_sync_token = models.CharField(max_length=50)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+    )
+    external_amount = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    last_synced_values = models.JSONField(default=dict, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    tombstoned_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-last_synced_at', '-pk')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('connection', 'quickbooks_payment_id', 'invoice_mapping'),
+                condition=models.Q(status='active'),
+                name='integrations_unique_quickbooks_payment',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(external_amount__isnull=True)
+                    | models.Q(external_amount__gte=0)
+                ),
+                name='integrations_qbo_payment_amount_nonnegative',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if (
+            self.invoice_mapping_id
+            and self.connection_id
+            and self.invoice_mapping.connection_id != self.connection_id
+        ):
+            errors['connection'] = (
+                'The payment must use the same QuickBooks connection as its invoice mapping.'
+            )
+        if not self.quickbooks_payment_id.strip():
+            errors['quickbooks_payment_id'] = 'QuickBooks payment ID is required.'
+        if not self.quickbooks_sync_token.strip():
+            errors['quickbooks_sync_token'] = 'QuickBooks sync token is required.'
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            original = type(self).objects.filter(pk=self.pk).values(
+                'payment_id',
+                'connection_id',
+                'quickbooks_payment_id',
+            ).first()
+            immutable_fields = ('payment_id', 'connection_id', 'quickbooks_payment_id')
+            if original and any(
+                original[field] != getattr(self, field) for field in immutable_fields
+            ):
+                raise ValidationError('QuickBooks payment identity is immutable.')
+        return super().save(*args, **kwargs)
+
+    def mark_voided(self):
+        self.status = self.Status.VOIDED
+
+    def mark_tombstoned(self):
+        self.status = self.Status.TOMBSTONED
+        self.tombstoned_at = timezone.now()
+
+    def __str__(self):
+        return f'{self.payment}: QuickBooks payment {self.quickbooks_payment_id}'
+
+
 class QuickBooksSyncAttempt(models.Model):
     class EntityType(models.TextChoices):
         CUSTOMER = 'customer', 'Customer'
         INVOICE = 'invoice', 'Invoice'
         ITEM = 'item', 'Item'
+        PAYMENT = 'payment', 'Payment'
 
     class Operation(models.TextChoices):
         CREATE = 'create', 'Create'
@@ -472,6 +574,13 @@ class QuickBooksSyncAttempt(models.Model):
     )
     item_mapping = models.ForeignKey(
         QuickBooksItemMapping,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='sync_attempts',
+    )
+    payment_mapping = models.ForeignKey(
+        QuickBooksPaymentMapping,
         null=True,
         blank=True,
         on_delete=models.SET_NULL,

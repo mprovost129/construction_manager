@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
+from billing.models import Invoice
 from projects.access import can_manage_organization
 from projects.models import CostCode, Organization, OrganizationMembership, Project
 
@@ -22,6 +23,12 @@ from .customer_sync import (
     start_project_customer_update,
 )
 from .forms import QuickBooksItemMappingForm, QuickBooksProjectCustomerMappingForm
+from .invoice_sync import (
+    resolve_invoice_sync_attempt,
+    retry_invoice_sync_attempt,
+    start_invoice_sync,
+    start_invoice_void_sync,
+)
 from .item_sync import (
     resolve_item_sync_attempt,
     retry_item_sync_attempt,
@@ -29,9 +36,15 @@ from .item_sync import (
 )
 from .models import (
     QuickBooksConnection,
+    QuickBooksInvoiceMapping,
     QuickBooksItemMapping,
     QuickBooksProjectCustomerMapping,
     QuickBooksSyncAttempt,
+)
+from .payment_sync import (
+    resolve_invoice_payment_sync_attempt,
+    retry_invoice_payment_sync_attempt,
+    start_invoice_payment_sync,
 )
 from .quickbooks import (
     QuickBooksAccountingClient,
@@ -46,6 +59,7 @@ from .services import (
     record_capability_unavailable,
     refresh_company_capabilities,
     refresh_cost_code_item_mapping,
+    refresh_invoice_mapping,
     refresh_project_customer_mapping,
     save_authorized_connection,
     save_cost_code_item_mapping,
@@ -542,10 +556,135 @@ def quickbooks_cost_code_item_sync(request, cost_code_id):
     return _connect_redirect(cost_code.organization)
 
 
+def _invoice_redirect(invoice):
+    return redirect(
+        'billing:invoice_detail',
+        project_id=invoice.project_id,
+        invoice_id=invoice.pk,
+    )
+
+
+@login_required
+@require_POST
+def quickbooks_invoice_sync(request, invoice_id):
+    invoice = get_object_or_404(
+        Invoice.objects.select_related('organization', 'project'), pk=invoice_id
+    )
+    if not can_manage_organization(request.user, invoice.organization):
+        raise PermissionDenied('Only company administrators can synchronize invoices.')
+    connection = get_object_or_404(
+        QuickBooksConnection,
+        pk=request.POST.get('connection'),
+        organization=invoice.organization,
+    )
+    try:
+        attempt = start_invoice_sync(
+            invoice_id=invoice.pk,
+            connection_id=connection.pk,
+            actor=request.user,
+        )
+    except QuickBooksSyncError as exc:
+        messages.error(request, str(exc))
+    else:
+        if attempt.status == QuickBooksSyncAttempt.Status.SUCCEEDED:
+            messages.success(request, 'QuickBooks invoice synchronization succeeded.')
+        else:
+            messages.error(request, attempt.error_message)
+    return _invoice_redirect(invoice)
+
+
+@login_required
+@require_POST
+def quickbooks_invoice_void_sync(request, invoice_id):
+    invoice = get_object_or_404(
+        Invoice.objects.select_related('organization', 'project'), pk=invoice_id
+    )
+    if not can_manage_organization(request.user, invoice.organization):
+        raise PermissionDenied('Only company administrators can synchronize invoices.')
+    connection = get_object_or_404(
+        QuickBooksConnection,
+        pk=request.POST.get('connection'),
+        organization=invoice.organization,
+    )
+    try:
+        attempt = start_invoice_void_sync(
+            invoice_id=invoice.pk,
+            connection_id=connection.pk,
+            actor=request.user,
+        )
+    except QuickBooksSyncError as exc:
+        messages.error(request, str(exc))
+    else:
+        if attempt.status == QuickBooksSyncAttempt.Status.SUCCEEDED:
+            messages.success(request, 'QuickBooks invoice void succeeded.')
+        else:
+            messages.error(request, attempt.error_message)
+    return _invoice_redirect(invoice)
+
+
+@login_required
+@require_POST
+def quickbooks_invoice_mapping_refresh(request, mapping_id):
+    mapping = get_object_or_404(
+        QuickBooksInvoiceMapping.objects.select_related(
+            'invoice__organization', 'invoice__project'
+        ),
+        pk=mapping_id,
+    )
+    if not can_manage_organization(request.user, mapping.invoice.organization):
+        raise PermissionDenied('Only company administrators can refresh QuickBooks mappings.')
+    try:
+        refresh_invoice_mapping(mapping.pk, actor=request.user)
+    except QuickBooksAPIError as exc:
+        messages.error(request, exc.public_message)
+    else:
+        messages.success(request, 'QuickBooks invoice mapping refreshed.')
+    return _invoice_redirect(mapping.invoice)
+
+
+@login_required
+@require_POST
+def quickbooks_invoice_payment_sync(request, invoice_id):
+    invoice = get_object_or_404(
+        Invoice.objects.select_related('organization', 'project'), pk=invoice_id
+    )
+    if not can_manage_organization(request.user, invoice.organization):
+        raise PermissionDenied('Only company administrators can synchronize payments.')
+    connection = get_object_or_404(
+        QuickBooksConnection,
+        pk=request.POST.get('connection'),
+        organization=invoice.organization,
+    )
+    try:
+        attempt = start_invoice_payment_sync(
+            invoice_id=invoice.pk,
+            connection_id=connection.pk,
+            actor=request.user,
+        )
+    except QuickBooksSyncError as exc:
+        messages.error(request, str(exc))
+    else:
+        if attempt.status == QuickBooksSyncAttempt.Status.SUCCEEDED:
+            summary = attempt.response_snapshot or {}
+            messages.success(
+                request,
+                f'QuickBooks payment sync complete: {len(summary.get("created", []))} '
+                f'imported, {len(summary.get("reverified", []))} re-verified.',
+            )
+        else:
+            messages.error(request, attempt.error_message)
+    return _invoice_redirect(invoice)
+
+
 def _sync_attempt_for_admin(request, attempt_id):
     attempt = get_object_or_404(
         QuickBooksSyncAttempt.objects.select_related(
-            'connection__organization', 'project', 'cost_code'
+            'connection__organization',
+            'project',
+            'cost_code',
+            'invoice',
+            'invoice_mapping',
+            'payment_mapping',
         ),
         pk=attempt_id,
     )
@@ -558,9 +697,11 @@ def _sync_attempt_for_admin(request, attempt_id):
 @require_POST
 def quickbooks_sync_retry(request, attempt_id):
     attempt = _sync_attempt_for_admin(request, attempt_id)
-    is_item = attempt.entity_type == QuickBooksSyncAttempt.EntityType.ITEM
-    retry = retry_item_sync_attempt if is_item else retry_customer_sync_attempt
-    entity_label = 'item' if is_item else 'customer'
+    retry, entity_label = {
+        QuickBooksSyncAttempt.EntityType.ITEM: (retry_item_sync_attempt, 'item'),
+        QuickBooksSyncAttempt.EntityType.INVOICE: (retry_invoice_sync_attempt, 'invoice'),
+        QuickBooksSyncAttempt.EntityType.PAYMENT: (retry_invoice_payment_sync_attempt, 'payment'),
+    }.get(attempt.entity_type, (retry_customer_sync_attempt, 'customer'))
     try:
         result = retry(attempt.pk, actor=request.user)
     except QuickBooksSyncError as exc:
@@ -577,8 +718,11 @@ def quickbooks_sync_retry(request, attempt_id):
 @require_POST
 def quickbooks_sync_resolve(request, attempt_id):
     attempt = _sync_attempt_for_admin(request, attempt_id)
-    is_item = attempt.entity_type == QuickBooksSyncAttempt.EntityType.ITEM
-    resolve = resolve_item_sync_attempt if is_item else resolve_customer_sync_attempt
+    resolve = {
+        QuickBooksSyncAttempt.EntityType.ITEM: resolve_item_sync_attempt,
+        QuickBooksSyncAttempt.EntityType.INVOICE: resolve_invoice_sync_attempt,
+        QuickBooksSyncAttempt.EntityType.PAYMENT: resolve_invoice_payment_sync_attempt,
+    }.get(attempt.entity_type, resolve_customer_sync_attempt)
     try:
         resolve(
             attempt.pk,

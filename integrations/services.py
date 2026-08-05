@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 
 from django.conf import settings
 from django.db import transaction
@@ -9,7 +10,9 @@ from projects.services import record_activity
 
 from .models import (
     QuickBooksConnection,
+    QuickBooksInvoiceMapping,
     QuickBooksItemMapping,
+    QuickBooksPaymentMapping,
     QuickBooksProjectCustomerMapping,
 )
 from .quickbooks import (
@@ -544,6 +547,249 @@ def unlink_cost_code_item_mapping(mapping_id, *, actor):
         metadata={'quickbooks_item_id': mapping.quickbooks_item_id},
     )
     return mapping
+
+
+def _invoice_snapshot(invoice):
+    return {
+        key: invoice.get(key)
+        for key in (
+            'Id',
+            'SyncToken',
+            'DocNumber',
+            'CustomerRef',
+            'TotalAmt',
+            'Balance',
+            'TxnDate',
+            'DueDate',
+        )
+        if key in invoice
+    }
+
+
+@transaction.atomic
+def save_invoice_mapping(*, invoice, connection, quickbooks_invoice, actor):
+    if invoice.organization_id != connection.organization_id:
+        raise QuickBooksMappingError(
+            'The invoice and QuickBooks connection must belong to the same company.'
+        )
+    if connection.status != QuickBooksConnection.Status.CONNECTED:
+        raise QuickBooksMappingError(
+            'Reconnect the QuickBooks company before saving an invoice mapping.'
+        )
+    quickbooks_invoice_id = str(quickbooks_invoice.get('Id') or '')
+    if not quickbooks_invoice_id or quickbooks_invoice.get('SyncToken') is None:
+        raise QuickBooksMappingError(
+            'QuickBooks returned incomplete invoice information.'
+        )
+    customer_id = str((quickbooks_invoice.get('CustomerRef') or {}).get('value') or '')
+    conflict = QuickBooksInvoiceMapping.objects.filter(
+        connection=connection,
+        quickbooks_invoice_id=quickbooks_invoice_id,
+        status=QuickBooksInvoiceMapping.Status.ACTIVE,
+    ).exclude(invoice=invoice)
+    if conflict.exists():
+        raise QuickBooksMappingError(
+            'That QuickBooks invoice is already mapped to another invoice.'
+        )
+
+    now = timezone.now()
+    mapping, created = QuickBooksInvoiceMapping.objects.select_for_update().get_or_create(
+        invoice=invoice,
+        defaults={
+            'connection': connection,
+            'quickbooks_invoice_id': quickbooks_invoice_id,
+            'quickbooks_customer_id': customer_id,
+        },
+    )
+    mapping.connection = connection
+    mapping.quickbooks_sync_token = str(quickbooks_invoice.get('SyncToken') or '')
+    mapping.quickbooks_customer_id = customer_id
+    mapping.quickbooks_doc_number = str(quickbooks_invoice.get('DocNumber') or '')[:50]
+    mapping.status = QuickBooksInvoiceMapping.Status.ACTIVE
+    mapping.external_total_amount = quickbooks_invoice.get('TotalAmt')
+    mapping.external_balance = quickbooks_invoice.get('Balance')
+    mapping.external_txn_date = quickbooks_invoice.get('TxnDate')
+    mapping.external_due_date = quickbooks_invoice.get('DueDate')
+    mapping.currency_code = str(
+        (quickbooks_invoice.get('CurrencyRef') or {}).get('value') or ''
+    )[:10]
+    mapping.last_synced_values = _invoice_snapshot(quickbooks_invoice)
+    mapping.last_synced_at = now
+    mapping.last_seen_at = now
+    mapping.tombstoned_at = None
+    mapping.full_clean()
+    mapping.save()
+    if created:
+        record_activity(
+            organization=invoice.organization,
+            project=invoice.project,
+            actor=actor,
+            event_type=ActivityEvent.Type.QUICKBOOKS_INVOICE_MAPPED,
+            summary=(
+                f'{invoice.display_number} was synchronized to QuickBooks invoice '
+                f'{mapping.quickbooks_doc_number or quickbooks_invoice_id}.'
+            ),
+            metadata={
+                'realm_id': connection.realm_id,
+                'quickbooks_invoice_id': quickbooks_invoice_id,
+            },
+        )
+    return mapping
+
+
+def refresh_invoice_mapping(mapping_id, *, actor, api_client=None):
+    mapping = QuickBooksInvoiceMapping.objects.select_related(
+        'connection', 'invoice__organization', 'invoice__project'
+    ).get(pk=mapping_id)
+    api_client = api_client or QuickBooksAccountingClient()
+    try:
+        invoice = api_client.get_invoice(
+            mapping.connection,
+            mapping.quickbooks_invoice_id,
+        )
+    except QuickBooksAPIError as exc:
+        if not exc.is_not_found:
+            raise
+        with transaction.atomic():
+            mapping = QuickBooksInvoiceMapping.objects.select_for_update().get(
+                pk=mapping_id
+            )
+            mapping.mark_tombstoned()
+            mapping.save()
+            record_activity(
+                organization=mapping.invoice.organization,
+                project=mapping.invoice.project,
+                actor=actor,
+                event_type=ActivityEvent.Type.QUICKBOOKS_INVOICE_MAPPING_TOMBSTONED,
+                summary=(
+                    f'QuickBooks invoice '
+                    f'{mapping.quickbooks_doc_number or mapping.quickbooks_invoice_id} '
+                    'is no longer available; the mapping was preserved.'
+                ),
+                metadata={'quickbooks_invoice_id': mapping.quickbooks_invoice_id},
+            )
+        return mapping
+    return save_invoice_mapping(
+        invoice=mapping.invoice,
+        connection=mapping.connection,
+        quickbooks_invoice=invoice,
+        actor=actor,
+    )
+
+
+def _payment_snapshot(payment):
+    return {
+        key: payment.get(key)
+        for key in ('Id', 'SyncToken', 'TotalAmt', 'TxnDate', 'PaymentRefNum', 'PaymentMethodRef')
+        if key in payment
+    }
+
+
+@transaction.atomic
+def save_payment_mapping(*, invoice_mapping, connection, quickbooks_payment, local_payment, actor):
+    if invoice_mapping.connection_id != connection.pk:
+        raise QuickBooksMappingError(
+            'The invoice mapping and QuickBooks connection must match.'
+        )
+    if local_payment.invoice_id != invoice_mapping.invoice_id:
+        raise QuickBooksMappingError('The payment must belong to the mapped invoice.')
+    quickbooks_payment_id = str(quickbooks_payment.get('Id') or '')
+    if not quickbooks_payment_id or quickbooks_payment.get('SyncToken') is None:
+        raise QuickBooksMappingError(
+            'QuickBooks returned incomplete payment information.'
+        )
+    conflict = QuickBooksPaymentMapping.objects.filter(
+        connection=connection,
+        quickbooks_payment_id=quickbooks_payment_id,
+        invoice_mapping=invoice_mapping,
+        status=QuickBooksPaymentMapping.Status.ACTIVE,
+    ).exclude(payment=local_payment)
+    if conflict.exists():
+        raise QuickBooksMappingError(
+            'That QuickBooks payment is already mapped to another local payment.'
+        )
+
+    now = timezone.now()
+    mapping, created = QuickBooksPaymentMapping.objects.select_for_update().get_or_create(
+        payment=local_payment,
+        defaults={
+            'connection': connection,
+            'invoice_mapping': invoice_mapping,
+            'quickbooks_payment_id': quickbooks_payment_id,
+        },
+    )
+    total_amt = quickbooks_payment.get('TotalAmt')
+    mapping.connection = connection
+    mapping.invoice_mapping = invoice_mapping
+    mapping.quickbooks_payment_id = quickbooks_payment_id
+    mapping.quickbooks_sync_token = str(quickbooks_payment.get('SyncToken') or '')
+    mapping.status = (
+        QuickBooksPaymentMapping.Status.VOIDED
+        if total_amt is not None and Decimal(str(total_amt)) <= 0
+        else QuickBooksPaymentMapping.Status.ACTIVE
+    )
+    mapping.external_amount = total_amt
+    mapping.last_synced_values = _payment_snapshot(quickbooks_payment)
+    mapping.last_synced_at = now
+    mapping.last_seen_at = now
+    mapping.tombstoned_at = None
+    mapping.full_clean()
+    mapping.save()
+    if created:
+        record_activity(
+            organization=local_payment.invoice.organization,
+            project=local_payment.invoice.project,
+            actor=actor,
+            event_type=ActivityEvent.Type.QUICKBOOKS_PAYMENT_IMPORTED,
+            summary=(
+                f'Imported a ${local_payment.amount:,.2f} payment from QuickBooks on '
+                f'{local_payment.invoice.display_number}.'
+            ),
+            metadata={
+                'realm_id': connection.realm_id,
+                'quickbooks_payment_id': quickbooks_payment_id,
+                'payment_id': local_payment.pk,
+            },
+        )
+    return mapping
+
+
+def refresh_payment_mapping(mapping_id, *, actor, api_client=None):
+    mapping = QuickBooksPaymentMapping.objects.select_related(
+        'connection',
+        'invoice_mapping',
+        'payment__invoice__organization',
+        'payment__invoice__project',
+    ).get(pk=mapping_id)
+    api_client = api_client or QuickBooksAccountingClient()
+    try:
+        payment = api_client.get_payment(mapping.connection, mapping.quickbooks_payment_id)
+    except QuickBooksAPIError as exc:
+        if not exc.is_not_found:
+            raise
+        with transaction.atomic():
+            mapping = QuickBooksPaymentMapping.objects.select_for_update().get(pk=mapping_id)
+            mapping.mark_tombstoned()
+            mapping.save()
+            record_activity(
+                organization=mapping.payment.invoice.organization,
+                project=mapping.payment.invoice.project,
+                actor=actor,
+                event_type=ActivityEvent.Type.QUICKBOOKS_PAYMENT_MAPPING_TOMBSTONED,
+                summary=(
+                    f'QuickBooks payment {mapping.quickbooks_payment_id} is no longer '
+                    'available; the mapping was preserved.'
+                ),
+                metadata={'quickbooks_payment_id': mapping.quickbooks_payment_id},
+            )
+        return mapping
+    return save_payment_mapping(
+        invoice_mapping=mapping.invoice_mapping,
+        connection=mapping.connection,
+        quickbooks_payment=payment,
+        local_payment=mapping.payment,
+        actor=actor,
+    )
 
 
 def refresh_connection(connection_id, *, client=None):

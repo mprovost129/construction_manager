@@ -38,6 +38,11 @@ def project_financial_summary(project, *, include_costs=False):
     selections = project.finish_selections.filter(
         status=FinishSelection.Status.SELECTED
     ).select_related('chosen_option')
+    credited_selection_ids = set(
+        ChangeOrder.objects.filter(project=project, source_selection__isnull=False)
+        .exclude(status=ChangeOrder.Status.VOIDED)
+        .values_list('source_selection_id', flat=True)
+    )
     selection_overage_total = Decimal('0')
     selection_credit_total = Decimal('0')
     selection_credit_by_disposition = {}
@@ -47,7 +52,7 @@ def project_financial_summary(project, *, include_costs=False):
             continue
         if variance > 0:
             selection_overage_total += variance
-        else:
+        elif selection.pk not in credited_selection_ids:
             credit = -variance
             selection_credit_total += credit
             selection_credit_by_disposition[selection.credit_disposition] = (

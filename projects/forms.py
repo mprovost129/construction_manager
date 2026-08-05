@@ -155,16 +155,21 @@ class ChangeOrderForm(forms.ModelForm):
             'cost_delta',
             'schedule_delta_days',
             'required_approvals',
+            'source_selection',
         )
         labels = {
             'price_delta': 'Client price change',
             'cost_delta': 'Estimated project cost change',
             'schedule_delta_days': 'Schedule change (days)',
+            'source_selection': 'Apply a selection credit',
         }
         help_texts = {
             'price_delta': 'Use a negative amount for a client credit.',
             'cost_delta': 'Internal only. Use a negative amount for a cost reduction.',
             'schedule_delta_days': 'Use a negative number if the change saves time.',
+            'source_selection': (
+                'Optional. Only selections with an unapplied credit are listed.'
+            ),
         }
         widgets = {
             'description': forms.Textarea(attrs={'rows': 5}),
@@ -173,8 +178,20 @@ class ChangeOrderForm(forms.ModelForm):
             'cost_delta': forms.NumberInput(attrs={'step': '0.01'}),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, project, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['source_selection'].required = False
+        credited_selection_ids = ChangeOrder.objects.filter(
+            source_selection__isnull=False,
+            project=project,
+        ).exclude(status=ChangeOrder.Status.VOIDED).exclude(
+            pk=self.instance.pk
+        ).values_list('source_selection_id', flat=True)
+        eligible_selections = project.finish_selections.filter(
+            status=FinishSelection.Status.SELECTED,
+            credit_disposition=FinishSelection.CreditDisposition.APPLY_ELSEWHERE,
+        ).exclude(pk__in=credited_selection_ids)
+        self.fields['source_selection'].queryset = eligible_selections
         if self.instance.pk and self.instance.line_items.exists():
             for field_name in ('price_delta', 'cost_delta'):
                 self.fields[field_name].disabled = True
