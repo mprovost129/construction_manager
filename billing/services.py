@@ -4,7 +4,7 @@ from django.db.models import Max, Sum
 from django.urls import reverse
 from django.utils import timezone
 
-from projects.models import ActivityEvent, ChangeOrder, Organization
+from projects.models import ActivityEvent, ChangeOrder, FinishSelection, Organization
 from projects.money import money
 from projects.services import (
     document_client_recipients,
@@ -94,6 +94,41 @@ def create_invoice_from_change_order(*, change_order_id, actor, form_data):
         )
         line.full_clean()
         line.save()
+    invoice.recalculate_totals()
+    record_invoice_draft_created(invoice, actor)
+    return invoice
+
+
+@transaction.atomic
+def create_invoice_from_selection(*, selection_id, actor, form_data):
+    selection = FinishSelection.objects.select_for_update().select_related(
+        'project__organization'
+    ).get(pk=selection_id)
+    if selection.status != FinishSelection.Status.SELECTED:
+        raise ValidationError('Only a completed selection can originate an invoice.')
+    if hasattr(selection, 'invoice'):
+        raise ValidationError('This selection already has an invoice.')
+    invoice = Invoice(
+        organization=selection.project.organization,
+        project=selection.project,
+        source_selection=selection,
+        created_by=actor,
+        title=form_data['title'],
+        due_date=form_data['due_date'],
+        tax_rate=form_data['tax_rate'],
+        notes=form_data['notes'],
+    )
+    invoice.full_clean()
+    invoice.save()
+    line = InvoiceLineItem(
+        invoice=invoice,
+        category=InvoiceLineItem.Category.ALLOWANCE,
+        description=f'{selection.display_number} allowance - {selection.title}',
+        quantity=1,
+        unit_price=selection.allowance_amount,
+    )
+    line.full_clean()
+    line.save()
     invoice.recalculate_totals()
     record_invoice_draft_created(invoice, actor)
     return invoice

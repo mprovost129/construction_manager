@@ -2828,6 +2828,7 @@ class FinishSelectionDetailView(LoginRequiredMixin, TemplateView):
                     == FinishSelection.CreditDisposition.UNDETERMINED
                 ),
                 'credit_disposition_form': SelectionCreditDispositionForm(),
+                'selection_invoice': getattr(self.selection, 'invoice', None),
                 'can_create_credit_change_order': bool(
                     can_manage
                     and self.selection.has_credit

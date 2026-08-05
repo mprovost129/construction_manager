@@ -21,6 +21,11 @@ urlpatterns = [
         name='invoice_from_change_order',
     ),
     path(
+        'projects/<int:project_id>/invoices/from-selection/<int:selection_id>/',
+        views.InvoiceFromSelectionCreateView.as_view(),
+        name='invoice_from_selection',
+    ),
+    path(
         'projects/<int:project_id>/invoices/<int:invoice_id>/',
         views.InvoiceDetailView.as_view(),
         name='invoice_detail',

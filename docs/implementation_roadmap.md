@@ -31,7 +31,7 @@ implemented and verified.
 | Schedule | Partial | Internal milestone/calendar workflow exists; dependencies, recurrence, and external calendar integration do not. |
 | Notifications | Partial | Transactional email exists with project-level recipient preferences; per-event settings, reminders, and digest delivery do not. |
 | Project pricing and financials | Partial | An organization-scoped cost-code catalog (now also mappable to a QuickBooks Item), an estimate/proposal workflow (with a revision chain) and client approval that sets a project's fixed, tax-inclusive contract amount, an organization-level tax-rate engine applied to invoices and estimates, a staff+client-safe financial rollup view (contract, change orders, selection overage/credit, invoicing, payments), a role-gated budget/committed/actual-cost/profitability view backed by a staff-recorded job-costing ledger, and a manual invoice payment ledger exist. Every confirmed APP-1 item is now delivered; remaining accounting integration work (live sandbox verification) lives under QB-3. |
-| Invoices and payment visibility | Partial | Local drafts, approved-change-order conversion, immutable company numbering, line items, totals, client-visible issued invoices, authenticated PDF downloads, balances, status fields, notification, questions, unpaid voiding, a manual payment ledger (status transitions from issued to partially paid to paid), outbound QuickBooks Invoice create/void synchronization (wiring mapped Item IDs into outbound `Line` payloads, admin-triggered from the invoice detail page), QuickBooks payment import/reconciliation (per-invoice scan, soft duplicate detection against manually-recorded payments, admin-triggered), and a local `CreditMemo` document bridging an approved selection credit to a real invoice (applying one creates an ordinary `Payment` tagged `method=credit_memo`, reusing the existing balance/status machine unchanged) exist. Selection-origin rules and importing QuickBooks-sourced credit memos remain. Online payment is deferred. |
+| Invoices and payment visibility | Partial | Local drafts, approved-change-order conversion, immutable company numbering, line items, totals, client-visible issued invoices, authenticated PDF downloads, balances, status fields, notification, questions, unpaid voiding, a manual payment ledger (status transitions from issued to partially paid to paid), outbound QuickBooks Invoice create/void synchronization (wiring mapped Item IDs into outbound `Line` payloads, admin-triggered from the invoice detail page), QuickBooks payment import/reconciliation (per-invoice scan, soft duplicate detection against manually-recorded payments, admin-triggered), a local `CreditMemo` document bridging an approved selection credit to a real invoice (applying one creates an ordinary `Payment` tagged `method=credit_memo`, reusing the existing balance/status machine unchanged), and selected-finish invoice origination (an approved selection bills its allowance amount directly, additive with the change-order-based overage/credit path) exist. Importing QuickBooks-sourced credit memos remains. Online payment is deferred. |
 | QuickBooks Online | Partial | Company-scoped OAuth, encrypted tokens, capability/subscription discovery, stable customer/invoice/item/payment mappings, customer sync, cost-code item sync, tested Invoice API primitives, Invoice sync orchestration (create/void, retry/backoff, admin error queue), read-only Payment import/reconciliation (per-invoice scan, re-verify, retry/backoff, admin error queue), and a local Credit Memo document bridging an approved selection credit to a real invoice exist. Live sandbox acceptance, an Automated-Sales-Tax compatibility check, importing QuickBooks-sourced credit memos, and change-detection work remain. |
 | SaaS subscription billing | Partial | Organization-level Stripe Billing, hosted Checkout, Customer Portal, signed webhook reconciliation, audit records, grace-period access rules, and staged entitlement enforcement exist. The Sandbox Product, monthly/yearly Prices, default Portal, and webhook are configured; a real end-to-end Sandbox test plus live-mode setup and validation remain. |
 | Tasks and punch lists | Not started | Confirmed as required, but no models or workflow exist. |
@@ -266,9 +266,9 @@ These decisions govern remaining implementation work:
 
 ### Invoices and payment visibility
 
-- Define the billable amount and credit behavior for selected finishes after APP-1 establishes the
-  base-contract and allowance ledger. Approved positive change orders are the only automated
-  invoice source today; staff can also create manual drafts.
+- Selected-finish invoice origination is delivered (see APP-2's entry) — an approved selection
+  bills its allowance amount directly, and change orders (positive or, via `CreditMemo`,
+  negative) remain the other automated invoice source. Staff can also create manual drafts.
 - Outbound Invoice create/void synchronization now exists (see QB-3's Invoice sync orchestration
   entry), wiring mapped Item IDs into outbound `Line` payloads.
 - QuickBooks payment import now exists (see QB-3's Payment import entry): local payment-status
@@ -548,11 +548,25 @@ Acceptance gate:
 ### Phase APP-2: Invoices and client visibility - P0
 
 - [x] Add local manual invoice drafts and drafts originating from approved positive change orders.
-- [ ] Add selected-finish invoice origination after APP-1 defines whether to bill full option value,
-  allowance variance, or an approved change order.
+- [x] Add selected-finish invoice origination. Resolved via the original client interview
+  (`docs/Construction Manager.md`, II.3: *"invoices are from approved selection or change
+  order"*; VII.4: overages/credits are deviations handled by change order) rather than a guess:
+  `create_invoice_from_selection` (`billing/services.py`) originates a draft `Invoice` directly
+  from a `SELECTED` `FinishSelection` via the previously-dead `Invoice.source_selection` field,
+  billing the **allowance amount** (one `InvoiceLineItem` with the already-existing but
+  previously-unused `ALLOWANCE` category) rather than the chosen option's actual price — this
+  keeps it strictly additive with the change-order path, which already bills the variance
+  (overage or, via the local `CreditMemo`, credit) separately, so the two never double-bill each
+  other. Works independent of whether the selection has an overage/credit, one invoice per
+  selection (enforced by the existing `OneToOneField`). The selection detail page gained an
+  "Invoice this selection"-equivalent panel mirroring the existing overage/credit panels.
 - [x] Add invoice status, immutable organization-wide numbering, line items, totals, and balances.
 - [x] Add QuickBooks invoice identity and sync-token mapping.
-- [ ] Add credit application and QuickBooks credit-memo mapping.
+- [x] Add credit application (local `ChangeOrder`/`CreditMemo` mechanism — see QB-3's credit
+  entry and this phase's selected-finish invoice origination entry above).
+- [ ] Add QuickBooks credit-memo mapping (importing a QuickBooks-sourced credit memo and
+  reconciling it against this app's records — distinct from local credit application, which is
+  delivered; still open, tracked under QB-3).
 - [x] Let clients view invoice details, balances/payment status, and ask questions.
 - [x] Add authenticated downloadable invoice PDFs.
 - Do not add online payment collection in this release.

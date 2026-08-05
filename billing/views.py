@@ -13,7 +13,7 @@ from django.views.generic import FormView, TemplateView
 
 from integrations.models import QuickBooksConnection, QuickBooksItemMapping
 from projects.access import can_manage_project, is_project_client
-from projects.models import ChangeOrder
+from projects.models import ChangeOrder, FinishSelection
 
 from .access import (
     invoice_project_or_404,
@@ -35,6 +35,7 @@ from .services import (
     apply_credit_memo,
     create_credit_memo_from_change_order,
     create_invoice_from_change_order,
+    create_invoice_from_selection,
     delete_payment,
     discard_invoice_draft,
     issue_credit_memo,
@@ -175,6 +176,58 @@ class InvoiceFromChangeOrderCreateView(LoginRequiredMixin, FormView):
         messages.success(
             self.request,
             f'Invoice draft created from {self.change_order.display_number}.',
+        )
+        return redirect('billing:invoice_detail', self.project.pk, invoice.pk)
+
+
+class InvoiceFromSelectionCreateView(LoginRequiredMixin, FormView):
+    form_class = InvoiceDraftForm
+    template_name = 'billing/invoice_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = invoice_project_or_404(request.user, kwargs['project_id'])
+        require_invoice_manager(request.user, self.project)
+        self.selection = get_object_or_404(
+            FinishSelection,
+            project=self.project,
+            pk=kwargs['selection_id'],
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_initial(self):
+        initial = super().get_initial()
+        initial['title'] = f'{self.selection.display_number} allowance'
+        return initial
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['organization'] = self.project.organization
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'project': self.project,
+                'invoice': None,
+                'source': self.selection,
+            }
+        )
+        return context
+
+    def form_valid(self, form):
+        try:
+            invoice = create_invoice_from_selection(
+                selection_id=self.selection.pk,
+                actor=self.request.user,
+                form_data=form.cleaned_data,
+            )
+        except ValidationError as exc:
+            form.add_error(None, validation_message(exc))
+            return self.form_invalid(form)
+        messages.success(
+            self.request,
+            f'Invoice draft created from {self.selection.display_number}.',
         )
         return redirect('billing:invoice_detail', self.project.pk, invoice.pk)
 
