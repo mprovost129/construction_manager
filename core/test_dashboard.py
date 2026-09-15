@@ -220,14 +220,39 @@ class PortfolioDashboardTests(TestCase):
         self.assertEqual(portfolio['project_count'], 1)
         self.assertEqual(portfolio['decision_count'], 3)
         self.assertEqual(portfolio['draft_count'], 0)
-        self.assertEqual(portfolio['schedule_count'], 1)
+        self.assertEqual(portfolio['schedule_count'], 0)
         self.assertEqual(portfolio['conversation_count'], 1)
-        self.assertEqual(portfolio['action_count'], 4)
+        self.assertEqual(portfolio['action_count'], 3)
         self.assertFalse(portfolio['viewer_has_internal_scope'])
         self.assertContains(response, 'Your decisions')
         self.assertContains(response, 'items needing attention')
         self.assertNotContains(response, 'Drafts to finish')
         self.assertNotContains(response, 'Pine Street')
+
+    def test_assigned_project_manager_receives_the_internal_action_overview(self):
+        manager = get_user_model().objects.create_user(
+            'manager@example.com',
+            'password',
+        )
+        OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=manager,
+            role=OrganizationMembership.Role.PROJECT_MANAGER,
+        )
+        grant_internal_access(manager, self.priority_project)
+        self.client.force_login(manager)
+
+        response = self.client.get(reverse('core:home'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Project priorities')
+        self.assertContains(response, self.priority_project.name)
+        self.assertIn('portfolio_action_center', response.context)
+        self.assertTrue(
+            response.context['portfolio_action_center'][
+                'viewer_has_internal_scope'
+            ]
+        )
 
     def test_conversation_only_project_is_included_in_priority_list(self):
         ConversationThread.objects.create(
@@ -289,6 +314,30 @@ class PortfolioDashboardTests(TestCase):
         self.assertNotIn('recent_activity_events', response.context)
         self.assertNotContains(response, 'Recent project activity')
         self.assertNotContains(response, 'Internal project activity.')
+
+    def test_empty_dashboard_guides_each_user_type_to_the_next_step(self):
+        admin = get_user_model().objects.create_user('new-admin@example.com', 'password')
+        OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=admin,
+            role=OrganizationMembership.Role.ADMIN,
+        )
+        empty_organization = Organization.objects.create(
+            name='New Builders',
+            slug='new-builders',
+        )
+        OrganizationMembership.objects.create(
+            organization=empty_organization,
+            user=admin,
+            role=OrganizationMembership.Role.ADMIN,
+        )
+        self.organization.memberships.filter(user=admin).delete()
+        self.client.force_login(admin)
+
+        response = self.client.get(reverse('core:home'))
+
+        self.assertContains(response, 'Create your first project')
+        self.assertContains(response, reverse('core:help') + '#company-setup')
 
     def test_staff_activity_feed_is_ordered_scoped_and_linked(self):
         older_event = ActivityEvent.objects.create(

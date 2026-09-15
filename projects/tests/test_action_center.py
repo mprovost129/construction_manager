@@ -238,13 +238,12 @@ class ProjectActionCenterTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['decision_count'], 3)
         self.assertEqual(response.context['draft_count'], 0)
-        self.assertEqual(response.context['schedule_count'], 1)
-        self.assertEqual(response.context['action_count'], 4)
+        self.assertEqual(response.context['schedule_count'], 0)
+        self.assertEqual(response.context['action_count'], 3)
         for expected in (
             'Pending porch addition',
             'Overdue cabinet finish',
             'Pending foundation plan',
-            'Delayed framing',
             'Open cabinet question',
         ):
             self.assertContains(response, expected)
@@ -253,6 +252,7 @@ class ProjectActionCenterTests(TestCase):
             'Draft flooring package',
             'Declined elevation plan',
             'Internal inspection delay',
+            'Delayed framing',
             'Crew reassignment details',
             '2100.00',
         ):
@@ -271,7 +271,7 @@ class ProjectActionCenterTests(TestCase):
 
         self.assertNotContains(response, self.pending_document.title)
         self.assertEqual(response.context['decision_count'], 2)
-        self.assertEqual(response.context['action_count'], 3)
+        self.assertEqual(response.context['action_count'], 2)
 
     def test_project_page_shows_role_appropriate_action_count(self):
         self.client.force_login(self.staff_user)
@@ -284,7 +284,7 @@ class ProjectActionCenterTests(TestCase):
         client_response = self.client.get(
             reverse('projects:detail', args=(self.project.pk,))
         )
-        self.assertContains(client_response, '4 items need attention')
+        self.assertContains(client_response, '3 items need attention')
 
     def test_accountant_and_subcontractor_cannot_access_action_center(self):
         url = reverse('projects:action_center', args=(self.project.pk,))

@@ -50,6 +50,12 @@ class PrivacyPolicyView(LegalPolicyView):
     template_name = 'core/legal/privacy.html'
 
 
+class HelpCenterView(TemplateView):
+    """Public first-use guidance for company users and clients."""
+
+    template_name = 'core/help.html'
+
+
 class HomeView(TemplateView):
     template_name = 'core/home.html'
 

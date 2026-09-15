@@ -1,6 +1,6 @@
 # Construction Manager Implementation Roadmap
 
-Last updated: August 5, 2026
+Last updated: September 15, 2026
 
 This is the authoritative implementation-status document for Construction Manager.
 It translates the answers in [Construction Manager.md](./Construction%20Manager.md)
@@ -36,7 +36,7 @@ implemented and verified.
 | SaaS subscription billing | Partial | Organization-level Stripe Billing, hosted Checkout, Customer Portal, signed webhook reconciliation, audit records, grace-period access rules, and staged entitlement enforcement exist. The Sandbox Product, monthly/yearly Prices, default Portal, and webhook are configured; a real end-to-end Sandbox test plus live-mode setup and validation remain. |
 | Tasks and punch lists | Not started | Confirmed as required, but no models or workflow exist. |
 | Two-factor authentication | Not started | Confirmed as optional per user/admin policy, but not implemented. |
-| Public legal pages | Complete with launch action | Public EULA and privacy pages exist; real legal entity values and counsel review are still required before production submission. |
+| Public legal and help pages | Complete with launch action | Public EULA, privacy, and first-use help pages exist; a printable user guide is included. Real legal entity values, counsel review, and a staffed support process are still required before production submission. |
 | Deployment foundation | Partial | Docker, Render-oriented startup, migrations, static assets, security settings, and environment examples exist; persistent uploads, availability, backups, and operations need production validation. |
 
 ## Confirmed product decisions
@@ -79,7 +79,7 @@ These decisions govern remaining implementation work:
 
 - Custom email-based user model and password-reset flow.
 - Company and project invitation acceptance, resend, revoke, and access restoration.
-- Company roles and project-specific internal assignments.
+- Company roles and project-specific internal assignments; the team-management screen exposes every supported internal role.
 - Separate manage-project, manage-client, and notification permissions.
 - Project-scoped queries and authorization checks across portal modules.
 - Idempotent environment-backed Django superuser bootstrap for container startup.
@@ -87,7 +87,7 @@ These decisions govern remaining implementation work:
 
 ### Project portal
 
-- Portfolio dashboard, project cards, search, status filtering, and action center.
+- Portfolio dashboard, project cards, search, status filtering, and action center, including internal-priority visibility for all supported non-accountant internal roles and client-safe action links.
 - Project activity timeline and CSV export.
 - Client-visible project detail and explicit project membership.
 - Threaded project messages with replies and status management.
@@ -207,6 +207,7 @@ These decisions govern remaining implementation work:
 ### Legal and deployment
 
 - Public `/legal/eula/` and `/legal/privacy/` pages with footer links.
+- Public `/help/` first-use guidance for company administrators, project teams, and clients, plus Markdown and printable Word user guides under `docs/`.
 - Environment-driven legal entity, contact, address, governing law, and effective date.
 - Development/production environment examples, production HTTPS controls, database SSL option, and console-first logging.
 - Docker static build settings, runtime migrations, and superuser bootstrap.
@@ -237,7 +238,7 @@ These decisions govern remaining implementation work:
   match-by-ID and automated find-or-create sync actions, durable per-attempt retry/backoff/
   resolve handling sharing the same `retry_quickbooks_syncs` and admin queue as Customer sync.
   Not yet wired into outbound Invoice line-item payloads (separate Invoice sync orchestration).
-- Current automated baseline: 329 passing tests, Ruff clean, no pending migrations,
+- Current automated baseline: 396 passing tests and 6 passing subtests, Ruff clean, no pending migrations,
   and build-settings `collectstatic` passing as of this update. Django's expected
   development warning remains when QuickBooks credentials are intentionally unset.
 
@@ -303,7 +304,7 @@ The following must be resolved before representing the application as production
 - Provision a production-only QuickBooks token-encryption key in the Render secret store,
   document key rotation, and retain old keys during rotation until all stored tokens are re-encrypted.
 - Configure real `LEGAL_*` values and obtain legal review of the EULA and Privacy Policy.
-- Add a public support/help route and documented response process.
+- Assign support ownership, publish a monitored support address, and document response targets; the public help route and first-use guide are delivered.
 - Perform dependency, vulnerability, access-control, upload, and authorization testing before external users are admitted.
 
 ## QuickBooks Online roadmap
