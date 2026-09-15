@@ -4171,6 +4171,9 @@ class CompanyTeamView(LoginRequiredMixin, TemplateView):
                 'team_invitations': self.organization.team_invitations.select_related(
                     'invited_by', 'accepted_by'
                 )[:50],
+                'team_role_choices': TeamMembershipForm.base_fields[
+                    'role'
+                ].choices,
                 'activity_events': self.organization.activity_events.filter(
                     project__isnull=True
                 ).select_related('actor')[:20],

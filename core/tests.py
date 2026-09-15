@@ -12,6 +12,7 @@ class BaseTemplatePartialTests(TestCase):
         self.assertContains(response, 'static/css/main.css')
         self.assertContains(response, 'static/js/main.js')
         self.assertContains(response, 'Log in')
+        self.assertContains(response, reverse('core:help'))
 
     def test_authenticated_header_renders_from_partial(self):
         user = get_user_model().objects.create_user(
@@ -23,6 +24,36 @@ class BaseTemplatePartialTests(TestCase):
 
         self.assertContains(response, 'member@example.com')
         self.assertContains(response, 'action="/accounts/logout/"')
+
+
+class PublicHelpPageTests(TestCase):
+    def test_help_page_is_public_and_covers_both_first_use_paths(self):
+        response = self.client.get(reverse('core:help'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Get started with Construction Manager')
+        self.assertContains(response, 'Set up the company workspace')
+        self.assertContains(response, 'Use the client portal')
+        self.assertContains(response, 'Connect and synchronize QuickBooks')
+        self.assertContains(response, 'Clients do not have access to the project schedule')
+
+    def test_help_page_links_anonymous_users_to_login(self):
+        response = self.client.get(reverse('core:help'))
+
+        self.assertContains(response, reverse('login'))
+        self.assertContains(response, '>Log in</a>', html=False)
+
+    def test_help_page_links_authenticated_users_to_projects(self):
+        user = get_user_model().objects.create_user(
+            email='member@example.com',
+            password='password',
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse('core:help'))
+
+        self.assertContains(response, reverse('core:home'))
+        self.assertContains(response, 'Open your projects')
 
 
 @override_settings(

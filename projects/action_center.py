@@ -85,12 +85,15 @@ def build_project_action_center(user, project):
             }
         )
 
-    delayed_milestones = project.schedule_milestones.filter(
-        status=ScheduleMilestone.Status.DELAYED
-    )
-    if viewer_is_client:
-        delayed_milestones = delayed_milestones.filter(client_visible=True)
-    delayed_milestones = list(delayed_milestones)
+    # The schedule is an internal-only module. Hiding every milestone here keeps
+    # client action links from leading to a schedule page they cannot open.
+    delayed_milestones = []
+    if not viewer_is_client:
+        delayed_milestones = list(
+            project.schedule_milestones.filter(
+                status=ScheduleMilestone.Status.DELAYED
+            )
+        )
 
     open_conversations = list(
         project.conversation_threads.filter(status='open').select_related(
@@ -133,19 +136,20 @@ def build_portfolio_action_center(user, projects):
         internal_project_ids = set(project_ids)
         client_project_ids = set()
     else:
-        management_organization_ids = set(
+        internal_organization_ids = set(
             user.organization_memberships.filter(
                 is_active=True,
-                role__in=(
-                    OrganizationMembership.Role.ADMIN,
-                    OrganizationMembership.Role.STAFF,
+                role__in=tuple(
+                    role
+                    for role in OrganizationMembership.INTERNAL_ROLES
+                    if role != OrganizationMembership.Role.ACCOUNTANT
                 ),
             ).values_list('organization_id', flat=True)
         )
         internal_project_ids = {
             project.pk
             for project in projects
-            if project.organization_id in management_organization_ids
+            if project.organization_id in internal_organization_ids
         }
         client_project_ids = set(
             user.project_memberships.filter(
@@ -235,7 +239,7 @@ def build_portfolio_action_center(user, projects):
         .annotate(total=Count('pk'))
     )
     for row in milestone_counts:
-        if row['project_id'] in client_project_ids and not row['client_visible']:
+        if row['project_id'] in client_project_ids:
             continue
         counts[row['project_id']]['schedule_count'] += row['total']
 
