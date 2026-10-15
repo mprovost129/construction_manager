@@ -493,8 +493,8 @@ API contract: [Intuit Item reference](https://developer.intuit.com/app/developer
   negative) remain the other automated invoice source. Staff can also create manual drafts.
 - Outbound Invoice create/void synchronization now exists (see QB-3's Invoice sync orchestration
   entry), wiring mapped Item IDs into outbound `Line` payloads.
-- Payment application import and reversal reconciliation exist; live sandbox acceptance
-  remains. Credits are discovered through Payment links. Local credit-memo application is
+- Payment application import and reversal reconciliation passed the documented live sandbox
+  scenarios. Credits are discovered through Payment links. Local credit-memo application is
   separate from outbound QuickBooks CreditMemo synchronization, which is not implemented.
 
 ## Production blockers
@@ -715,6 +715,22 @@ enabled for Sandbox Company US 132a only. The local background worker independen
 a due sandbox invoice, completed it successfully, and updated the connection page's healthy
 worker status. Page content was verified through Django; browser layout validation was not
 available. Production remains undeployed.
+
+Invoice payment-status follow-up (October 15): invoice managers can now see whether payment
+checks are scheduled, queued, running, paused, delayed, awaiting retry, or require review.
+The page shows the most recent successful **balance-verifying** payment check; an invoice
+refresh or older manual import is not presented as a verified balance. An unresolved older
+failure remains visible even after a later manual success, matching the worker's blocking
+rules. Company administrators receive a company-scoped review/settings link; the error queue
+links directly to each affected invoice. Client pages receive neither internal error details
+nor these controls. Rendering uses local records only and does not contact QuickBooks.
+Permission, escaping, company isolation, retry eligibility, and stale-worker cases have
+regression coverage. No schema changes or deployment are needed for local use.
+Validation: **489 tests and 47 subtests passed on PostgreSQL**, including 12 new payment-status
+tests. Ruff, Django system checks, migration consistency, and whitespace checks passed.
+The local sandbox invoice rendered the new status and scoped controls successfully; the
+local HTTPS server was restarted. These updates are published only to the release branch,
+leaving the auto-deploying `main` branch and client billing approval boundary unchanged.
 
 - Company administrators can enable or pause updates from the QuickBooks connection page.
   New connections default to off. Only connected companies matching the configured

@@ -150,10 +150,10 @@ def quickbooks_connect(request):
         failed_sync_attempts = QuickBooksSyncAttempt.objects.filter(
             connection__organization=selected_organization,
             status=QuickBooksSyncAttempt.Status.FAILED,
-        ).select_related('project', 'connection', 'cost_code')
+        ).select_related('project', 'connection', 'cost_code', 'invoice')
         recent_sync_attempts = QuickBooksSyncAttempt.objects.filter(
             connection__organization=selected_organization,
-        ).select_related('project', 'connection', 'cost_code')[:20]
+        ).select_related('project', 'connection', 'cost_code', 'invoice')[:20]
     return render(
         request,
         'integrations/quickbooks_connect.html',

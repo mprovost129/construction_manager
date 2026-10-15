@@ -105,6 +105,7 @@
             <div><h3>{% firstof attempt.project.name attempt.cost_code.code "Deleted record" %} &middot; {{ attempt.get_operation_display }}{% if attempt.invoice %} &middot; {{ attempt.invoice.display_number }}{% endif %}</h3><p>{{ attempt.error_message }} &middot; Code {{ attempt.error_code|default:"unknown" }} &middot; Attempt {{ attempt.attempt_number }}</p>{% if attempt.next_retry_at %}<p>Automatic retry eligible after {{ attempt.next_retry_at|date:"M j, Y g:i A" }}</p>{% endif %}</div>
             <span class="status-pill status-pill--declined">Failed</span>
             <div class="integration-error-actions">
+                {% if attempt.invoice %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'billing:invoice_detail' attempt.invoice.project_id attempt.invoice.pk %}">Open {{ attempt.invoice.display_number }}</a>{% endif %}
                 {% if attempt.retryable %}<form method="post" action="{% url 'integrations:quickbooks_sync_retry' attempt.pk %}">{% csrf_token %}<button class="btn btn-sm btn-primary" type="submit">Retry now</button></form>{% endif %}
                 <form method="post" action="{% url 'integrations:quickbooks_sync_resolve' attempt.pk %}" class="integration-resolution-form">{% csrf_token %}<input type="text" name="resolution_note" maxlength="255" placeholder="Resolution note" required><button class="btn btn-sm btn-outline-secondary" type="submit">Mark resolved</button></form>
             </div>

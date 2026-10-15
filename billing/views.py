@@ -12,7 +12,12 @@ from django.views import View
 from django.views.generic import FormView, TemplateView
 
 from integrations.models import QuickBooksConnection, QuickBooksItemMapping
-from projects.access import can_manage_project, is_project_client
+from integrations.payment_status import invoice_payment_status
+from projects.access import (
+    can_manage_organization,
+    can_manage_project,
+    is_project_client,
+)
 from projects.models import ChangeOrder, FinishSelection
 
 from .access import (
@@ -334,6 +339,12 @@ class InvoiceDetailView(LoginRequiredMixin, TemplateView):
                     f'?{urlencode({"subject": question_subject})}'
                 ),
                 'quickbooks_mapping': quickbooks_mapping,
+                'quickbooks_payment_status': (
+                    invoice_payment_status(quickbooks_mapping) if quickbooks_mapping else None
+                ),
+                'can_manage_quickbooks': can_manage and can_manage_organization(
+                    self.request.user, self.project.organization,
+                ),
                 'quickbooks_connection': quickbooks_connection,
                 'unmapped_line_cost_codes': unmapped_line_cost_codes,
             }

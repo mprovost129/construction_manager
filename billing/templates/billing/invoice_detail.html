@@ -35,5 +35,7 @@
 
 {% if void_form %}<section class="decision-panel"><div><p class="eyebrow">Void invoice</p><h2>Void {{ invoice.display_number }}</h2><p>Only unpaid invoices can be voided locally. The number and audit history will be preserved.</p></div><form method="post" action="{% url 'billing:invoice_void' project.pk invoice.pk %}" class="stacked-form">{% csrf_token %}<div class="form-field"><label for="{{ void_form.reason.id_for_label }}">Reason</label>{{ void_form.reason }}{{ void_form.reason.errors }}</div><button class="btn btn-outline-danger" type="submit">Void invoice</button></form></section>{% endif %}
 
+{% include 'billing/_payment_check_status.html' %}
+
 {% if invoice.client_visible %}<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Questions</p><h2>Need clarification?</h2></div><a class="btn btn-outline-secondary" href="{{ question_url }}">Ask a question</a></div><p class="empty-copy">Start a project conversation referencing this invoice. Online payment is not available.</p></section>{% endif %}
 {% endblock %}

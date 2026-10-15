@@ -1,0 +1,18 @@
+{% if can_manage_invoices and quickbooks_payment_status %}
+<section class="admin-panel" aria-labelledby="payment-check-heading">
+    <div class="section-heading">
+        <div><p class="eyebrow">QuickBooks payment updates</p><h2 id="payment-check-heading">Payment check status</h2></div>
+        <span class="status-pill status-pill--{{ quickbooks_payment_status.tone }}">{{ quickbooks_payment_status.label }}</span>
+    </div>
+    <p>{{ quickbooks_payment_status.explanation }}</p>
+    {% if quickbooks_payment_status.last_verified_at %}
+    <p>Balance last matched QuickBooks {{ quickbooks_payment_status.last_verified_at|date:"M j, Y g:i A" }}.</p>
+    {% else %}
+    <p>No successful balance check has been recorded yet.</p>
+    {% endif %}
+    {% if quickbooks_payment_status.error_message %}<p class="text-danger">{{ quickbooks_payment_status.error_message }}</p>{% endif %}
+    {% if quickbooks_payment_status.retry_at %}<p>Retry eligible {{ quickbooks_payment_status.retry_at|date:"M j, Y g:i A" }}.</p>{% elif quickbooks_payment_status.next_check_at %}<p>Next check eligible {{ quickbooks_payment_status.next_check_at|date:"M j, Y g:i A" }}.</p>{% endif %}
+    {% if quickbooks_payment_status.worker_stale and quickbooks_payment_status.error_message %}<p class="text-danger">The payment worker has not checked in recently; automatic retries may be delayed.</p>{% endif %}
+    {% if can_manage_quickbooks %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'integrations:quickbooks_connect' %}?organization={{ project.organization.slug|urlencode }}{% if quickbooks_payment_status.error_message %}#sync-errors-heading{% endif %}">{% if quickbooks_payment_status.error_message %}Review payment check{% else %}Manage automatic updates{% endif %}</a>{% endif %}
+</section>
+{% endif %}
