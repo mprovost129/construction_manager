@@ -758,10 +758,33 @@ polling. Resolve a flagged discrepancy in both ledgers, then document the resolu
 error queue; the next due check will verify it again.
 
 For Render, prepare a separate [background worker](https://render.com/docs/background-workers)
-from the same release, with start command `python manage.py reconcile_quickbooks_payments --loop`
-and the same shared environment. Apply migrations before starting it. This local implementation
-does **not** provision or deploy a Render worker. Local execution stops when its host/process
-stops; enabling the switch alone does not launch a worker.
+from the same release. Set its Docker Command to
+`/app/docker-entrypoint.sh python manage.py reconcile_quickbooks_payments --loop`, set
+`RUN_STARTUP_TASKS=false`, and supply the same database and QuickBooks environment as the web
+service. The worker checks for unapplied migrations but does not migrate or bootstrap a user.
+The web deployment retains its normal migration/bootstrap startup. Deploy it successfully
+before starting the worker. Shell scripts are committed with LF endings; local certificates,
+keys, and agent state are excluded from the Docker build context.
+
+Release preparation on October 15: merged the deployed `ccb2143` onboarding/dashboard release
+into the QuickBooks release branch, preserving its Help pages and role-aware changes.
+The combined PostgreSQL suite passed **477 tests and 47 subtests**; Ruff, migration consistency,
+Django checks, static asset collection, and shell syntax checks also passed. A Render worker
+configuration was prepared but not submitted: `construction-manager-payments`, Ohio,
+0.5 CPU / 512 MB, quoted at $7/month. The existing hosted web service has no QuickBooks
+environment variables configured yet; no cloud worker has been created.
+
+**Client deployment and billing decision (October 15, 2026):** this site is for a client.
+Continue local development and publish source changes to the GitHub release branch
+`codex/automatic-quickbooks-payments`. Keep `main` unchanged because it automatically
+deploys to Mike's existing Render workspace. Do not deploy, provision paid services,
+transfer credentials to Render, or charge Mike's card. Wait for the client's approval;
+Mike will then open the client's workspace and arrange its payment method. Verify that
+workspace, its database, and its billing ownership before any future deployment. The
+previously prepared form in Mike's workspace is not an approved deployment destination.
+
+Local execution stops when its host/process stops; enabling the switch alone does not launch
+a worker. Docker image execution could not be verified locally because Docker Engine is not running.
 
 Remaining QB-4 scope:
 
