@@ -547,7 +547,8 @@ Validation on October 15: **499 tests and 49 subtests passed on PostgreSQL**, in
 HTTPS redirects, and cache headers. Ruff, Django checks, migration consistency, and whitespace
 checks passed. Production timeout configuration was loaded with database TLS still required.
 Both routes returned HTTP 200 against the local app configuration, and the local HTTPS server
-was restarted. Changes are published to the release branch only.
+was restarted. Changes are committed locally for the release branch only. GitHub publishing
+is pending: two push attempts on October 15 failed to connect to github.com over HTTPS.
 
 ### Security and legal
 
