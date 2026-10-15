@@ -14,14 +14,8 @@ from .models import (
 )
 from .quickbooks import QuickBooksAccountingClient, QuickBooksAPIError
 from .services import QuickBooksMappingError, save_project_customer_mapping
-
-
-class QuickBooksSyncError(Exception):
-    pass
-
-
-class QuickBooksSyncBusy(QuickBooksSyncError):
-    pass
+from .sync_errors import QuickBooksSyncBusy, QuickBooksSyncError
+from .sync_execution import exclusive_execution
 
 
 def _customer_snapshot(customer):
@@ -147,12 +141,11 @@ def start_project_customer_update(*, project_id, actor, api_client=None):
     return execute_customer_sync_attempt(attempt.pk, api_client=api_client)
 
 
+@exclusive_execution
 def execute_customer_sync_attempt(attempt_id, *, api_client=None):
     attempt = QuickBooksSyncAttempt.objects.select_related(
         'connection', 'project__organization', 'mapping'
     ).get(pk=attempt_id)
-    if attempt.status != QuickBooksSyncAttempt.Status.RUNNING:
-        raise QuickBooksSyncError('Only running synchronization attempts can execute.')
     api_client = api_client or QuickBooksAccountingClient()
     try:
         customer = _perform_customer_operation(attempt, api_client)

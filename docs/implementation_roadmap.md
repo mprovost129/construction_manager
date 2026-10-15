@@ -547,8 +547,33 @@ Validation on October 15: **499 tests and 49 subtests passed on PostgreSQL**, in
 HTTPS redirects, and cache headers. Ruff, Django checks, migration consistency, and whitespace
 checks passed. Production timeout configuration was loaded with database TLS still required.
 Both routes returned HTTP 200 against the local app configuration, and the local HTTPS server
-was restarted. Changes are committed locally for the release branch only. GitHub publishing
-is pending: two push attempts on October 15 failed to connect to github.com over HTTPS.
+was restarted. The initial GitHub connection failures were resolved on October 15;
+the prepared commits through `306a44b` were pushed to `codex/automatic-quickbooks-payments`.
+The deployment branch and hosting configuration were not changed.
+
+### Customer synchronization execution guard — October 15, 2026
+
+- Customer create, refresh, and name-update attempts now use the same execution guard
+  as invoices, payments, and items. An in-process mutex and PostgreSQL session lock
+  prevent two workers from executing the same saved customer attempt simultaneously.
+- Execution timestamps/counts are recorded. Completed attempts cannot execute again;
+  repeated interruptions stop at the configured limit for review. Unexpected exceptions
+  leave a failed attempt with a sanitized administrator message instead of leaving it
+  permanently running. Saved request payloads and request IDs are retained.
+- Shared exception classes were moved to a dependency-free module while preserving
+  existing imports from `customer_sync`, so all executors and views catch the same errors.
+- This does not add automatic customer recovery or change the invoice/payment recovery
+  command. Broader customer/item concurrency scenarios and live sandbox acceptance remain
+  open; this change covers exclusive execution of one persisted customer attempt.
+- Focused validation: **33 customer tests passed on PostgreSQL**, including six new tests
+  for reentrant execution, an independent database session holding the execution lock,
+  interrupted execution with the same request, completed-attempt rejection, recovery
+  age/limit checks, and sanitized failure messages through the administrator page.
+- No migration, hosting, billing, or deployment changes are required.
+
+Full validation: **505 tests and 49 subtests passed on PostgreSQL**. Ruff, Django system
+checks, migration consistency, and whitespace checks passed. The local HTTPS server was
+restarted to load the change. Publication remains on the release branch only.
 
 ### Security and legal
 

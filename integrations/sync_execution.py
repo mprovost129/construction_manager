@@ -13,8 +13,8 @@ from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 
-from .customer_sync import QuickBooksSyncBusy, QuickBooksSyncError
 from .models import QuickBooksSyncAttempt
+from .sync_errors import QuickBooksSyncBusy, QuickBooksSyncError
 
 _mutex = Lock()
 _active = set()
