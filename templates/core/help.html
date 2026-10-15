@@ -1,0 +1,158 @@
+{% extends 'base.html' %}
+
+{% block title %}User guide | Construction Manager{% endblock %}
+{% block meta_description %}First-use guide for Construction Manager company users and clients.{% endblock %}
+
+{% block content %}
+<section class="help-hero">
+    <div>
+        <p class="eyebrow">First-use guide</p>
+        <h1>Get started with Construction Manager</h1>
+        <p>Set up a company workspace, organize a project, invite the right people, and move client decisions from draft to approval.</p>
+    </div>
+    {% if user.is_authenticated %}
+    <a class="btn btn-primary" href="{% url 'core:home' %}">Open your projects</a>
+    {% else %}
+    <a class="btn btn-primary" href="{% url 'login' %}">Log in</a>
+    {% endif %}
+</section>
+
+<nav class="help-index" aria-label="User guide sections">
+    <a href="#company-setup">Company setup</a>
+    <a href="#first-project">First project</a>
+    <a href="#daily-workflow">Daily workflow</a>
+    <a href="#client-portal">Client portal</a>
+    <a href="#quickbooks">QuickBooks</a>
+    <a href="#roles-and-access">Roles and access</a>
+</nav>
+
+<section class="guide-section" id="company-setup">
+    <div class="guide-section__heading">
+        <p class="eyebrow">For company administrators</p>
+        <h2>Set up the company workspace</h2>
+        <p>Complete the company settings before sending a real project to a client. These settings control pricing, access, and accounting handoffs throughout the app.</p>
+    </div>
+    <ol class="guide-steps">
+        <li><span>1</span><div><h3>Confirm the company</h3><p>Open <strong>Company</strong> from the main navigation and select the company workspace.</p></div></li>
+        <li><span>2</span><div><h3>Set the tax rate</h3><p>Open <strong>Tax settings</strong> and enter the default rate used when new estimates and invoices are created.</p></div></li>
+        <li><span>3</span><div><h3>Create cost codes</h3><p>Open <strong>Cost codes</strong> and add the product, material, labor, subcontractor, and other codes used for project pricing.</p></div></li>
+        <li><span>4</span><div><h3>Invite the team</h3><p>Use <strong>Invite team member</strong> to assign each person an internal role. Project access is assigned separately after a project is created.</p></div></li>
+        <li><span>5</span><div><h3>Connect QuickBooks when ready</h3><p>A company administrator can connect the correct QuickBooks company and complete customer and item mappings before invoice synchronization.</p></div></li>
+    </ol>
+</section>
+
+<section class="guide-section" id="first-project">
+    <div class="guide-section__heading">
+        <p class="eyebrow">Recommended order</p>
+        <h2>Create the first project</h2>
+        <p>A small amount of setup gives the project team and client a clear workspace from the beginning.</p>
+    </div>
+    <ol class="guide-steps guide-steps--compact">
+        <li><span>1</span><div><h3>Create the project</h3><p>From <strong>Projects</strong>, select <strong>New project</strong>. Add the project name, internal code, status, description, start date, and target completion date.</p></div></li>
+        <li><span>2</span><div><h3>Assign team access</h3><p>Open the project and select <strong>People and access</strong>. Choose each internal user and decide whether they can manage workflows, invite clients, and receive project email notifications.</p></div></li>
+        <li><span>3</span><div><h3>Invite the client</h3><p>Send the invitation to the exact email address the client will use. Invitations expire after seven days and can be resent from the same screen.</p></div></li>
+        <li><span>4</span><div><h3>Add the starting information</h3><p>Upload current plans and documents, create the estimate, add open selections, and start any project conversations the client should see.</p></div></li>
+        <li><span>5</span><div><h3>Check the portal</h3><p>Review client visibility before sending approvals. Draft estimates, draft change orders, internal documents, cost details, and the schedule stay out of the client portal.</p></div></li>
+    </ol>
+</section>
+
+<section class="guide-section" id="daily-workflow">
+    <div class="guide-section__heading">
+        <p class="eyebrow">Project work</p>
+        <h2>Use the dashboard and project modules</h2>
+        <p>The Projects dashboard shows the jobs you can access. The Action center brings pending decisions, unfinished drafts, delays, and open conversations into one list.</p>
+    </div>
+    <div class="guide-module-grid">
+        <article><i class="bi bi-chat-dots"></i><h3>Messages</h3><p>Keep project questions and replies in searchable conversation threads. Close a thread when the question is resolved.</p></article>
+        <article><i class="bi bi-file-earmark-check"></i><h3>Documents</h3><p>Upload plans, contracts, photos, and other files. Choose client visibility and whether a decision is required. New versions preserve the history.</p></article>
+        <article><i class="bi bi-file-earmark-text"></i><h3>Estimates</h3><p>Create the estimate, add cost-coded line items, and submit it to the client. The first approved estimate sets the fixed project contract amount.</p></article>
+        <article><i class="bi bi-palette"></i><h3>Selections</h3><p>Add allowances and finish options, then publish the selection. The app flags overages and credits after the client chooses.</p></article>
+        <article><i class="bi bi-arrow-left-right"></i><h3>Change orders</h3><p>Document scope, pricing, cost, and schedule changes. Add line items, submit the draft, and keep the authenticated client decision in the project history.</p></article>
+        <article><i class="bi bi-receipt"></i><h3>Invoices</h3><p>Create a draft manually or from approved project work, issue it to the client, download the PDF, and track the balance and payment status.</p></article>
+        <article><i class="bi bi-calendar3"></i><h3>Schedule</h3><p>Internal project users can track milestones and delays. Clients do not have access to the project schedule.</p></article>
+        <article><i class="bi bi-graph-up-arrow"></i><h3>Financials</h3><p>Review contract, change orders, selections, invoices, payments, and balances. Internal budget and margin details remain restricted by role.</p></article>
+    </div>
+</section>
+
+<section class="guide-section" id="client-portal">
+    <div class="guide-section__heading">
+        <p class="eyebrow">For homeowners and clients</p>
+        <h2>Use the client portal</h2>
+        <p>The portal contains only the projects and information assigned to the signed-in client.</p>
+    </div>
+    <div class="guide-two-column">
+        <div>
+            <h3>Join the project</h3>
+            <ol>
+                <li>Open the invitation email and follow the secure link.</li>
+                <li>Use the invited email address and create a password if the account is new.</li>
+                <li>Open the project from the Projects dashboard.</li>
+                <li>Start with <strong>Action center</strong> to see decisions that need attention.</li>
+            </ol>
+        </div>
+        <div>
+            <h3>What a client can do</h3>
+            <ul>
+                <li>Read and reply to project messages.</li>
+                <li>View shared files and upload documents or photos.</li>
+                <li>Approve or decline documents, estimates, and change orders.</li>
+                <li>Choose published finish selections.</li>
+                <li>View issued invoices, PDFs, balances, payments, and the client-safe financial summary.</li>
+            </ul>
+        </div>
+    </div>
+    <p class="guide-note"><strong>After a decision:</strong> Treat an approval or selection as final. Contact the project team through Messages if something needs to be revised or reopened.</p>
+</section>
+
+<section class="guide-section" id="quickbooks">
+    <div class="guide-section__heading">
+        <p class="eyebrow">Company administrators</p>
+        <h2>Connect and synchronize QuickBooks</h2>
+        <p>QuickBooks remains the accounting source of truth. Current synchronization actions are deliberate and administrator controlled.</p>
+    </div>
+    <ol class="guide-steps guide-steps--compact">
+        <li><span>1</span><div><h3>Connect the company</h3><p>Open <strong>QuickBooks</strong>, sign in to Intuit, and select the correct company.</p></div></li>
+        <li><span>2</span><div><h3>Map the project customer</h3><p>Match or create the QuickBooks customer that represents the construction project. The app does not depend on QuickBooks Jobs.</p></div></li>
+        <li><span>3</span><div><h3>Map cost code items</h3><p>Match each cost code used on invoice lines to a QuickBooks Product or Service item before sending the invoice.</p></div></li>
+        <li><span>4</span><div><h3>Send the invoice</h3><p>Issue the invoice in Construction Manager, then use the invoice detail page to synchronize it to QuickBooks.</p></div></li>
+        <li><span>5</span><div><h3>Bring payments back</h3><p>Use <strong>Sync payments from QuickBooks</strong> on the invoice to update local payment records and balance status.</p></div></li>
+        <li><span>6</span><div><h3>Resolve exceptions</h3><p>Review failed or blocked synchronization attempts on the QuickBooks screen. Confirm mappings and accounting data before retrying.</p></div></li>
+    </ol>
+    <p class="guide-note"><strong>Current payment workflow:</strong> Clients can view invoices and payment status, but they cannot pay online through this app.</p>
+</section>
+
+<section class="guide-section" id="roles-and-access">
+    <div class="guide-section__heading">
+        <p class="eyebrow">Access control</p>
+        <h2>Understand roles and project permissions</h2>
+        <p>A company role identifies the user's general responsibility. Project assignment controls which jobs that person can open, and project permissions control what management actions appear.</p>
+    </div>
+    <div class="table-responsive">
+        <table class="guide-table">
+            <thead><tr><th>Role</th><th>Typical access</th></tr></thead>
+            <tbody>
+                <tr><td>Admin</td><td>All company projects, team administration, company settings, QuickBooks, and subscription controls.</td></tr>
+                <tr><td>Manager and Project manager</td><td>Assigned projects and project workflows. These roles can create projects; project-level permissions still determine management and client-invitation access.</td></tr>
+                <tr><td>Staff, Office manager, and Real estate agent</td><td>Assigned projects. Available actions depend on the permissions selected under People and access.</td></tr>
+                <tr><td>Accountant</td><td>Assigned financial records and accounting work without client messages, documents, the action center, or the schedule.</td></tr>
+                <tr><td>Client</td><td>Only assigned client projects and client-visible information. Internal costs, margins, drafts, and the schedule remain hidden.</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="guide-section guide-section--last">
+    <div class="guide-section__heading">
+        <p class="eyebrow">Before sending work</p>
+        <h2>Check these common first-use details</h2>
+    </div>
+    <ul class="guide-checklist">
+        <li><i class="bi bi-check-circle"></i><span>Confirm the client-visible setting before uploading a file.</span></li>
+        <li><i class="bi bi-check-circle"></i><span>Submit or publish drafts when they are ready; clients cannot see unfinished drafts.</span></li>
+        <li><i class="bi bi-check-circle"></i><span>Use the exact invitation email the client or team member will use to sign in.</span></li>
+        <li><i class="bi bi-check-circle"></i><span>Map every invoice cost code to a QuickBooks item before synchronization.</span></li>
+        <li><i class="bi bi-check-circle"></i><span>Keep files at or below 25 MB and use a supported document or image format.</span></li>
+        <li><i class="bi bi-check-circle"></i><span>Review the Action center before each client update so pending decisions and drafts are not missed.</span></li>
+    </ul>
+</section>
+{% endblock %}

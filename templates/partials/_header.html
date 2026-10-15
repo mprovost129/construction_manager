@@ -11,6 +11,7 @@
         {% if can_manage_integrations %}
             <a class="app-nav__link" href="{% url 'integrations:quickbooks_connect' %}">QuickBooks</a>
         {% endif %}
+        <a class="app-nav__link" href="{% url 'core:help' %}">Help</a>
         {% if user.is_authenticated %}
             <span class="app-nav__identity">{{ user.email }}</span>
             <form method="post" action="{% url 'logout' %}" class="app-nav__logout">

@@ -81,6 +81,19 @@ class TeamInvitationTests(TestCase):
         self.assertNotContains(response, 'Invite team member')
         self.assertEqual(self.client.get(self.invite_url()).status_code, 403)
 
+    def test_admin_team_page_offers_every_supported_internal_role(self):
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(
+            reverse('projects:company_team', args=(self.organization.slug,))
+        )
+
+        for _value, label in (
+            OrganizationMembership.Role.choices
+        ):
+            if _value in OrganizationMembership.INTERNAL_ROLES:
+                self.assertContains(response, f'>{label}</option>', html=False)
+
     def test_new_user_accepts_team_invitation(self):
         invitation = self.create_invitation()
         response = self.client.post(

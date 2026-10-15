@@ -145,7 +145,19 @@
     <a class="btn btn-outline-secondary" href="{% url 'core:home' %}">Clear filters</a>
     {% else %}
     <h2>No projects yet</h2>
-    <p>Your assigned projects will appear here.</p>
+    {% if can_create_projects %}
+    <p>Create the first project, then add team members and invite the customer.</p>
+    <div class="empty-state__actions">
+        <a class="btn btn-primary" href="{% url 'projects:create' %}">Create your first project</a>
+        <a class="btn btn-outline-secondary" href="{% url 'core:help' %}#company-setup">View the setup guide</a>
+    </div>
+    {% elif has_internal_access %}
+    <p>No projects are assigned to you yet. Ask a company administrator or project manager to add your access.</p>
+    <a class="btn btn-outline-secondary" href="{% url 'core:help' %}#roles-and-access">Learn about project access</a>
+    {% else %}
+    <p>No client projects are connected to this account. Open the invitation from your builder or ask them to resend it.</p>
+    <a class="btn btn-outline-secondary" href="{% url 'core:help' %}#client-portal">View the client guide</a>
+    {% endif %}
     {% endif %}
 </div>
 {% endif %}

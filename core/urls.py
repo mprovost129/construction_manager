@@ -6,6 +6,7 @@ app_name = 'core'
 
 urlpatterns = [
     path('', views.HomeView.as_view(), name='home'),
+    path('help/', views.HelpCenterView.as_view(), name='help'),
     path(
         'legal/eula/',
         views.EndUserLicenseAgreementView.as_view(),
