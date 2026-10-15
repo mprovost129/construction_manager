@@ -1,9 +1,11 @@
 from datetime import timedelta
 
 from django.conf import settings
+from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from projects.access import can_manage_organization
 from projects.models import ActivityEvent, CostCode
 from projects.services import record_activity
 
@@ -12,19 +14,22 @@ from .customer_sync import (
     QuickBooksSyncError,
     _require_accounting_write,
 )
+from .item_accounts import validate_income_account
 from .models import QuickBooksConnection, QuickBooksItemMapping, QuickBooksSyncAttempt
 from .quickbooks import QuickBooksAccountingClient, QuickBooksAPIError
 from .services import QuickBooksMappingError, save_cost_code_item_mapping
+from .sync_execution import exclusive_execution
 
 
 def _item_snapshot(item):
     return {
         key: item.get(key)
-        for key in ('Id', 'SyncToken', 'Name', 'FullyQualifiedName', 'Active', 'Type')
+        for key in ('Id', 'SyncToken', 'Name', 'FullyQualifiedName', 'Active', 'Type', 'IncomeAccountRef')
         if key in item
     }
 
 
+@transaction.atomic
 def _create_running_attempt(
     *,
     connection,
@@ -37,6 +42,12 @@ def _create_running_attempt(
     operation_key=None,
     attempt_number=1,
 ):
+    CostCode.objects.select_for_update().get(pk=cost_code.pk)
+    if operation == QuickBooksSyncAttempt.Operation.CREATE and not operation_key:
+        if QuickBooksItemMapping.objects.filter(cost_code=cost_code, status='active').exists():
+            raise QuickBooksSyncError('This cost code was already mapped. Refresh its QuickBooks item.')
+        if QuickBooksSyncAttempt.objects.filter(cost_code=cost_code, entity_type='item', dispatched_at__isnull=False).exists():
+            raise QuickBooksSyncError('Retry or reconcile the earlier saved item request before creating another.')
     values = {
         'connection': connection,
         'cost_code': cost_code,
@@ -59,8 +70,10 @@ def _create_running_attempt(
         ) from exc
 
 
-def start_cost_code_item_sync(*, cost_code_id, connection_id, actor, api_client=None):
+def start_cost_code_item_sync(*, cost_code_id, connection_id, actor, api_client=None, income_account_id=None):
     cost_code = CostCode.objects.select_related('organization').get(pk=cost_code_id)
+    if not can_manage_organization(actor, cost_code.organization):
+        raise PermissionDenied('Only company administrators can synchronize items.')
     connection = QuickBooksConnection.objects.get(pk=connection_id)
     if cost_code.organization_id != connection.organization_id:
         raise QuickBooksSyncError(
@@ -74,6 +87,8 @@ def start_cost_code_item_sync(*, cost_code_id, connection_id, actor, api_client=
         status=QuickBooksItemMapping.Status.ACTIVE,
     ).first()
     if item_mapping:
+        if income_account_id:
+            raise QuickBooksSyncError('This cost code is already mapped. Refresh its item or review the mapping before choosing a new income account.')
         if item_mapping.connection_id != connection.pk:
             raise QuickBooksSyncError(
                 'This cost code must be synchronized through its mapped QuickBooks company.'
@@ -85,6 +100,8 @@ def start_cost_code_item_sync(*, cost_code_id, connection_id, actor, api_client=
         operation = QuickBooksSyncAttempt.Operation.CREATE
         direction = QuickBooksSyncAttempt.Direction.TO_QUICKBOOKS
         payload = {'Name': (cost_code.name or cost_code.code)[:100], 'Type': 'Service'}
+        if income_account_id:
+            payload['IncomeAccountRef'] = {'value': str(income_account_id)}
 
     attempt = _create_running_attempt(
         connection=connection,
@@ -98,6 +115,7 @@ def start_cost_code_item_sync(*, cost_code_id, connection_id, actor, api_client=
     return execute_item_sync_attempt(attempt.pk, api_client=api_client)
 
 
+@exclusive_execution
 def execute_item_sync_attempt(attempt_id, *, api_client=None):
     attempt = QuickBooksSyncAttempt.objects.select_related(
         'connection', 'cost_code__organization', 'item_mapping'
@@ -107,6 +125,13 @@ def execute_item_sync_attempt(attempt_id, *, api_client=None):
     api_client = api_client or QuickBooksAccountingClient()
     try:
         item = _perform_item_operation(attempt, api_client)
+        attempt.external_id = str(item.get('Id') or '')
+        attempt.external_sync_token = str(item.get('SyncToken') or '')
+        attempt.response_snapshot = _item_snapshot(item)
+        attempt.save(update_fields=('external_id', 'external_sync_token', 'response_snapshot'))
+        expected_account = (attempt.request_payload.get('IncomeAccountRef') or {}).get('value')
+        if expected_account and (item.get('IncomeAccountRef') or {}).get('value') != expected_account:
+            raise QuickBooksMappingError('QuickBooks returned a different income account. Review the saved item before continuing.')
         mapping = save_cost_code_item_mapping(
             cost_code=attempt.cost_code,
             connection=attempt.connection,
@@ -133,11 +158,24 @@ def _perform_item_operation(attempt, api_client):
             attempt.request_payload['item_id'],
         )
     if attempt.operation == QuickBooksSyncAttempt.Operation.CREATE:
+        if attempt.external_id:
+            return api_client.get_item(attempt.connection, attempt.external_id)
         _require_accounting_write(attempt.connection)
+        account_id = (attempt.request_payload.get('IncomeAccountRef') or {}).get('value')
+        if account_id:
+            validate_income_account(api_client.get_account(attempt.connection, account_id), account_id)
         name = attempt.request_payload['Name']
         matches = api_client.find_items_by_name(attempt.connection, name)
         if matches:
+            if len(matches) != 1 or matches[0].get('Active') is not True or matches[0].get('Type') != 'Service':
+                raise QuickBooksMappingError('The matching item is ambiguous or is not an active service. Map the intended existing item explicitly.')
+            expected = (attempt.request_payload.get('IncomeAccountRef') or {}).get('value')
+            if expected and (matches[0].get('IncomeAccountRef') or {}).get('value') != expected:
+                raise QuickBooksMappingError('An existing service has this name but a different income account. Review it in QuickBooks or map the intended item explicitly.')
             return matches[0]
+        if not account_id:
+            raise QuickBooksMappingError('Choose an income account before creating a new QuickBooks service item.')
+        QuickBooksSyncAttempt.objects.filter(pk=attempt.pk, dispatched_at__isnull=True).update(dispatched_at=timezone.now())
         return api_client.create_item(
             attempt.connection,
             attempt.request_payload,
@@ -182,6 +220,7 @@ def _mark_attempt_succeeded(attempt_id, mapping, item):
             'sync_attempt_id': attempt.pk,
             'operation': attempt.operation,
             'quickbooks_item_id': attempt.external_id,
+            'income_account_id': (item.get('IncomeAccountRef') or {}).get('value'),
         },
     )
     return attempt
@@ -277,7 +316,7 @@ def prepare_item_sync_retry(attempt_id, *, actor):
     previous.resolved_by = actor
     previous.resolved_at = timezone.now()
     previous.save()
-    return _create_running_attempt(
+    retry = _create_running_attempt(
         connection=previous.connection,
         cost_code=previous.cost_code,
         item_mapping=previous.item_mapping,
@@ -288,6 +327,12 @@ def prepare_item_sync_retry(attempt_id, *, actor):
         operation_key=previous.operation_key,
         attempt_number=previous.attempt_number + 1,
     )
+    retry.external_id = previous.external_id
+    retry.external_sync_token = previous.external_sync_token
+    retry.response_snapshot = previous.response_snapshot
+    retry.dispatched_at = previous.dispatched_at
+    retry.save(update_fields=('external_id', 'external_sync_token', 'response_snapshot', 'dispatched_at'))
+    return retry
 
 
 def retry_item_sync_attempt(attempt_id, *, actor=None, api_client=None):

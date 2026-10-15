@@ -299,6 +299,96 @@ class QuickBooksInvoiceSyncTests(TestCase):
                 api_client=Mock(),
             )
 
+    @patch('integrations.quickbooks.requests.post')
+    def test_validation_error_is_not_retried_as_a_stale_record(self, post):
+        for code, retryable, message in (
+            ('2020', False, 'missing required information'),
+            ('5010', True, 'record changed'),
+        ):
+            with self.subTest(code=code):
+                post.return_value = Mock(
+                    status_code=400,
+                    json=Mock(return_value={'Fault': {'Error': [{
+                        'code': code,
+                        'Detail': 'Private upstream request details',
+                    }]}}),
+                )
+                invoice = self.create_issued_invoice()
+                attempt = start_invoice_sync(
+                    invoice_id=invoice.pk,
+                    connection_id=self.connection.pk,
+                    actor=self.admin,
+                )
+                self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.FAILED)
+                self.assertEqual(attempt.error_code, code)
+                self.assertEqual(attempt.retryable, retryable)
+                self.assertEqual(attempt.next_retry_at is not None, retryable)
+                self.assertIn(message, attempt.error_message)
+                self.assertNotIn('Private upstream', attempt.error_message)
+                self.assertFalse(QuickBooksInvoiceMapping.objects.filter(invoice=invoice).exists())
+
+    def test_taxed_export_stops_before_creating_a_remote_invoice(self):
+        invoice = self.create_issued_invoice()
+        # Model a previously issued taxed invoice without changing its tax at sync time.
+        Invoice.objects.filter(pk=invoice.pk).update(
+            tax_rate=Decimal('7.25'), tax_amount=Decimal('7.25'),
+            total_amount=Decimal('107.25'),
+        )
+        api = Mock()
+        with self.assertRaisesMessage(QuickBooksSyncError, 'Taxed invoices cannot'):
+            start_invoice_sync(
+                invoice_id=invoice.pk, connection_id=self.connection.pk,
+                actor=self.admin, api_client=api,
+            )
+        api.create_invoice.assert_not_called()
+        self.assertFalse(QuickBooksSyncAttempt.objects.filter(invoice=invoice).exists())
+
+    def test_remote_total_mismatch_fails_but_preserves_identity(self):
+        invoice = self.create_issued_invoice()
+        api = Mock()
+        api.create_invoice.return_value = {**qb_invoice(), 'TotalAmt': '107.25', 'Balance': '107.25'}
+        attempt = start_invoice_sync(
+            invoice_id=invoice.pk, connection_id=self.connection.pk,
+            actor=self.admin, api_client=api,
+        )
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.FAILED)
+        self.assertFalse(attempt.retryable)
+        self.assertIn('different total', attempt.error_message)
+        self.assertEqual(attempt.invoice_mapping.quickbooks_invoice_id, '9')
+        self.assertEqual(attempt.invoice_mapping.external_total_amount, Decimal('107.25'))
+        with self.assertRaisesMessage(QuickBooksSyncError, 'already synchronized'):
+            start_invoice_sync(
+                invoice_id=invoice.pk, connection_id=self.connection.pk,
+                actor=self.admin, api_client=api,
+            )
+        self.assertEqual(api.create_invoice.call_count, 1)
+
+    def test_legacy_taxed_retry_stops_before_remote_write(self):
+        invoice = self.create_issued_invoice()
+        first_api = Mock()
+        first_api.create_invoice.side_effect = QuickBooksAPIError(
+            'api_unavailable', 'Temporary connection failure.', retryable=True,
+        )
+        failed = start_invoice_sync(
+            invoice_id=invoice.pk, connection_id=self.connection.pk,
+            actor=self.admin, api_client=first_api,
+        )
+        # Reconstruct an attempt queued by the previous, tax-permissive version.
+        Invoice.objects.filter(pk=invoice.pk).update(
+            tax_rate=Decimal('7.25'), tax_amount=Decimal('7.25'),
+            total_amount=Decimal('107.25'),
+        )
+        failed.request_payload['TxnTaxDetail'] = {'TotalTax': '7.25'}
+        failed.save(update_fields=('request_payload',))
+        retry_api = Mock()
+        retried = retry_invoice_sync_attempt(
+            failed.pk, actor=self.admin, api_client=retry_api,
+        )
+        self.assertEqual(retried.status, QuickBooksSyncAttempt.Status.FAILED)
+        self.assertFalse(retried.retryable)
+        self.assertIn('Taxed invoices cannot', retried.error_message)
+        retry_api.create_invoice.assert_not_called()
+
     def test_retryable_failure_records_backoff_without_secret_details(self):
         invoice = self.create_issued_invoice()
         api = Mock()

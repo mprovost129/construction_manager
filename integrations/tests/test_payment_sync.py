@@ -5,13 +5,14 @@ from unittest.mock import Mock, patch
 
 from cryptography.fernet import Fernet
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from billing.models import Invoice, InvoiceLineItem, Payment
-from billing.services import issue_invoice, record_payment
+from billing.services import delete_payment, issue_invoice, record_payment
 from integrations.models import (
     QuickBooksConnection,
     QuickBooksCreditMemoMapping,
@@ -27,7 +28,7 @@ from integrations.payment_sync import (
     start_invoice_payment_sync,
 )
 from integrations.quickbooks import QuickBooksAccountingClient, QuickBooksAPIError
-from integrations.services import save_invoice_mapping
+from integrations.services import QuickBooksMappingError, save_invoice_mapping
 from projects.models import (
     Organization,
     OrganizationMembership,
@@ -109,7 +110,8 @@ def qb_credit_memo(
         'Line': [
             {
                 'Amount': amount,
-                'LinkedTxn': [{'TxnId': invoice_txn_id, 'TxnType': 'Invoice'}],
+                'DetailType': 'SalesItemLineDetail',
+                'SalesItemLineDetail': {'ItemRef': {'value': '7'}},
             }
         ],
     }
@@ -168,24 +170,6 @@ class QuickBooksPaymentReadClientTests(TestCase):
 
         self.assertEqual(result['Id'], '77')
 
-    @patch('integrations.quickbooks.requests.get')
-    def test_find_credit_memos_for_invoice_filters_by_linked_txn(self, get):
-        matching = qb_credit_memo(credit_memo_id='77', invoice_txn_id='9')
-        other_invoice = qb_credit_memo(credit_memo_id='78', invoice_txn_id='99')
-        get.return_value = Mock(
-            status_code=200,
-            json=Mock(
-                return_value={'QueryResponse': {'CreditMemo': [matching, other_invoice]}}
-            ),
-        )
-
-        matches = QuickBooksAccountingClient().find_credit_memos_for_invoice(
-            self.connection, '42', '9'
-        )
-
-        self.assertEqual([entry['Id'] for entry in matches], ['77'])
-        query = get.call_args.kwargs['params']['query']
-        self.assertIn("CustomerRef = '42'", query)
 
 
 @override_settings(**SYNC_SETTINGS)
@@ -261,7 +245,6 @@ class QuickBooksInvoicePaymentSyncTests(TestCase):
     def test_scan_imports_clean_payment_and_updates_invoice_balance(self):
         api = Mock()
         api.find_payments_for_invoice.return_value = [qb_payment()]
-        api.find_credit_memos_for_invoice.return_value = []
 
         attempt = start_invoice_payment_sync(
             invoice_id=self.invoice.pk,
@@ -300,7 +283,6 @@ class QuickBooksInvoicePaymentSyncTests(TestCase):
             qb_payment(payment_id='55', amount='100.00', txn_date='2026-08-01'),
             qb_payment(payment_id='56', amount='100.00', txn_date='2026-08-05'),
         ]
-        api.find_credit_memos_for_invoice.return_value = []
 
         attempt = start_invoice_payment_sync(
             invoice_id=self.invoice.pk,
@@ -327,7 +309,6 @@ class QuickBooksInvoicePaymentSyncTests(TestCase):
     def test_reverify_tombstones_missing_payment(self):
         api = Mock()
         api.find_payments_for_invoice.return_value = [qb_payment()]
-        api.find_credit_memos_for_invoice.return_value = []
         start_invoice_payment_sync(
             invoice_id=self.invoice.pk,
             connection_id=self.connection.pk,
@@ -343,7 +324,6 @@ class QuickBooksInvoicePaymentSyncTests(TestCase):
             status_code=400,
         )
         second_api.find_payments_for_invoice.return_value = []
-        second_api.find_credit_memos_for_invoice.return_value = []
 
         attempt = start_invoice_payment_sync(
             invoice_id=self.invoice.pk,
@@ -356,11 +336,15 @@ class QuickBooksInvoicePaymentSyncTests(TestCase):
         mapping.refresh_from_db()
         self.assertEqual(mapping.status, QuickBooksPaymentMapping.Status.TOMBSTONED)
         self.assertEqual(attempt.response_snapshot['reverified'][0]['status'], 'tombstoned')
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.amount_paid, Decimal('0.00'))
+        self.assertEqual(self.invoice.balance_due, Decimal('200.00'))
+        self.assertEqual(self.invoice.status, Invoice.Status.ISSUED)
+        self.assertEqual(Payment.objects.count(), 1)
 
     def test_reverify_marks_zero_amount_payment_as_voided(self):
         api = Mock()
         api.find_payments_for_invoice.return_value = [qb_payment()]
-        api.find_credit_memos_for_invoice.return_value = []
         start_invoice_payment_sync(
             invoice_id=self.invoice.pk,
             connection_id=self.connection.pk,
@@ -372,7 +356,6 @@ class QuickBooksInvoicePaymentSyncTests(TestCase):
         second_api = Mock()
         second_api.get_payment.return_value = qb_payment(amount='0.00', sync_token='1')
         second_api.find_payments_for_invoice.return_value = []
-        second_api.find_credit_memos_for_invoice.return_value = []
 
         start_invoice_payment_sync(
             invoice_id=self.invoice.pk,
@@ -383,122 +366,176 @@ class QuickBooksInvoicePaymentSyncTests(TestCase):
 
         mapping.refresh_from_db()
         self.assertEqual(mapping.status, QuickBooksPaymentMapping.Status.VOIDED)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.amount_paid, Decimal('0.00'))
+        self.assertEqual(self.invoice.status, Invoice.Status.ISSUED)
+        self.client.force_login(self.client_user)
+        response = self.client.get(reverse('billing:invoice_detail', args=(self.project.pk, self.invoice.pk)))
+        self.assertContains(response, 'Reversed in QuickBooks')
 
-    def test_scan_imports_credit_memo_and_updates_invoice_balance(self):
+    def sync_payments(self, records, *, existing=None, actor=None):
         api = Mock()
-        api.find_payments_for_invoice.return_value = []
-        api.find_credit_memos_for_invoice.return_value = [qb_credit_memo()]
-
+        api.find_payments_for_invoice.return_value = records
+        if existing is not None:
+            api.get_payment.side_effect = lambda connection, payment_id: existing[payment_id]
         attempt = start_invoice_payment_sync(
             invoice_id=self.invoice.pk,
             connection_id=self.connection.pk,
-            actor=self.admin,
+            actor=actor or self.admin,
             api_client=api,
         )
-
-        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
-        self.assertEqual(attempt.response_snapshot['credit_memos_created'], ['77'])
         self.invoice.refresh_from_db()
-        self.assertEqual(self.invoice.status, Invoice.Status.PARTIALLY_PAID)
-        self.assertEqual(self.invoice.amount_paid, Decimal('50.00'))
-        payment = Payment.objects.get(invoice=self.invoice)
-        self.assertEqual(payment.amount, Decimal('50.00'))
-        self.assertEqual(payment.method, Payment.Method.CREDIT_MEMO)
-        self.assertIsNone(payment.credit_memo)
-        self.assertEqual(payment.reference, 'CM-1001')
-        self.assertTrue(
-            QuickBooksCreditMemoMapping.objects.filter(
-                payment=payment, quickbooks_credit_memo_id='77'
-            ).exists()
-        )
+        return attempt
 
-    def test_scan_imports_both_payment_and_credit_memo_in_same_pass(self):
+    def test_split_payment_uses_only_this_invoice_application(self):
+        payment = qb_payment(amount='1000.00')
+        payment['Line'] = [
+            {'Amount': '75.00', 'LinkedTxn': [{'TxnId': '9', 'TxnType': 'Invoice'}]},
+            {'Amount': '25.00', 'LinkedTxn': [{'TxnId': '9', 'TxnType': 'Invoice'}]},
+            {'Amount': '800.00', 'LinkedTxn': [{'TxnId': '99', 'TxnType': 'Invoice'}]},
+        ]
+        payment['UnappliedAmt'] = '100.00'
+        attempt = self.sync_payments([payment])
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
+        self.assertEqual(self.invoice.amount_paid, Decimal('100.00'))
+        self.assertEqual(self.invoice.balance_due, Decimal('100.00'))
+        self.assertEqual(QuickBooksPaymentMapping.objects.get().external_amount, Decimal('100.00'))
+
+    def test_zero_cash_credit_application_is_imported_once_as_payment(self):
+        payment = qb_payment(amount='0.00')
+        payment['Line'] = [
+            {'Amount': '50.00', 'LinkedTxn': [{'TxnId': '9', 'TxnType': 'Invoice'}]},
+            {'Amount': '50.00', 'LinkedTxn': [{'TxnId': '77', 'TxnType': 'CreditMemo'}]},
+        ]
+        for existing in (None, {'55': payment}):
+            attempt = self.sync_payments([payment, payment], existing=existing)
+            self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
+            self.assertEqual(self.invoice.amount_paid, Decimal('50.00'))
+            self.assertEqual(Payment.objects.count(), 1)
+            self.assertEqual(Payment.objects.get().method, Payment.Method.CREDIT_MEMO)
+            self.assertEqual(QuickBooksPaymentMapping.objects.get().status, 'active')
+        self.assertEqual(QuickBooksCreditMemoMapping.objects.count(), 0)
+
+    def test_changed_payment_reconciles_balance_and_date(self):
+        self.sync_payments([qb_payment()])
+        changed = qb_payment(amount='60.00', txn_date='2026-08-02', sync_token='1')
+        attempt = self.sync_payments([changed], existing={'55': changed})
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
+        self.assertEqual(self.invoice.amount_paid, Decimal('60.00'))
+        self.assertEqual(self.invoice.balance_due, Decimal('140.00'))
+        self.assertEqual(Payment.objects.get().paid_date, date(2026, 8, 2))
+
+    def test_redistributed_receipts_reconcile_without_transient_overpayment(self):
+        self.sync_payments([qb_payment(payment_id='55'), qb_payment(payment_id='56')])
+        # The most recently synced mapping is read first, and its amount increases.
+        updated = {'55': qb_payment(payment_id='55', amount='50.00'),
+                   '56': qb_payment(payment_id='56', amount='150.00')}
+        attempt = self.sync_payments(list(updated.values()), existing=updated)
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
+        self.assertEqual(self.invoice.amount_paid, Decimal('200.00'))
+        self.assertEqual(self.invoice.status, Invoice.Status.PAID)
+        self.assertEqual(Payment.objects.get(quickbooks_mapping__quickbooks_payment_id='56').amount, Decimal('150.00'))
+
+    def test_true_overpayment_is_rejected_without_changing_existing_ledger(self):
+        self.sync_payments([qb_payment()])
+        changed = qb_payment(amount='250.00', sync_token='1')
+        attempt = self.sync_payments([changed], existing={'55': changed})
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.FAILED)
+        self.assertEqual(self.invoice.amount_paid, Decimal('100.00'))
+        self.assertEqual(Payment.objects.get().amount, Decimal('100.00'))
+        self.assertEqual(QuickBooksPaymentMapping.objects.get().quickbooks_sync_token, '0')
+
+    def test_mixed_cash_and_credit_counts_invoice_application_once(self):
+        payment = qb_payment(amount='100.00')
+        payment['Line'] = [
+            {'Amount': '150.00', 'LinkedTxn': [{'TxnId': '9', 'TxnType': 'Invoice'}]},
+            {'Amount': '50.00', 'LinkedTxn': [{'TxnId': '77', 'TxnType': 'CreditMemo'}]},
+        ]
+        attempt = self.sync_payments([payment])
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
+        self.assertEqual(self.invoice.amount_paid, Decimal('150.00'))
+        self.assertEqual(Payment.objects.count(), 1)
+
+    def test_unapplied_payment_reverses_then_reapplication_restores_balance(self):
+        original = qb_payment()
+        self.sync_payments([original])
+        unlinked = qb_payment(invoice_txn_id='99', sync_token='1')
+        attempt = self.sync_payments([], existing={'55': unlinked})
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
+        self.assertEqual(self.invoice.amount_paid, Decimal('0.00'))
+        self.assertEqual(self.invoice.status, Invoice.Status.ISSUED)
+        self.assertEqual(Payment.objects.count(), 1)
+        self.assertFalse(Payment.objects.get().is_applied)
+        attempt = self.sync_payments([original], existing={'55': original})
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
+        self.assertEqual(self.invoice.amount_paid, Decimal('100.00'))
+        self.assertEqual(Payment.objects.count(), 1)
+
+    def test_import_and_mapping_are_atomic(self):
+        with patch('integrations.payment_sync.save_payment_mapping', side_effect=QuickBooksMappingError('Invalid mapping')):
+            attempt = self.sync_payments([qb_payment()])
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.FAILED)
+        self.assertEqual(Payment.objects.count(), 0)
+        self.assertEqual(self.invoice.amount_paid, Decimal('0.00'))
+        self.assertEqual(self.invoice.status, Invoice.Status.ISSUED)
+
+    def test_invalid_or_ambiguous_payments_fail_without_posting(self):
+        bad_records = []
+        wrong_customer = qb_payment(customer_id='another-company')
+        bad_records.append(wrong_customer)
+        missing_date = qb_payment(txn_date='invalid')
+        bad_records.append(missing_date)
+        ambiguous = qb_payment()
+        ambiguous['Line'][0]['LinkedTxn'].append({'TxnId': '99', 'TxnType': 'Invoice'})
+        bad_records.append(ambiguous)
+        for value in ('NaN', '-1.00', None, '1.001'):
+            invalid_amount = qb_payment()
+            invalid_amount['Line'][0]['Amount'] = value
+            bad_records.append(invalid_amount)
+        for payment in bad_records:
+            with self.subTest(payment=payment):
+                attempt = self.sync_payments([payment])
+                self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.FAILED)
+                self.assertEqual(self.invoice.amount_paid, Decimal('0.00'))
+                self.assertEqual(Payment.objects.count(), 0)
+
+    def test_imported_payment_cannot_be_deleted_locally(self):
+        self.sync_payments([qb_payment()])
+        payment = Payment.objects.get()
+        with self.assertRaisesMessage(ValidationError, 'Update this payment in QuickBooks'):
+            delete_payment(payment_id=payment.pk, actor=self.admin)
+        self.client.force_login(self.admin)
+        response = self.client.post(reverse('billing:payment_delete', args=(
+            self.project.pk, self.invoice.pk, payment.pk,
+        )), follow=True)
+        self.assertContains(response, 'Update this payment in QuickBooks')
+        self.assertContains(response, 'Managed in QuickBooks')
+        self.assertEqual(Payment.objects.count(), 1)
+
+    def test_background_retry_can_import_without_actor(self):
         api = Mock()
         api.find_payments_for_invoice.return_value = [qb_payment()]
-        api.find_credit_memos_for_invoice.return_value = [qb_credit_memo()]
-
         attempt = start_invoice_payment_sync(
-            invoice_id=self.invoice.pk,
-            connection_id=self.connection.pk,
-            actor=self.admin,
-            api_client=api,
+            invoice_id=self.invoice.pk, connection_id=self.connection.pk,
+            actor=None, api_client=api,
         )
-
         self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
-        self.assertEqual(attempt.response_snapshot['created'], ['55'])
-        self.assertEqual(attempt.response_snapshot['credit_memos_created'], ['77'])
-        self.invoice.refresh_from_db()
-        self.assertEqual(self.invoice.amount_paid, Decimal('150.00'))
-        self.assertEqual(Payment.objects.filter(invoice=self.invoice).count(), 2)
+        self.assertEqual(Payment.objects.count(), 1)
 
-    def test_credit_memo_reverify_tombstones_missing_credit_memo(self):
-        api = Mock()
-        api.find_payments_for_invoice.return_value = []
-        api.find_credit_memos_for_invoice.return_value = [qb_credit_memo()]
-        start_invoice_payment_sync(
-            invoice_id=self.invoice.pk,
-            connection_id=self.connection.pk,
-            actor=self.admin,
-            api_client=api,
+    def test_legacy_credit_mapping_blocks_new_imports_for_review(self):
+        local_payment = record_payment(
+            invoice_id=self.invoice.pk, actor=self.admin, amount='50.00',
+            method=Payment.Method.CREDIT_MEMO, reference='legacy',
+            paid_date=date(2026, 8, 1), note='',
         )
-        mapping = QuickBooksCreditMemoMapping.objects.get(quickbooks_credit_memo_id='77')
-
-        second_api = Mock()
-        second_api.get_credit_memo.side_effect = QuickBooksAPIError(
-            '610',
-            'The requested QuickBooks record no longer exists.',
-            status_code=400,
+        QuickBooksCreditMemoMapping.objects.create(
+            payment=local_payment, invoice_mapping=self.invoice_mapping,
+            connection=self.connection, quickbooks_credit_memo_id='77', quickbooks_sync_token='0',
         )
-        second_api.find_payments_for_invoice.return_value = []
-        second_api.find_credit_memos_for_invoice.return_value = []
-
-        attempt = start_invoice_payment_sync(
-            invoice_id=self.invoice.pk,
-            connection_id=self.connection.pk,
-            actor=self.admin,
-            api_client=second_api,
-        )
-
-        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
-        mapping.refresh_from_db()
-        self.assertEqual(mapping.status, QuickBooksCreditMemoMapping.Status.TOMBSTONED)
-        self.assertEqual(
-            attempt.response_snapshot['credit_memos_reverified'][0]['status'], 'tombstoned'
-        )
-
-    def test_duplicate_check_excludes_payments_already_linked_to_a_credit_memo_mapping(self):
-        # An already-imported $50 credit memo (77) must not block a second, distinct $50
-        # credit memo (78) with the same amount/date from importing cleanly — it should only
-        # be compared against *unmapped* local payments when checking for duplicates.
-        api = Mock()
-        api.find_payments_for_invoice.return_value = []
-        api.find_credit_memos_for_invoice.return_value = [qb_credit_memo()]
-        start_invoice_payment_sync(
-            invoice_id=self.invoice.pk,
-            connection_id=self.connection.pk,
-            actor=self.admin,
-            api_client=api,
-        )
-
-        second_api = Mock()
-        second_api.find_payments_for_invoice.return_value = []
-        second_api.get_credit_memo.return_value = qb_credit_memo(credit_memo_id='77')
-        second_api.find_credit_memos_for_invoice.return_value = [
-            qb_credit_memo(credit_memo_id='77'),
-            qb_credit_memo(credit_memo_id='78', amount='50.00', txn_date='2026-08-01'),
-        ]
-
-        attempt = start_invoice_payment_sync(
-            invoice_id=self.invoice.pk,
-            connection_id=self.connection.pk,
-            actor=self.admin,
-            api_client=second_api,
-        )
-
-        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
-        self.assertEqual(attempt.response_snapshot['credit_memos_created'], ['78'])
-        self.assertEqual(attempt.response_snapshot['credit_memo_possible_duplicates'], [])
-        self.assertEqual(Payment.objects.filter(invoice=self.invoice).count(), 2)
+        attempt = self.sync_payments([qb_payment()])
+        self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.FAILED)
+        self.assertIn('Legacy QuickBooks credit imports', attempt.error_message)
+        self.assertEqual(Payment.objects.count(), 1)
 
     def test_sync_requires_active_invoice_mapping(self):
         self.invoice_mapping.delete()

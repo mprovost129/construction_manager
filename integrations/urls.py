@@ -1,10 +1,14 @@
 from django.urls import path
 
-from . import views
+from . import item_views, tax_views, views
 
 app_name = 'integrations'
 
 urlpatterns = [
+    path('quickbooks/connections/<int:connection_id>/payment-updates/', views.quickbooks_payment_updates, name='quickbooks_payment_updates'),
+    path('quickbooks/cost-codes/<int:cost_code_id>/service/', item_views.service_item_setup, name='quickbooks_service_item_setup'),
+    path('quickbooks/connections/<int:connection_id>/tax/', tax_views.tax_mappings, name='quickbooks_tax_mappings'),
+    path('quickbooks/tax-mappings/<int:mapping_id>/unlink/', tax_views.tax_mapping_unlink, name='quickbooks_tax_mapping_unlink'),
     path(
         'quickbooks/connect/',
         views.quickbooks_connect,

@@ -51,7 +51,13 @@ def item(item_id='7', name='Framing labor', sync_token='0'):
         'Name': name,
         'Active': True,
         'Type': 'Service',
+        'IncomeAccountRef': {'value': '79', 'name': 'Sales'},
     }
+
+
+def income_account(account_id='79'):
+    return {'Id': account_id, 'Name': 'Sales', 'Active': True,
+            'AccountType': 'Income', 'AccountSubType': 'SalesOfProductIncome'}
 
 
 @override_settings(**SYNC_SETTINGS)
@@ -153,6 +159,7 @@ class QuickBooksItemSyncTests(TestCase):
 
     def test_unmapped_cost_code_creates_item_and_durable_success(self):
         api = Mock()
+        api.get_account.return_value = income_account()
         api.find_items_by_name.return_value = []
         api.create_item.return_value = item()
 
@@ -161,6 +168,7 @@ class QuickBooksItemSyncTests(TestCase):
             connection_id=self.connection.pk,
             actor=self.admin,
             api_client=api,
+            income_account_id='79',
         )
 
         self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.SUCCEEDED)
@@ -261,6 +269,7 @@ class QuickBooksItemSyncTests(TestCase):
 
     def test_retryable_failure_records_backoff_without_secret_details(self):
         api = Mock()
+        api.get_account.return_value = income_account()
         api.find_items_by_name.return_value = []
         api.create_item.side_effect = QuickBooksAPIError(
             'api_unavailable',
@@ -273,6 +282,7 @@ class QuickBooksItemSyncTests(TestCase):
             connection_id=self.connection.pk,
             actor=self.admin,
             api_client=api,
+            income_account_id='79',
         )
 
         self.assertEqual(attempt.status, QuickBooksSyncAttempt.Status.FAILED)
@@ -285,6 +295,7 @@ class QuickBooksItemSyncTests(TestCase):
 
     def test_retry_reuses_request_id_and_resolves_previous_attempt(self):
         first_api = Mock()
+        first_api.get_account.return_value = income_account()
         first_api.find_items_by_name.return_value = []
         first_api.create_item.side_effect = QuickBooksAPIError(
             'api_unavailable',
@@ -296,9 +307,11 @@ class QuickBooksItemSyncTests(TestCase):
             connection_id=self.connection.pk,
             actor=self.admin,
             api_client=first_api,
+            income_account_id='79',
         )
         original_request_id = first_api.create_item.call_args.kwargs['request_id']
         retry_api = Mock()
+        retry_api.get_account.return_value = income_account()
         retry_api.find_items_by_name.return_value = []
         retry_api.create_item.return_value = item()
 

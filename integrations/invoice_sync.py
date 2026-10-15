@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -22,6 +23,8 @@ from .models import (
 )
 from .quickbooks import QuickBooksAccountingClient, QuickBooksAPIError
 from .services import QuickBooksMappingError, save_invoice_mapping
+from .sync_execution import exclusive_execution
+from .taxes import invoice_tax_mapping, validate_invoice_tax
 
 
 def _invoice_snapshot(invoice):
@@ -36,6 +39,7 @@ def _invoice_snapshot(invoice):
             'Balance',
             'TxnDate',
             'DueDate',
+            'TxnTaxDetail',
         )
         if key in invoice
     }
@@ -67,6 +71,10 @@ def _build_invoice_line_items(invoice, connection):
                 },
             }
         )
+        if connection.country == 'US':
+            lines[-1]['SalesItemLineDetail']['TaxCodeRef'] = {
+                'value': 'TAX' if invoice.tax_rate else 'NON'
+            }
     if unmapped:
         raise QuickBooksSyncError(
             'Map every invoice line to a QuickBooks item before syncing. Unmapped: '
@@ -75,6 +83,7 @@ def _build_invoice_line_items(invoice, connection):
     return lines
 
 
+@transaction.atomic
 def _create_running_attempt(
     *,
     connection,
@@ -87,6 +96,22 @@ def _create_running_attempt(
     operation_key=None,
     attempt_number=1,
 ):
+    # Recheck under the invoice lock: the initial screen/request checks may be stale.
+    current = Invoice.objects.select_for_update().get(pk=invoice.pk)
+    if QuickBooksSyncAttempt.objects.filter(invoice=invoice, entity_type='invoice', status='running').exists():
+        raise QuickBooksSyncBusy('An invoice synchronization is already running for this invoice.')
+    if operation == QuickBooksSyncAttempt.Operation.CREATE and not operation_key:
+        if current.status in (Invoice.Status.DRAFT, Invoice.Status.VOIDED):
+            raise QuickBooksSyncError('Only issued invoices can be synchronized.')
+        if QuickBooksInvoiceMapping.objects.filter(invoice=invoice).exists():
+            raise QuickBooksSyncError('This invoice is already synchronized to QuickBooks.')
+        if QuickBooksSyncAttempt.objects.filter(
+            invoice=invoice, entity_type='invoice', operation='create',
+            dispatched_at__isnull=False,
+        ).exists():
+            raise QuickBooksSyncError(
+                'An earlier invoice request may already exist in QuickBooks. Retry or reconcile that saved request.'
+            )
     values = {
         'connection': connection,
         'invoice': invoice,
@@ -123,6 +148,12 @@ def start_invoice_sync(*, invoice_id, connection_id, actor, api_client=None):
         raise QuickBooksSyncError('Issue the invoice before synchronizing it to QuickBooks.')
     if invoice.status == Invoice.Status.VOIDED:
         raise QuickBooksSyncError('A voided invoice cannot be synchronized to QuickBooks.')
+    tax_mapping = None
+    if invoice.tax_rate:
+        try:
+            tax_mapping = invoice_tax_mapping(invoice, connection)
+        except QuickBooksMappingError as exc:
+            raise QuickBooksSyncError(str(exc)) from exc
     existing_mapping = QuickBooksInvoiceMapping.objects.filter(
         invoice=invoice,
         status=QuickBooksInvoiceMapping.Status.ACTIVE,
@@ -143,14 +174,15 @@ def start_invoice_sync(*, invoice_id, connection_id, actor, api_client=None):
     payload = {
         'CustomerRef': {'value': customer_mapping.quickbooks_customer_id},
         'Line': line_items,
-        'GlobalTaxCalculation': 'TaxExcluded',
     }
+    if connection.country != 'US':
+        payload['GlobalTaxCalculation'] = 'TaxExcluded'
     if invoice.issue_date:
         payload['TxnDate'] = invoice.issue_date.isoformat()
     if invoice.due_date:
         payload['DueDate'] = invoice.due_date.isoformat()
-    if invoice.tax_amount:
-        payload['TxnTaxDetail'] = {'TotalTax': str(invoice.tax_amount)}
+    if tax_mapping:
+        payload['TxnTaxDetail'] = {'TxnTaxCodeRef': {'value': tax_mapping.quickbooks_tax_code_id}}
 
     attempt = _create_running_attempt(
         connection=connection,
@@ -195,6 +227,7 @@ def start_invoice_void_sync(*, invoice_id, connection_id, actor, api_client=None
     return execute_invoice_sync_attempt(attempt.pk, api_client=api_client)
 
 
+@exclusive_execution
 def execute_invoice_sync_attempt(attempt_id, *, api_client=None):
     attempt = QuickBooksSyncAttempt.objects.select_related(
         'connection', 'invoice__organization', 'invoice__project', 'invoice_mapping'
@@ -204,6 +237,11 @@ def execute_invoice_sync_attempt(attempt_id, *, api_client=None):
     api_client = api_client or QuickBooksAccountingClient()
     try:
         result = _perform_invoice_operation(attempt, api_client)
+        # Checkpoint the committed remote identity before local validation/storage.
+        attempt.external_id = str(result.get('Id') or '')
+        attempt.external_sync_token = str(result.get('SyncToken') or '')
+        attempt.response_snapshot = _invoice_snapshot(result)
+        attempt.save(update_fields=('external_id', 'external_sync_token', 'response_snapshot'))
         if attempt.operation == QuickBooksSyncAttempt.Operation.VOID:
             with transaction.atomic():
                 mapping = QuickBooksInvoiceMapping.objects.select_for_update().get(
@@ -220,6 +258,20 @@ def execute_invoice_sync_attempt(attempt_id, *, api_client=None):
                 quickbooks_invoice=result,
                 actor=attempt.requested_by,
             )
+            try:
+                remote_tax = Decimal(str((result.get('TxnTaxDetail') or {}).get('TotalTax', 0)))
+            except (InvalidOperation, TypeError, ValueError):
+                remote_tax = Decimal('NaN')
+            if (mapping.external_total_amount != attempt.invoice.total_amount
+                    or not remote_tax.is_finite() or remote_tax != attempt.invoice.tax_amount):
+                # The remote write already committed. Retain its identity so an
+                # administrator can reconcile it without creating a duplicate.
+                attempt.invoice_mapping = mapping
+                attempt.save(update_fields=('invoice_mapping',))
+                raise QuickBooksMappingError(
+                    'QuickBooks created the invoice with a different total or sales tax. '
+                    'Review and reconcile both invoices before continuing.'
+                )
     except QuickBooksAPIError as exc:
         return _mark_attempt_failed(attempt.pk, exc)
     except QuickBooksMappingError as exc:
@@ -229,7 +281,17 @@ def execute_invoice_sync_attempt(attempt_id, *, api_client=None):
 
 def _perform_invoice_operation(attempt, api_client):
     if attempt.operation == QuickBooksSyncAttempt.Operation.CREATE:
+        mapping = QuickBooksInvoiceMapping.objects.filter(invoice=attempt.invoice).first()
+        if mapping and mapping.connection_id != attempt.connection_id:
+            raise QuickBooksMappingError('The saved invoice belongs to a different QuickBooks connection.')
+        remote_id = attempt.external_id or (mapping.quickbooks_invoice_id if mapping else '')
+        if remote_id:
+            return api_client.get_invoice(attempt.connection, remote_id)
+        if attempt.invoice.status in (Invoice.Status.DRAFT, Invoice.Status.VOIDED):
+            raise QuickBooksMappingError('Review the local invoice status before recovering this request.')
+        validate_invoice_tax(attempt.invoice, attempt.connection, attempt.request_payload, api_client)
         _require_accounting_write(attempt.connection)
+        QuickBooksSyncAttempt.objects.filter(pk=attempt.pk, dispatched_at__isnull=True).update(dispatched_at=timezone.now())
         return api_client.create_invoice(
             attempt.connection,
             attempt.request_payload,
@@ -241,6 +303,9 @@ def _perform_invoice_operation(attempt, api_client):
             attempt.connection,
             attempt.request_payload['quickbooks_invoice_id'],
         )
+        if Decimal(str(current.get('TotalAmt'))) == 0 and Decimal(str(current.get('Balance'))) == 0:
+            return current
+        QuickBooksSyncAttempt.objects.filter(pk=attempt.pk, dispatched_at__isnull=True).update(dispatched_at=timezone.now())
         return api_client.void_invoice(
             attempt.connection,
             {'Id': current.get('Id'), 'SyncToken': current.get('SyncToken')},
@@ -346,7 +411,7 @@ def prepare_invoice_sync_retry(attempt_id, *, actor):
     previous.resolved_by = actor
     previous.resolved_at = timezone.now()
     previous.save()
-    return _create_running_attempt(
+    retry = _create_running_attempt(
         connection=previous.connection,
         invoice=previous.invoice,
         invoice_mapping=previous.invoice_mapping,
@@ -357,6 +422,12 @@ def prepare_invoice_sync_retry(attempt_id, *, actor):
         operation_key=previous.operation_key,
         attempt_number=previous.attempt_number + 1,
     )
+    retry.external_id = previous.external_id
+    retry.external_sync_token = previous.external_sync_token
+    retry.response_snapshot = previous.response_snapshot
+    retry.dispatched_at = previous.dispatched_at
+    retry.save(update_fields=('external_id', 'external_sync_token', 'response_snapshot', 'dispatched_at'))
+    return retry
 
 
 def retry_invoice_sync_attempt(attempt_id, *, actor=None, api_client=None):

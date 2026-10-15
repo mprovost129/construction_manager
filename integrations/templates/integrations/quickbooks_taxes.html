@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Sales tax | Construction Manager{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div><p class="eyebrow">{{ connection.organization.name }} · {{ connection.display_name }}</p>
+    <h1>QuickBooks sales tax</h1>
+    <p class="text-secondary">Match each invoice percentage to an existing QuickBooks rate and jurisdiction.</p>
+  </div>
+  <a class="btn btn-outline-secondary" href="{% url 'integrations:quickbooks_connect' %}?organization={{ connection.organization.slug|urlencode }}">Back to QuickBooks</a>
+</section>
+<section class="integration-panel" aria-labelledby="tax-map-heading">
+  <h2 id="tax-map-heading">Map a sales tax rate</h2>
+  <p>The percentages must match exactly. Choose the jurisdiction appropriate for your invoices; matching percentages alone do not establish the correct jurisdiction.</p>
+  <p>This supports US manual sales tax applied to the entire invoice subtotal. Automated, compound, date-dependent, and mixed taxable/exempt calculations are not supported. Saving a mapping does not change invoice tax rates or QuickBooks settings.</p>
+  {% if error %}<div class="message message--warning" role="alert">{{ error }}</div>{% endif %}
+  {% if options %}
+  <form method="post">
+    {% csrf_token %}{{ form.non_field_errors }}
+    {% for field in form %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}
+    <button class="btn btn-primary" type="submit">Verify and save mapping</button>
+  </form>
+  {% elif not error %}<p>No supported sales tax codes are available. Set up the required manual sales tax code in QuickBooks, then return here.</p>{% endif %}
+</section>
+<section class="integration-panel" aria-labelledby="saved-tax-heading">
+  <h2 id="saved-tax-heading">Saved mappings</h2>
+  <p>QuickBooks rates are checked again before each export. An unexpected tax or total is flagged for review.</p>
+  <div class="integration-list">
+    {% for mapping in mappings %}
+    <article class="integration-row">
+      <div><h3>{{ mapping.local_tax_rate }}% → {{ mapping.quickbooks_tax_code_name }}</h3><p>Verified {{ mapping.verified_at|date:"M j, Y g:i A" }}</p></div>
+      <form method="post" action="{% url 'integrations:quickbooks_tax_mapping_unlink' mapping.pk %}">{% csrf_token %}<button class="btn btn-outline-danger" type="submit">Remove mapping</button></form>
+    </article>
+    {% empty %}<p>No sales tax rates mapped yet. Taxed invoice exports remain blocked until their rate is mapped.</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}

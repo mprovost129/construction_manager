@@ -628,7 +628,19 @@ class CreditMemo(models.Model):
         return f'{self.project}: {self.display_number}'
 
 
+class PaymentQuerySet(models.QuerySet):
+    def applied(self):
+        """Exclude reversed imports while retaining their original ledger records."""
+        return self.filter(
+            Q(quickbooks_mapping__isnull=True) | Q(quickbooks_mapping__status='active'),
+            Q(quickbooks_credit_memo_mapping__isnull=True)
+            | Q(quickbooks_credit_memo_mapping__status='active'),
+        )
+
+
 class Payment(models.Model):
+    objects = PaymentQuerySet.as_manager()
+
     class Method(models.TextChoices):
         CHECK = 'check', 'Check'
         ACH = 'ach', 'ACH/bank transfer'
@@ -660,6 +672,8 @@ class Payment(models.Model):
     note = models.TextField(blank=True)
     recorded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
         on_delete=models.PROTECT,
         related_name='payments_recorded',
     )
@@ -690,3 +704,15 @@ class Payment(models.Model):
 
     def __str__(self):
         return f'{self.invoice.display_number}: ${self.amount:,.2f} on {self.paid_date}'
+
+    @property
+    def is_quickbooks_import(self):
+        return hasattr(self, 'quickbooks_mapping') or hasattr(self, 'quickbooks_credit_memo_mapping')
+
+    @property
+    def is_applied(self):
+        for relation in ('quickbooks_mapping', 'quickbooks_credit_memo_mapping'):
+            mapping = getattr(self, relation, None)
+            if mapping and mapping.status != 'active':
+                return False
+        return True

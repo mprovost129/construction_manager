@@ -309,7 +309,9 @@ class InvoiceDetailView(LoginRequiredMixin, TemplateView):
                 'project': self.project,
                 'invoice': self.invoice,
                 'line_items': self.invoice.line_items.all(),
-                'payments': self.invoice.payments.select_related('recorded_by'),
+                'payments': self.invoice.payments.select_related(
+                    'recorded_by', 'quickbooks_mapping', 'quickbooks_credit_memo_mapping',
+                ),
                 'can_manage_invoices': can_manage,
                 'viewer_is_client': is_project_client(
                     self.request.user,

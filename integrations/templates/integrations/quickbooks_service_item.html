@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}Service item | Construction Manager{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div><p class="eyebrow">{{ cost_code.organization.name }} · {{ connection.display_name }}</p>
+    <h1>Set up a QuickBooks service</h1>
+    <p class="text-secondary">{{ cost_code.code }} · {{ cost_code.name }}</p>
+  </div>
+  <a class="btn btn-outline-secondary" href="{% url 'integrations:quickbooks_connect' %}?organization={{ cost_code.organization.slug|urlencode }}">Back to QuickBooks</a>
+</section>
+<section class="integration-panel" aria-labelledby="service-heading">
+  <h2 id="service-heading">Income account for {{ item_name }}</h2>
+  <p>Choose the account that should receive sales of this service. Available choices are active Service/Fee Income and Sales of Product Income accounts in this QuickBooks company.</p>
+  <p>If a compatible service with this name already exists, it will be linked. Otherwise a new Service item will be created. Existing items and accounts will not be edited.</p>
+  <p>For inventory or other product types, create the item in QuickBooks and use the existing-item mapping on the previous page.</p>
+  {% if error %}<div class="message message--warning" role="alert">{{ error }}</div>{% endif %}
+  {% if options %}
+  <form method="post">
+    {% csrf_token %}<input type="hidden" name="connection" value="{{ connection.pk }}">
+    {{ form.non_field_errors }}
+    <div class="form-field"><label for="{{ form.income_account.id_for_label }}">{{ form.income_account.label }}</label>{{ form.income_account }}{{ form.income_account.errors }}</div>
+    <button class="btn btn-primary" type="submit">Find or create service</button>
+  </form>
+  {% elif not error %}<p>No supported income accounts are available. Set up an appropriate income account in QuickBooks, then return here.</p>{% endif %}
+</section>
+{% endblock %}

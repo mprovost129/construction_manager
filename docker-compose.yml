@@ -29,5 +29,18 @@ services:
       - db
       - redis
 
+  payment-worker:
+    build: .
+    profiles: ["payment-updates"]
+    command: python manage.py reconcile_quickbooks_payments --loop
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    depends_on:
+      - db
+
 volumes:
   postgres_data:

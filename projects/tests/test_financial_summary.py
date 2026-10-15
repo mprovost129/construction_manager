@@ -238,6 +238,19 @@ class ProjectFinancialSummaryTests(TestCase):
         self.assertEqual(summary['estimated_margin'], Decimal('33000.00'))
         self.assertEqual(summary['profitability'], Decimal('33000.00'))
 
+    def test_draft_invoices_do_not_increase_billed_total_or_client_balance(self):
+        draft = Invoice.objects.create(
+            organization=self.organization, project=self.project,
+            title='Unapproved pricing', created_by=self.admin_user,
+        )
+        InvoiceLineItem.objects.create(
+            invoice=draft, description='Draft work', quantity=1, unit_price=Decimal('999.00'),
+        )
+        draft.recalculate_totals()
+        summary = project_financial_summary(self.project)
+        self.assertEqual(summary['invoiced_total'], Decimal('3000.00'))
+        self.assertEqual(summary['balance_due'], Decimal('2000.00'))
+
     def test_summary_excludes_costs_by_default(self):
         summary = project_financial_summary(self.project)
         self.assertNotIn('approved_change_order_cost_total', summary)

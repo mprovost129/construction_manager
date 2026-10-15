@@ -583,6 +583,8 @@ class ActivityEvent(models.Model):
             'quickbooks_item_mapped',
             'Cost code mapped to QuickBooks item',
         )
+        QUICKBOOKS_TAX_MAPPED = 'quickbooks_tax_mapped', 'QuickBooks sales tax mapped'
+        QUICKBOOKS_TAX_UNLINKED = 'quickbooks_tax_unlinked', 'QuickBooks sales tax mapping removed'
         QUICKBOOKS_ITEM_UNLINKED = (
             'quickbooks_item_unlinked',
             'Cost code unlinked from QuickBooks item',

@@ -172,6 +172,27 @@ class QuickBooksAccountingClient:
     def get_preferences(self, connection):
         return self._get_entity(connection, 'preferences', 'Preferences')
 
+    def get_tax_code(self, connection, tax_code_id):
+        return self._get_entity(connection, f'taxcode/{quote(str(tax_code_id), safe="")}', 'TaxCode')
+
+    def get_tax_rate(self, connection, tax_rate_id):
+        return self._get_entity(connection, f'taxrate/{quote(str(tax_rate_id), safe="")}', 'TaxRate')
+
+    def iter_tax_codes(self, connection):
+        start = 1
+        while True:
+            payload = self._request(connection, 'query', params={
+                'query': f'SELECT * FROM TaxCode STARTPOSITION {start} MAXRESULTS 100'
+            })
+            response = payload.get('QueryResponse') if isinstance(payload, dict) else None
+            rows = response.get('TaxCode', []) if isinstance(response, dict) else None
+            if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+                raise QuickBooksAPIError('invalid_api_response', 'QuickBooks returned an invalid sales tax list.')
+            yield from rows
+            if len(rows) < 100:
+                return
+            start += len(rows)
+
     def get_customer(self, connection, customer_id):
         return self._get_entity(
             connection,
@@ -240,6 +261,27 @@ class QuickBooksAccountingClient:
             item,
             request_id=request_id,
         )
+
+    def get_account(self, connection, account_id):
+        return self._get_entity(connection, f'account/{quote(str(account_id), safe="")}', 'Account')
+
+    def iter_income_accounts(self, connection, *, page_size=100):
+        if not 1 <= page_size <= 1000:
+            raise ValueError('page_size must be between 1 and 1000.')
+        start = 1
+        while True:
+            payload = self._request(connection, 'query', params={'query': (
+                "SELECT * FROM Account WHERE Active = true AND AccountType = 'Income' "
+                f'STARTPOSITION {start} MAXRESULTS {page_size}'
+            )})
+            response = payload.get('QueryResponse') if isinstance(payload, dict) else None
+            rows = response.get('Account', []) if isinstance(response, dict) else None
+            if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+                raise QuickBooksAPIError('invalid_api_response', 'QuickBooks returned an invalid income account list.')
+            yield from rows
+            if len(rows) < page_size:
+                return
+            start += len(rows)
 
     def create_invoice(self, connection, invoice, *, request_id):
         self._validate_invoice_create_payload(invoice)
@@ -456,52 +498,6 @@ class QuickBooksAccountingClient:
                     return True
         return False
 
-    def find_credit_memos_for_invoice(
-        self, connection, customer_id, invoice_txn_id, *, page_size=100
-    ):
-        if page_size < 1 or page_size > 1000:
-            raise ValueError('page_size must be between 1 and 1000.')
-        escaped_customer_id = str(customer_id).replace('\\', '\\\\').replace("'", "\\'")
-        matches = []
-        start_position = 1
-        while True:
-            query = (
-                "SELECT * FROM CreditMemo WHERE CustomerRef = "
-                f"'{escaped_customer_id}' STARTPOSITION {start_position} MAXRESULTS {page_size}"
-            )
-            credit_memos = self._query_credit_memos(connection, query)
-            matches.extend(
-                credit_memo
-                for credit_memo in credit_memos
-                if self._payment_links_invoice(credit_memo, invoice_txn_id)
-            )
-            if len(credit_memos) < page_size:
-                break
-            start_position += len(credit_memos)
-        return matches
-
-    def _query_credit_memos(self, connection, query):
-        payload = self._request(
-            connection,
-            'query',
-            params={'query': query},
-        )
-        query_response = payload.get('QueryResponse') if isinstance(payload, dict) else None
-        if not isinstance(query_response, dict):
-            raise QuickBooksAPIError(
-                'invalid_api_response',
-                'QuickBooks returned an incomplete credit memo query response.',
-            )
-        credit_memos = query_response.get('CreditMemo') or []
-        if not isinstance(credit_memos, list) or not all(
-            isinstance(credit_memo, dict) for credit_memo in credit_memos
-        ):
-            raise QuickBooksAPIError(
-                'invalid_api_response',
-                'QuickBooks returned an invalid credit memo list.',
-            )
-        return credit_memos
-
     def _write_entity(
         self,
         connection,
@@ -649,8 +645,10 @@ class QuickBooksAccountingClient:
             message = 'This feature is not available for the connected QuickBooks company.'
         elif code == '6190':
             message = 'This QuickBooks subscription is currently read-only.'
-        elif code in {'5010', '2020'}:
+        elif code == '5010':
             message = 'The QuickBooks record changed. Refresh it before retrying.'
+        elif code == '2020':
+            message = 'The QuickBooks request is missing required information. Correct the request before retrying.'
         elif code == '6240':
             message = 'That name is already used by a QuickBooks customer, vendor, or employee.'
         elif code == '6450':
@@ -665,6 +663,6 @@ class QuickBooksAccountingClient:
             status_code=status_code,
             retryable=(
                 status_code in {429, 500, 502, 503, 504}
-                or code in {'5010', '2020'}
+                or code == '5010'
             ),
         )

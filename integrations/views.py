@@ -71,6 +71,30 @@ from .services import (
 OAUTH_SESSION_KEY = 'quickbooks_oauth_request'
 
 
+@login_required
+@require_POST
+def quickbooks_payment_updates(request, connection_id):
+    connection = get_object_or_404(
+        QuickBooksConnection.objects.select_related('organization'), pk=connection_id,
+    )
+    if not can_manage_organization(request.user, connection.organization):
+        raise PermissionDenied('Only company administrators can change automatic updates.')
+    enabled = request.POST.get('enabled')
+    if enabled not in ('true', 'false'):
+        return HttpResponseBadRequest('Choose whether automatic updates are enabled.')
+    if enabled == 'true' and (
+        connection.status != 'connected' or not settings.QUICKBOOKS_CONFIGURED
+        or connection.environment != settings.QUICKBOOKS_ENVIRONMENT
+    ):
+        return HttpResponseBadRequest('Connect this QuickBooks company before enabling updates.')
+    QuickBooksConnection.objects.filter(pk=connection.pk).update(
+        automatic_payment_updates=enabled == 'true',
+    )
+    messages.success(request, 'Automatic payment updates enabled.' if enabled == 'true'
+                     else 'Automatic payment updates paused. An in-progress check may finish.')
+    return _connect_redirect(connection.organization)
+
+
 def _manageable_organizations(user):
     if user.is_superuser:
         return Organization.objects.all()

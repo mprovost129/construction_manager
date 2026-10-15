@@ -1,8 +1,34 @@
+from decimal import Decimal
+
 from django import forms
 
 from projects.models import CostCode, Project
 
 from .models import QuickBooksConnection
+
+
+class QuickBooksServiceItemForm(forms.Form):
+    income_account = forms.ChoiceField(label='Income account')
+
+    def __init__(self, *args, options, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['income_account'].choices = [('', 'Choose an income account')] + [
+            (option['value'], option['name']) for option in options
+        ]
+
+
+class QuickBooksTaxMappingForm(forms.Form):
+    local_tax_rate = forms.DecimalField(
+        label='Invoice tax percentage', max_digits=6, decimal_places=3,
+        min_value=Decimal('.001'), max_value=Decimal('100'),
+    )
+    tax_code = forms.ChoiceField(label='QuickBooks sales tax code')
+
+    def __init__(self, *args, options, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['tax_code'].choices = [('', 'Choose a rate and jurisdiction')] + [
+            (option['id'], f'{option["name"]} — {option["rate"]}%') for option in options
+        ]
 
 
 class QuickBooksProjectCustomerMappingForm(forms.Form):

@@ -45,6 +45,9 @@ class QuickBooksConnection(models.Model):
     offering_sku = models.CharField(max_length=100, blank=True)
     capabilities = models.JSONField(default=dict, blank=True)
     capabilities_checked_at = models.DateTimeField(null=True, blank=True)
+    automatic_payment_updates = models.BooleanField(default=False)
+    payment_worker_seen_at = models.DateTimeField(null=True, blank=True)
+    payment_worker_summary = models.JSONField(default=dict, blank=True)
     encrypted_access_token = models.TextField(blank=True, editable=False)
     encrypted_refresh_token = models.TextField(blank=True, editable=False)
     access_token_expires_at = models.DateTimeField(null=True, blank=True)
@@ -108,6 +111,41 @@ class QuickBooksConnection(models.Model):
     @property
     def capabilities_are_stale(self):
         return self.capabilities_checked_at is None
+
+    @property
+    def payment_worker_is_stale(self):
+        from datetime import timedelta
+
+        return (
+            self.payment_worker_seen_at is None
+            or self.payment_worker_seen_at < timezone.now() - timedelta(minutes=5)
+        )
+
+
+class QuickBooksTaxCodeMapping(models.Model):
+    connection = models.ForeignKey(
+        QuickBooksConnection, on_delete=models.CASCADE, related_name='tax_code_mappings'
+    )
+    local_tax_rate = models.DecimalField(max_digits=6, decimal_places=3)
+    quickbooks_tax_code_id = models.CharField(max_length=50)
+    quickbooks_tax_code_name = models.CharField(max_length=255)
+    is_active = models.BooleanField(default=True)
+    verified_at = models.DateTimeField()
+    last_verified_values = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('local_tax_rate',)
+        constraints = [
+            models.UniqueConstraint(
+                fields=('connection', 'local_tax_rate'), name='integrations_unique_tax_rate_mapping'
+            ),
+            models.CheckConstraint(
+                condition=models.Q(local_tax_rate__gt=0, local_tax_rate__lte=100),
+                name='integrations_tax_rate_positive',
+            ),
+        ]
 
 
 class QuickBooksProjectCustomerMapping(models.Model):
@@ -255,6 +293,9 @@ class QuickBooksItemMapping(models.Model):
 
 
 class QuickBooksInvoiceMapping(models.Model):
+    next_payment_check_at = models.DateTimeField(default=timezone.now, db_index=True)
+    last_payment_check_at = models.DateTimeField(null=True, blank=True)
+
     class Status(models.TextChoices):
         ACTIVE = 'active', 'Active'
         VOIDED = 'voided', 'Voided in QuickBooks'
@@ -709,6 +750,9 @@ class QuickBooksSyncAttempt(models.Model):
         related_name='quickbooks_sync_attempts_requested',
     )
     started_at = models.DateTimeField(default=timezone.now)
+    last_execution_at = models.DateTimeField(null=True, blank=True)
+    execution_count = models.PositiveSmallIntegerField(default=0)
+    dispatched_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     resolution_note = models.CharField(max_length=255, blank=True)
     resolved_by = models.ForeignKey(

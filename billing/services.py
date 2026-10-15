@@ -78,6 +78,7 @@ def create_invoice_from_change_order(*, change_order_id, actor, form_data):
             line = InvoiceLineItem(
                 invoice=invoice,
                 category=source.category,
+                cost_code=source.cost_code,
                 description=source.description,
                 quantity=source.quantity,
                 unit_price=source.unit_price,
@@ -287,6 +288,10 @@ def void_invoice(*, invoice_id, actor, reason):
     invoice = Invoice.objects.select_for_update().select_related(
         'organization', 'project'
     ).get(pk=invoice_id)
+    from integrations.models import QuickBooksSyncAttempt
+
+    if QuickBooksSyncAttempt.objects.filter(invoice=invoice, status='running').exists():
+        raise ValidationError('Wait for QuickBooks synchronization to finish before voiding this invoice.')
     if invoice.status != Invoice.Status.ISSUED:
         raise ValidationError('Only an unpaid issued invoice can be voided locally.')
     if invoice.amount_paid:
@@ -314,7 +319,7 @@ def void_invoice(*, invoice_id, actor, reason):
 
 def _apply_payment_state(invoice):
     total_paid = money(
-        invoice.payments.aggregate(total=Sum('amount'))['total'] or 0
+        invoice.payments.applied().aggregate(total=Sum('amount'))['total'] or 0
     )
     invoice.amount_paid = total_paid
     if total_paid <= 0:
@@ -360,7 +365,7 @@ def record_payment(
         actor=actor,
         event_type=ActivityEvent.Type.PAYMENT_RECORDED,
         summary=(
-            f'{actor.email} recorded a ${payment.amount:,.2f} payment on '
+            f'{actor.email if actor else "QuickBooks synchronization"} recorded a ${payment.amount:,.2f} payment on '
             f'{invoice.display_number}.'
         ),
         metadata={'invoice_id': invoice.pk, 'payment_id': payment.pk, 'amount': str(payment.amount)},
@@ -378,6 +383,10 @@ def delete_payment(*, payment_id, actor):
     ).get(pk=payment.invoice_id)
     if invoice.status == Invoice.Status.VOIDED:
         raise ValidationError('Payments on a voided invoice cannot be modified.')
+    if payment.is_quickbooks_import:
+        raise ValidationError(
+            'Update this payment in QuickBooks, then synchronize payments here.'
+        )
     amount = payment.amount
     payment.delete()
     _apply_payment_state(invoice)

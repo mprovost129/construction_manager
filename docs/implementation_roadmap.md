@@ -1,6 +1,6 @@
 # Construction Manager Implementation Roadmap
 
-Last updated: August 5, 2026
+Last updated: October 15, 2026
 
 This is the authoritative implementation-status document for Construction Manager.
 It translates the answers in [Construction Manager.md](./Construction%20Manager.md)
@@ -31,8 +31,8 @@ implemented and verified.
 | Schedule | Partial | Internal milestone/calendar workflow exists; dependencies, recurrence, and external calendar integration do not. |
 | Notifications | Partial | Transactional email exists with project-level recipient preferences; per-event settings, reminders, and digest delivery do not. |
 | Project pricing and financials | Partial | An organization-scoped cost-code catalog (now also mappable to a QuickBooks Item), an estimate/proposal workflow (with a revision chain) and client approval that sets a project's fixed, tax-inclusive contract amount, an organization-level tax-rate engine applied to invoices and estimates, a staff+client-safe financial rollup view (contract, change orders, selection overage/credit, invoicing, payments), a role-gated budget/committed/actual-cost/profitability view backed by a staff-recorded job-costing ledger, and a manual invoice payment ledger exist. Every confirmed APP-1 item is now delivered; remaining accounting integration work (live sandbox verification) lives under QB-3. |
-| Invoices and payment visibility | Partial | Local drafts, approved-change-order conversion, immutable company numbering, line items, totals, client-visible issued invoices, authenticated PDF downloads, balances, status fields, notification, questions, unpaid voiding, a manual payment ledger (status transitions from issued to partially paid to paid), outbound QuickBooks Invoice create/void synchronization (wiring mapped Item IDs into outbound `Line` payloads, admin-triggered from the invoice detail page), QuickBooks payment import/reconciliation (per-invoice scan, soft duplicate detection against manually-recorded payments, admin-triggered), a local `CreditMemo` document bridging an approved selection credit to a real invoice (applying one creates an ordinary `Payment` tagged `method=credit_memo`, reusing the existing balance/status machine unchanged), selected-finish invoice origination (an approved selection bills its allowance amount directly, additive with the change-order-based overage/credit path), and QuickBooks-sourced credit memo import (folded into the existing per-invoice payment scan — a QuickBooks credit memo becomes an ordinary `Payment` the same way a QuickBooks payment does) exist. Online payment is deferred. |
-| QuickBooks Online | Partial | Company-scoped OAuth, encrypted tokens, capability/subscription discovery, stable customer/invoice/item/payment mappings, customer sync, cost-code item sync, tested Invoice API primitives, Invoice sync orchestration (create/void, retry/backoff, admin error queue), read-only Payment/Credit-Memo import and reconciliation (per-invoice scan discovers both QuickBooks payments and QuickBooks credit memos in one pass, re-verify, retry/backoff, admin error queue), and a local Credit Memo document bridging an approved selection credit to a real invoice exist. Live sandbox acceptance, an Automated-Sales-Tax compatibility check, and change-detection work remain. |
+| Invoices and payment visibility | Partial | Drafts, allowance/change-order origination, immutable numbering, PDFs, issued-invoice totals, local payments/credits, outbound QuickBooks create/void, and inbound per-invoice payment/credit applications exist. Draft invoices are excluded from amounts billed/owed. Live sandbox acceptance and historical credit reconciliation remain. Online payment is deferred. |
+| QuickBooks Online | Partial | The live sandbox pilot passed no-tax invoice create/void, payment/credit allocations, reversals, idempotent retry, and explicitly mapped US manual sales tax at 8% and 9.1%. Invoice/payment concurrency and interrupted-worker recovery passed isolated PostgreSQL tests. Opt-in automatic payment polling is implemented and running locally for the sandbox. Unsupported tax configurations remain blocked; production worker deployment, broader bidirectional sync, customer/item concurrency coverage, and webhook/CDC change detection remain. |
 | SaaS subscription billing | Partial | Organization-level Stripe Billing, hosted Checkout, Customer Portal, signed webhook reconciliation, audit records, grace-period access rules, and staged entitlement enforcement exist. The Sandbox Product, monthly/yearly Prices, default Portal, and webhook are configured; a real end-to-end Sandbox test plus live-mode setup and validation remain. |
 | Tasks and punch lists | Not started | Confirmed as required, but no models or workflow exist. |
 | Two-factor authentication | Not started | Confirmed as optional per user/admin policy, but not implemented. |
@@ -46,7 +46,7 @@ These decisions govern remaining implementation work:
 - QuickBooks is the accounting source of truth.
 - Stripe bills construction companies for access to Construction Manager; one subscription belongs to one Organization and its users inherit that entitlement.
 - A tenant's Stripe subscription is separate from its connected QuickBooks company. Homeowner invoices and payments do not flow through the platform Stripe account.
-- Exchange customers, invoices, credit memos, and payments in both directions.
+- The interview requests bidirectional exchange of customers, invoices, credit memos, and payments. Current delivery is narrower: customer create/refresh/name update, outbound invoice create/void, and inbound payment/credit applications. Outbound payments/credit memos and broader invoice updates remain a scope decision and implementation gap.
 - Invoices may originate in Construction Manager.
 - An approved change order is sent or marked ready for QuickBooks when invoiced, not merely when approved.
 - Admins resolve synchronization errors and conflicts.
@@ -193,8 +193,7 @@ These decisions govern remaining implementation work:
 - Local invoice drafts with due dates, client notes, itemized quantities/prices, tax, totals,
   amount paid, and balance due.
 - Explicit conversion of an approved positive change order into a draft invoice, copying its line
-  items and preserving a one-to-one source link. Zero/negative changes are reserved for the future
-  credit-memo workflow.
+  items and preserving a one-to-one source link. Negative changes use the separate local credit-memo workflow; zero changes cannot be invoiced.
 - Company-wide sequential numbering assigned only at issue, with database uniqueness and
   application-level immutability for issued details, totals, and line items.
 - Client-safe invoice list/detail views, issue email, payment-status display, and a prefilled
@@ -231,25 +230,247 @@ These decisions govern remaining implementation work:
 - Durable local-to-QuickBooks Invoice identity, sync-token, document-number, customer, amount,
   balance, date, currency, and linked-transaction snapshots. Read, create, sparse-update, and void
   API primitives enforce required references, stable request IDs, and current external identity;
-  no live invoice orchestration or automatic local issue-time call is enabled yet.
+  administrator-triggered invoice create/void orchestration exists; automatic local issue-time synchronization is not enabled.
 - Stable CostCode-to-QuickBooks-Item mappings mirroring the Customer mapping pattern exactly:
   sync tokens, last-known values, tombstones, ownership/conflict policy, administrator manual
   match-by-ID and automated find-or-create sync actions, durable per-attempt retry/backoff/
   resolve handling sharing the same `retry_quickbooks_syncs` and admin queue as Customer sync.
-  Not yet wired into outbound Invoice line-item payloads (separate Invoice sync orchestration).
-- Current automated baseline: 329 passing tests, Ruff clean, no pending migrations,
-  and build-settings `collectstatic` passing as of this update. Django's expected
-  development warning remains when QuickBooks credentials are intentionally unset.
+  Mapped Item IDs are wired into outbound Invoice line-item payloads.
+- Automated baseline on October 15, 2026: 402 tests and 13 subtests pass using isolated
+  SQLite settings, including the integrated pilot workflow below. Live API acceptance and
+  PostgreSQL concurrency behavior are not established by these tests. Ruff, migration-drift
+  checks, Django system checks, and the production-style static build also pass. The isolated
+  system check reports the expected warning that Stripe subscriptions are not configured.
+
+## Pilot validation on October 15, 2026
+
+The local Python environment was repaired to use the installed Python interpreter.
+`integrations/tests/test_pilot_workflow.py` exercises estimate approval, homeowner selection,
+explicit approval of an overage change order, allowance and overage invoicing, mapped
+QuickBooks invoice creation, a receipt split across two invoices, repeat synchronization,
+client financial visibility, and authenticated PDF download. External API responses are
+simulated; the test does not change customer accounting data.
+
+Verified corrections:
+
+- Draft invoices no longer count as invoiced amounts or amounts owed in the project summary.
+- Change-order conversion preserves cost codes and therefore QuickBooks Item mappings.
+- Payment import uses matching Invoice line amounts, not the receipt's whole `TotalAmt`.
+  Split receipts exclude unapplied cash and allocations to other invoices.
+- Credit applications come through linked Payment records, including zero-cash payments.
+  CreditMemo document totals are not invoice application amounts.
+- Reverification updates changed amounts/dates and recalculates balances. Deleted, voided,
+  or unapplied payments stop reducing balances while retaining ledger history and external
+  identities. Reapplication restores the original mapping.
+- Ledger entry and external mapping creation commit atomically. Invalid/ambiguous records
+  fail with an admin-visible error; partial progress is retained. Repeated delivery does
+  not duplicate payments. Imported payments must be corrected in QuickBooks.
+- Background imports work without impersonating a user. Migration
+  `billing.0006_allow_automated_payment_imports` makes `recorded_by` nullable.
+
+Existing active `QuickBooksCreditMemoMapping` records from the former document-total import
+path block new payment scans until explicitly reconciled/migrated. They are preserved to
+avoid silently rewriting history or double-counting credit. Before rollout, confirm the
+pilot has no legacy mappings, or reconcile them against actual Payment applications.
+Old inactive imported records also need their invoice balances rechecked.
+
+API interpretation: [Intuit Payment reference](https://developer.intuit.com/app/developer/qbo/docs/api/accounting/all-entities/payment).
+
+### Live sandbox results on October 15, 2026
+
+OAuth and real accounting API requests succeeded against **Sandbox Company US 132a**
+(realm `9341457631635607`). The connection belongs to the local Heritage Realty & Custom
+Homes organization. No production QuickBooks company was used.
+
+Test records are isolated in local project **SANDBOX PILOT 2026-10-15** (project ID 2),
+mapped to sandbox customer 58. Duvally Residence was not changed. Synthetic homeowner and
+isolation-test accounts have unusable passwords; notification delivery was captured in
+memory during the test. Customer creation, invoice export, payment import, and retry/void
+used the application's actual services and the live sandbox. Accounting receipts and credit
+memos were seeded through the sandbox API as test fixtures; this does not establish an
+outbound payment/credit-memo feature in the product and did not collect any money.
+
+| Scenario | Measured result |
+| --- | --- |
+| Estimate, selection, explicit overage approval | Passed through Django approval views on local PostgreSQL: $100,000 contract, $5,800 choice against $5,000 allowance, $800 change order, $100,800 project total. |
+| Draft exclusion and existing Item mapping | Passed; drafts contributed $0 billed. Cost code QA-20261015 maps to existing non-taxable Services Item 1. New Service item creation is verified in the follow-up below. |
+| Invoice creation | Passed for local invoices 1 and 2, QuickBooks invoices 145 and 146: $5,000 plus $800. No full-contract invoice was created. |
+| Split receipt and repeated imports | Passed: one $5,800 receipt settled both invoices with only each invoice's allocation imported. Repeated imports did not duplicate ledger entries. |
+| Amount/date changes and unapplied cash | Passed: a $6,000 receipt allocated $4,000 and $500, leaving $1,500 unapplied; local balances matched QuickBooks at $1,000 and $300. Payment dates updated. |
+| Removal and reapplication | Passed: removing allocations reopened both balances; reapplication reused original local ledger records. |
+| Voided/deleted receipts | Passed: voiding receipt 147 and deleting disposable receipt 148 restored the corresponding balances while retaining local history. |
+| Zero-cash credit | Passed: $200 credit application reduced invoice 145 by $200 despite Payment TotalAmt being zero. |
+| Mixed cash and credit | Passed: $300 cash plus $200 credit reduced invoice 146 by $500. |
+| Final settlement | Passed: invoices 145/146 both show zero balance. $5,800 is settled through $5,400 cash and $400 credits; seven local ledger-history rows include the voided/deleted allocations. |
+| Lost-response retry | Passed: the test deliberately discarded a successful real invoice-create response, then retried using the original request ID. QuickBooks returned the same invoice 155. The failure was injected; the create and retry responses were real. |
+| Outbound invoice void | Passed for disposable tax/retry probe invoices; QuickBooks totals and balances were zero afterward. |
+| Client visibility, PDF, tenant isolation | Passed through Django views: internal costs were absent, both PDFs returned PDF content, and a different company's administrator received 404 for financial details, invoice details, and PDF download. Visual browser layout was not revalidated. |
+
+**The initial tax discrepancy is resolved for mapped US manual sales tax.** A synthetic invoice with a
+$100 subtotal and $7.25 local tax was accepted by QuickBooks but returned $100 total and
+$0 tax. Sending only `TxnTaxDetail.TotalTax` did not preserve the tax. The probe invoice
+(local 3, QuickBooks 154) was voided in both systems. The organization's current default
+tax rate remains zero. The correction uses an explicit QuickBooks transaction tax-code
+reference and taxable line markers, then compares QuickBooks' calculated tax and total
+with the issued local invoice. It does not force a tax-total override.
+
+The administrator-only **Sales tax mapping** page verifies an existing code's component
+rates and requires an exact percentage match. Rates are checked again before export.
+Mappings are scoped to the connected company and changes/removals are audited. The admin
+must choose the appropriate jurisdiction; the app does not infer it from the percentage.
+
+Live follow-up used **SANDBOX TAX PILOT 2026-10-15** (project ID 3), isolated from Duvally:
+
+| Scenario | Measured result |
+| --- | --- |
+| Mapping screen and mismatch rejection | Passed through administrator views with live tax data; 7.25% could not be mapped to the sandbox's 8% California code. |
+| Single-rate code | Local invoice 5 / QuickBooks 157: $100 subtotal, $8 tax, $108 total. |
+| Additive combined rate | Local invoice 6 / QuickBooks 158: 7.1% + 2% components produced $9.10 tax and $109.10 total. |
+| Decimal response recovery | QuickBooks' JSON number 109.1 exposed binary-float conversion in currency storage. Fixed conversion through decimal text, then recovered invoice 158 with the persisted original request ID. No new create attempt was started. |
+| Settlement and repeat import | Synthetic receipt 159 settled $217.10 across both invoices. Both balances match QuickBooks at zero; repeating the import retained exactly two ledger mappings. |
+
+The California and Tucson codes are sandbox fixtures, not recommendations for Heritage's
+tax jurisdiction. Business tax defaults and QuickBooks tax settings were not changed.
+Supported scope is one flat rate across the whole invoice in a single-currency US company
+using manual sales tax. Automated tax, non-US taxed invoices, compound/date-dependent
+rates, and mixed taxable/exempt invoice calculations remain unsupported. Additive rates
+can round differently on other subtotals; any discrepancy is flagged rather than accepted.
+
+Protective fixes made from the live findings:
+
+- Taxed exports require an active explicit mapping and supported current tax configuration.
+  Legacy queued attempts with missing/different tax references stop before the API write.
+- A differing returned invoice total or sales tax is now a nonretryable sync failure. The remote invoice
+  identity is retained so correcting the discrepancy does not create another invoice.
+- Intuit error 2020 (missing required information) is no longer mislabeled as a stale record
+  or scheduled for automatic retry. Error 5010 retains stale-record retry behavior. This
+  was observed when a test fixture omitted CustomerRef; the fixture was then corrected.
+
+After these fixes, the complete isolated automated suite passed **424 tests and 31
+subtests**. Coverage includes mapping permissions, unsupported modes, changed rates,
+retry payload stability, decimal currency responses, and tax/total reconciliation. Ruff,
+Django system checks, migration drift checks, and `git diff --check` passed (the isolated
+test settings emitted the expected warning that Stripe paid access is unconfigured). Migrations
+`integrations.0008` and `projects.0028` were applied locally. The local HTTPS server was
+restarted with the changes. No production deployment was performed.
+Browser security policy blocked the final visual inspection; application-level page,
+permission, and live mapping checks passed, but browser layout is not newly verified.
+
+Local connection setup required the exact registered callback
+`https://localhost:8000/integrations/quickbooks/callback/`. The local Python HTTP client
+also required a CA bundle combining its public roots with already-trusted Windows roots;
+the local `.env` points to an ignored `.certs/` bundle. Certificate verification remains
+enabled. This is local workstation configuration, not a production deployment change.
+
+Still required before production: confirm the company's actual tax configuration and jurisdiction,
+customer/item and token-refresh concurrency tests, full role/browser verification,
+webhook/CDC change detection, and the operational release gates below. The live
+pilot does not mark the broader QB-1 through QB-4 or production gates complete.
+
+### Invoice/payment concurrency and recovery acceptance — October 15, 2026
+
+Tests used a separately created local PostgreSQL database, independent connections and
+child processes, and fake QuickBooks responses. These tests made no live QuickBooks calls
+and did not alter business invoice/payment data. They supplement the live sandbox results.
+
+Two regressions were reproduced before fixing them: a delayed second Sync click could
+create another outbound request after the first completed, and a fresh Sync click after
+an uncertain timeout could bypass the original request ID. Both now stop before a second
+create. Final preparation checks run under the invoice row lock; dispatched requests retain
+their identity even after an administrator marks an error resolved. Historical invoice
+attempts are conservatively marked as dispatched by migration `integrations.0009`.
+
+Additional protections and verified outcomes:
+
+- One worker executes an invoice/payment attempt at a time. A PostgreSQL session advisory
+  lock covers execution without holding an invoice-row transaction across HTTP requests.
+  A different process cannot acquire the same attempt while the worker is alive.
+- An actual child-process exit inside the fake create API boundary leaves a recoverable
+  running attempt. Recovery retains the exact request ID and payload. When the response ID
+  or invoice mapping was committed, recovery reads that invoice instead of creating one.
+- Remote IDs are checkpointed before local mapping validation. A subsequent transient read
+  failure preserves that checkpoint through the normal retry path.
+- Competing retries produce one successor. Repeated recovery does not repeat completed work.
+  A live worker is skipped even if its timestamp is old. Unexpected errors are sanitized and
+  sent to the error queue; repeated interruptions eventually require review.
+- Payment creation and its mapping roll back together if interrupted between them. A crash
+  after commit preserves the ledger; recovery re-verifies it without adding another entry.
+  Overlapping imports leave one entry, and simultaneous local payments cannot overpay.
+- Local void is blocked during a running sync. Interrupted outbound void recognizes an
+  already-zero remote invoice without sending another void request.
+
+Operations:
+
+- Preview abandoned work with `python manage.py recover_quickbooks_syncs --dry-run`.
+- Run `python manage.py recover_quickbooks_syncs` to recover invoice/payment attempts idle
+  for at least 15 minutes. `--stale-minutes` and `--limit` bound candidate selection. Active
+  workers remain locked and are skipped; no new operation/request ID is generated.
+- Schedule this command alongside `retry_quickbooks_syncs` on the production worker before
+  launch. Scheduling is not installed by this change. Customer/item recovery is not covered.
+- Sync workers require direct PostgreSQL connections or session pooling. Transaction-mode
+  pooling is incompatible with these session locks and must not be used for sync workers.
+  PostgreSQL releases session locks on connection termination; see the
+  [PostgreSQL advisory-lock documentation](https://www.postgresql.org/docs/17/explicit-locking.html#ADVISORY-LOCKS).
+- A resolved error does not prove an uncertain remote invoice is absent. Reconcile/map the
+  existing record or retry the saved request; do not discard its identity to unblock export.
+
+Reproduce acceptance with `python -m pytest --ds=config.settings.test_postgres`. Those
+settings require a loopback PostgreSQL server, clear integration credentials, create a
+process-specific `test_cm_sync_*` database, and let the test runner remove it afterward.
+The default SQLite suite skips the eight tests that require actual PostgreSQL concurrency.
+
+Validation: the full PostgreSQL suite passed **444 tests and 31 subtests**, including
+20 new concurrency/recovery tests. Ruff, Django system checks, migration drift checks,
+and whitespace checks passed. Migration `integrations.0009` was applied locally, recovery
+dry-run found zero abandoned candidates, and the local HTTPS app was restarted. No
+production deployment or worker scheduling was performed.
+
+### Service item income-account acceptance — October 15, 2026
+
+Administrators can choose **Set up service item** beside an unmapped cost code, select
+an existing income account in the connected company, and find/create the Service item.
+No account is preselected. The supported account detail types are Service/Fee Income and
+Sales of Product Income; inactive, special, expense, and other account types are excluded.
+The selected account is re-read before matching/creating. Existing items/accounts are not
+edited. Inventory and other product types continue to use explicit existing-item mapping.
+
+The create payload includes `IncomeAccountRef`; item mapping/attempt snapshots preserve
+the returned account, and the sync audit records its ID. Missing-account legacy creates
+stop before the write. An existing name must identify exactly one active Service item;
+a differing income account requires review. A returned account mismatch preserves the
+remote ID and fails without linking it. Retries retain the original account/payload/request
+ID, and a fresh create cannot bypass a dispatched request. Item execution now also uses
+the shared worker lock; automatic stale-item recovery and the broader item concurrency
+matrix remain follow-up work.
+
+Live sandbox results in Sandbox Company US 132a:
+
+- Created cost code **QA-ITEM-20261015** (local ID 2) and **QA sandbox service 20261015**
+  (QuickBooks Item 19), using the sandbox's existing **Services** income account (ID 1).
+  This is a synthetic test choice, not a business account recommendation.
+- The administrator setup view loaded live choices. The create response was deliberately
+  discarded after the real sandbox write. Retrying retained the original request ID and
+  found the same compatible item; an exact-name query confirmed only one item existed.
+- Item refresh preserved the same mapping and income account. Local invoice 7 / QuickBooks
+  invoice 160 exported $12.34 using the new item, then was voided in both systems. Its final
+  QuickBooks total and balance are zero. No payment was collected or notification sent.
+
+Validation: **461 tests and 39 subtests passed on PostgreSQL**, including 17 new account
+selection tests. Coverage includes permissions, company isolation, forged selections,
+account deactivation, incompatible matches, retry identity, API pagination, and returned
+account discrepancies. Ruff, Django checks, migration drift, and whitespace checks passed.
+No schema migration was required. The local HTTPS app was restarted; no production
+deployment was performed. Browser layout was not visually revalidated.
+
+API contract: [Intuit Item reference](https://developer.intuit.com/app/developer/qbo/docs/api/accounting/all-entities/Item).
 
 ## Partial feature gaps
 
 ### Change orders
 
-- Voiding an approved change order sets a `requires_financial_reversal` flag for staff to action
-  manually; there is no automated accounting reversal because no payment-reconciliation ledger
-  exists yet against QuickBooks (blocked on [QB-3 Invoice
-  synchronization](#phase-qb-3-entity-synchronization---p0)). Revisit once invoice sync exists so
-  a void after invoicing can be rejected or trigger a credit memo instead of only a flag.
+- Approved change-order voids retain a `requires_financial_reversal` flag. Invoice and
+  credit-memo safeguards exist, but complete automatic change-order accounting reversal
+  across local and QuickBooks records is not implemented. Validate staff follow-up.
 
 ### Schedule and notifications
 
@@ -271,12 +492,9 @@ These decisions govern remaining implementation work:
   negative) remain the other automated invoice source. Staff can also create manual drafts.
 - Outbound Invoice create/void synchronization now exists (see QB-3's Invoice sync orchestration
   entry), wiring mapped Item IDs into outbound `Line` payloads.
-- QuickBooks payment import now exists (see QB-3's Payment import entry): local payment-status
-  fields reflect QuickBooks-sourced records for a synchronized invoice, not only staff-recorded
-  entries. Selection allowance credits can now be applied to reduce a change order and, from
-  there, a real invoice via a local `CreditMemo` document (see QB-3's credit entry). Distinct
-  from that, and still open: importing *QuickBooks-sourced* credit applications — credit memos
-  an accountant creates directly in QuickBooks, independent of anything this app originates.
+- Payment application import and reversal reconciliation exist; live sandbox acceptance
+  remains. Credits are discovered through Payment links. Local credit-memo application is
+  separate from outbound QuickBooks CreditMemo synchronization, which is not implemented.
 
 ## Production blockers
 
@@ -291,6 +509,8 @@ The following must be resolved before representing the application as production
 - Validate the selected hosting tier against Intuit's availability expectations; free-tier spin-down must not be represented as continuous production availability.
 - Schedule `retry_quickbooks_syncs` on a persistent production worker or cron service; the
   Render free web service does not run this command automatically.
+- Schedule interrupted invoice/payment recovery with `recover_quickbooks_syncs`, and verify
+  the worker uses a direct or session-pooled PostgreSQL connection.
 - Add production error monitoring, health checks, alerting, and an incident-response procedure.
 - Complete an end-to-end Stripe Sandbox subscription, configure and test Smart Retries, then create
   the equivalent live Prices, Customer Portal, and `/subscriptions/stripe/webhook/` endpoint. Enable
@@ -312,7 +532,7 @@ Current questionnaire truth as of this update:
 
 | Question | Accurate answer today |
 | --- | --- |
-| API calls per customer | There is no periodic customer polling. Initial manual sync makes one exact-name Customer query plus, only when no match exists, one Customer create. A mapped manual refresh makes one Customer read. The separate outbound name update makes one Customer read and, only when the names differ, one sparse Customer update. A retry repeats the applicable operation; writes reuse the same Intuit `requestid`. Due retryable failures run only when `retry_quickbooks_syncs` is scheduled. Company refresh makes two reads (`CompanyInfo` and Preferences), and an expired access token adds one token-refresh call. A manual cost-code item mapping makes one Item read; an item sync makes one exact-name Item query plus, only when no match exists, one Item create — the same request pattern, idempotency, and retry/backoff as Customer sync. Local invoice draft, issue, and discard actions make zero Intuit calls. An admin-triggered invoice sync makes one Invoice create; an admin-triggered void re-reads the invoice (one Invoice read, for its current `SyncToken`) then makes one Invoice void call. An admin-triggered payment sync makes one Payment read per already-imported payment and one CreditMemo read per already-imported credit memo on that invoice (re-verify), plus one Payment query and one CreditMemo query (both paginated) to discover new ones — all in the same scan. None of this is automatic or triggered by local issue/void/payment actions themselves. |
+| API calls per customer | There is no periodic customer polling. Initial manual sync makes one exact-name Customer query plus, only when no match exists, one Customer create. A mapped manual refresh makes one Customer read. The separate outbound name update makes one Customer read and, only when the names differ, one sparse Customer update. A retry repeats the applicable operation; writes reuse the same Intuit `requestid`. Due retryable failures run only when `retry_quickbooks_syncs` is scheduled. Company refresh makes two reads (`CompanyInfo` and Preferences), and an expired access token adds one token-refresh call. A manual cost-code item mapping makes one Item read; service setup lists eligible accounts through a paginated Account query, then reads the selected account before the exact-name Item query and optional Item create. A mapped item refresh reads the existing Item. New creates include an explicit IncomeAccountRef, and retries preserve the saved payload and request ID. Local invoice draft, issue, and discard actions make zero Intuit calls. An admin-triggered invoice sync makes one Invoice create; an admin-triggered void re-reads the invoice (one Invoice read, for its current `SyncToken`) then makes one Invoice void call. An admin-triggered payment sync makes one Payment read per already-imported allocation, including inactive mappings (re-verify), plus a paginated customer-scoped Payment query to discover new applications — all in the same scan. When automatic payment updates are enabled and a worker is running, each due mapped invoice adds two Invoice reads around the same Payment scan, normally every 15 minutes. Calls can increase with pagination, existing allocations, retries, and token refresh. Local issue/void/payment actions do not themselves trigger these scans. |
 | Handles QBO edition feature gains/losses | Not yet a portal “Yes.” Subscription/preference capability changes and feature-not-supported errors are handled without deleting data, but the sandbox edition matrix remains. |
 | Uses webhooks | No |
 | Uses CDC | No |
@@ -359,7 +579,8 @@ Acceptance gate:
 - Still required: exercise representative Simple Start, Essentials, Plus, and Advanced
   sandbox companies and confirm gain/loss behavior against live responses.
 - The implemented downgrade/error paths preserve local data and avoid automatic retry loops;
-  scheduled synchronization is not enabled yet.
+  payment polling is now available per company with explicit opt-in. Outbound entity
+  synchronization remains administrator-triggered; production scheduling is not deployed.
 
 ### Phase QB-3: Entity synchronization - P0
 
@@ -417,11 +638,9 @@ Customer slice delivered:
   invoice's own balance due, and voiding is blocked once anything has been applied (staff reverse
   an application first via the existing `delete_payment`, which — since `remaining_balance` is
   computed, not stored — automatically and correctly restores the credit with no special-casing).
-  The change order detail page's "Accounting handoff" section gained the mirrored "Create credit
-  memo" action next to the existing "Create invoice draft" one. Still separate and out of scope:
-  importing *QuickBooks-sourced* credit memos (ones an accountant creates directly in QuickBooks)
-  and reconciling this app's `Payment(method=credit_memo)` records against a QuickBooks credit
-  memo object.
+  The change order detail page includes a "Create credit memo" action. Outbound QuickBooks
+  CreditMemo synchronization and automatic matching of local credits to QuickBooks Payment
+  applications remain unfinished. Possible duplicates are held for administrator review.
 
 Invoice synchronization preparation:
 
@@ -436,10 +655,12 @@ Invoice synchronization preparation:
   mapping plus an automated find-or-create sync action, and the same durable-attempt/retry/
   backoff/resolve machinery as Customer sync (a dedicated `QuickBooksSyncAttempt.EntityType.ITEM`
   with its own retry/resolve functions, since the attempt model uses per-entity FK slots rather
-  than a generic one). The automated create path sends a minimal payload and has not been
-  verified against a live sandbox company — most QuickBooks company configurations require an
-  `IncomeAccountRef` this app does not yet collect, so matching an existing item (by ID or name)
-  is the reliable path; creating a brand-new item may need further account-mapping support.
+  than a generic one). New Service items now require explicit administrator selection of an
+  eligible existing income account. Account validity is checked against the same QuickBooks
+  company immediately before matching/creating. The saved request includes `IncomeAccountRef`;
+  returned account references are retained in mapping/attempt snapshots. Live create,
+  lost-response retry, invoice usage, and void acceptance are recorded above. Inventory and
+  other product types still use explicit existing-item mapping.
 - [x] Add Invoice sync orchestration (`integrations/invoice_sync.py`) so outbound Invoice `Line`
   payloads reference mapped Item IDs: `start_invoice_sync` (CREATE, fails closed with the specific
   unmapped cost codes if any line lacks an active `QuickBooksItemMapping`) and
@@ -448,28 +669,18 @@ Invoice synchronization preparation:
   Customer and Item sync, wired into `retry_quickbooks_syncs` and an admin-triggered "Sync to
   QuickBooks" / "Void in QuickBooks" action on the invoice detail page (not the QuickBooks
   dashboard, since invoices are numerous and per-project). UPDATE is intentionally unsupported —
-  issued invoice line items are immutable, so a correction is void-and-reissue. Tax is sent as an
-  explicit `TxnTaxDetail.TotalTax` override using this app's own computed `tax_amount`
-  (`GlobalTaxCalculation: TaxExcluded`), since Construction Manager is the source of truth for the
-  organization's flat rate — **not yet verified against a live sandbox company with Automated
-  Sales Tax enabled**, where QuickBooks may reject or recompute this instead.
-- [x] Add QuickBooks Payment import (`integrations/payment_sync.py`), the one entity in this
-  phase that is import-only (`FROM_QUICKBOOKS`) rather than outbound — this app never writes
-  payments to QuickBooks. A `QuickBooksPaymentMapping` model tracks identity per
-  (connection, QuickBooks payment, invoice) pair, since a single QuickBooks payment can apply to
-  several invoices via multiple `LinkedTxn` entries. An admin-triggered "Sync payments from
-  QuickBooks" scan on a synchronized invoice both re-verifies already-imported payments
-  (tombstones on delete, marks voided on a zero `TotalAmt`) and discovers new ones via a
-  customer-scoped Payment query filtered client-side by `LinkedTxn`, reusing the existing
-  `record_payment` service so balance/status recalculation is identical to a staff-recorded
-  payment. A soft duplicate check (same invoice, same amount, paid date within 3 days, not
-  already QuickBooks-mapped) blocks auto-creating a payment that might already exist locally;
-  when found, other clean payments in the same scan are still created, but the attempt is marked
-  failed and non-retryable so it surfaces in the admin queue for a human decision. Uses the same
-  durable-attempt/retry/backoff/resolve machinery as Customer/Item/Invoice sync, with a
-  deliberate departure from their one-attempt-per-entity convention: `response_snapshot` holds a
-  `created`/`reverified`/`possible_duplicates` summary instead, since one scan can affect zero to
-  several payments.
+  issued invoice line items are immutable, so a correction is void-and-reissue. US manual
+  sales tax uses an explicitly mapped `TxnTaxDetail.TxnTaxCodeRef` and `TAX` line markers;
+  zero-rate US invoices use `NON` line markers. Taxed exports verify live code/component
+  rates and compare returned tax and total. Missing mappings and unsupported configurations
+  are blocked. Live 8% and 9.1% acceptance results and limitations are recorded above.
+- [x] Add read-only Payment application import (`integrations/payment_sync.py`). Each
+  mapping represents one (connection, Payment, invoice) allocation. Invoice-linked line
+  amounts determine the local amount, including credit-funded applications. Reverification
+  updates amounts/dates and reverses deleted/voided/unapplied allocations without deleting
+  history. Reapplication reuses the existing mapping. Atomic ledger/mapping writes, partial
+  progress, duplicate review, retry/backoff, and system-originated imports are tested.
+  Live sandbox acceptance is recorded above; legacy credit-import reconciliation remains required.
 
 For each entity:
 
@@ -486,6 +697,72 @@ Acceptance gate:
 - Reconciliation proves local and QuickBooks totals agree for test scenarios.
 
 ### Phase QB-4: Change detection and reconciliation - P1
+
+Implemented first slice (2026-10-15): **automatic payment reconciliation for mapped
+invoices**, including fully paid invoices so reversed payments can reopen a balance.
+This uses targeted polling; the Intuit questionnaire's webhook and CDC answers remain **No**.
+
+Validation: the full PostgreSQL suite passed **472 tests and 39 subtests**. After adding
+extra input-validation and pause-during-scan coverage, the focused reconciliation/payment
+suite passed **39 tests and 15 subtests**. Coverage includes two concurrent PostgreSQL workers,
+due-order fairness, retry identity/backoff, stale-attempt recovery, paid-invoice reversal,
+administrator/company/CSRF boundaries, and review-required invoice discrepancies. Ruff,
+Django system checks, migration consistency, and whitespace checks passed. The live sandbox
+reconciled all four active mapped invoices with matching zero balances and no unresolved
+payment checks; an immediate second pass performed no duplicate work. Automatic updates are
+enabled for Sandbox Company US 132a only. The local background worker independently picked up
+a due sandbox invoice, completed it successfully, and updated the connection page's healthy
+worker status. Page content was verified through Django; browser layout validation was not
+available. Production remains undeployed.
+
+- Company administrators can enable or pause updates from the QuickBooks connection page.
+  New connections default to off. Only connected companies matching the configured
+  sandbox/production environment are eligible. Pausing stops subsequent invoice checks;
+  an already-running check may finish. Reconnection preserves the prior preference.
+- `reconcile_quickbooks_payments --loop` checks for due work every minute. Each mapped
+  invoice is normally eligible again 15 minutes after its previous check. Each pass handles
+  at most 25 invoices per company, configurable with `--limit` (1–100), oldest due first.
+  Large queues and long API responses increase latency; this is not a 15-minute SLA.
+- Each automatic scan reads the invoice before importing, re-verifies existing Payment
+  applications, queries for new customer-scoped applications, and reads the invoice again
+  to compare its balance against the local ledger. Invoice/customer identity, currency when
+  known, tax, and total must agree. Changed/voided/deleted invoices and balance discrepancies
+  require review; issued local totals are never silently rewritten. Only confirmed payment
+  applications change the local ledger. No accounting writes are sent to QuickBooks.
+- Automatic transient failures retain their operation identity and bounded backoff. Permanent
+  failures, exhausted retries, possible duplicates, and unresolved manual payment failures
+  block new automatic attempts for that invoice until an administrator reviews/resolves them.
+  Other invoices continue. Existing manual retry and resolution controls remain available.
+- A per-company PostgreSQL session lock prevents overlapping workers. Stale running payment
+  reads can resume after 15 minutes using the same durable attempt and existing execution lock.
+  The worker does not recover or retry outbound customer/item/invoice writes.
+- The connection page displays worker check-in time and unresolved payment-check count, with
+  a warning after five minutes without a check-in. Attempt history retains individual results;
+  mappings retain last-check and next-due timestamps. External uptime alerts, API-volume
+  metrics, and automatic pruning of historical attempts remain production operations work.
+
+**Worker operation:** apply migrations first, then run the following alongside the web service,
+using the same database and QuickBooks configuration (including encryption keys and environment):
+
+```text
+python manage.py reconcile_quickbooks_payments --dry-run
+python manage.py reconcile_quickbooks_payments --loop
+```
+
+Omit `--loop` for one bounded pass. The optional Docker Compose profile can be started with
+`docker compose --profile payment-updates up -d payment-worker`. Production needs a supervised
+worker with automatic restart and a direct/session-pooled PostgreSQL connection; transaction
+pooling is incompatible with the session locks. Stop the process or pause a company to stop
+polling. Resolve a flagged discrepancy in both ledgers, then document the resolution in the
+error queue; the next due check will verify it again.
+
+For Render, prepare a separate [background worker](https://render.com/docs/background-workers)
+from the same release, with start command `python manage.py reconcile_quickbooks_payments --loop`
+and the same shared environment. Apply migrations before starting it. This local implementation
+does **not** provision or deploy a Render worker. Local execution stops when its host/process
+stops; enabling the switch alone does not launch a worker.
+
+Remaining QB-4 scope:
 
 - Choose and document the production change-detection design before answering Intuit's webhook/CDC questions.
 - Preferred design: verified webhooks for prompt notification plus CDC or targeted queries for scheduled reconciliation.
@@ -542,8 +819,7 @@ Acceptance gate:
   than leaving it unbuilt.
 - [x] Add QuickBooks Item/CostCode mapping (`QuickBooksItemMapping`, mirroring the Customer
   mapping pattern, with manual match and automated find-or-create sync). Cost codes can now be
-  linked to a QuickBooks Item; actually driving outbound QuickBooks Invoice line items from that
-  mapping is separate Invoice sync orchestration work, still open under QB-3.
+  linked to a QuickBooks Item; outbound Invoice sync now uses that mapping; live sandbox verification remains under QB-3.
 
 ### Phase APP-2: Invoices and client visibility - P0
 
@@ -564,19 +840,10 @@ Acceptance gate:
 - [x] Add QuickBooks invoice identity and sync-token mapping.
 - [x] Add credit application (local `ChangeOrder`/`CreditMemo` mechanism — see QB-3's credit
   entry and this phase's selected-finish invoice origination entry above).
-- [x] Add QuickBooks credit-memo mapping. A QuickBooks-sourced credit memo (one an accountant
-  creates directly in QuickBooks, independent of anything this app originates) reduces an
-  invoice's balance exactly the same way a QuickBooks payment does, so it's folded into the
-  *existing* per-invoice payment scan (`integrations/payment_sync.py`) rather than getting a
-  parallel entity type, sync attempt, or button: the same "Sync payments from QuickBooks" scan
-  now also calls `find_credit_memos_for_invoice` (mirroring `find_payments_for_invoice`'s
-  customer-scoped-query-plus-client-side-`LinkedTxn`-filter pattern) and imports each as an
-  ordinary `Payment` (`method=CREDIT_MEMO`, `credit_memo=None` — no local `CreditMemo` document
-  backs it, since it wasn't created via this app's change-order flow). QuickBooks identity lives
-  entirely in a new `integrations.QuickBooksCreditMemoMapping`, mirroring
-  `QuickBooksPaymentMapping` field-for-field. The duplicate-detection heuristic now excludes
-  local payments already linked to *either* mapping type, so a locally-applied credit and an
-  imported QuickBooks one can't shadow each other.
+- [x] Import QuickBooks credit applications through Payment Invoice links, including
+  zero-cash payments. The old direct CreditMemo-to-invoice scan was removed because document
+  totals are not applied amounts. Existing direct-credit mappings block new scans pending
+  reviewed reconciliation; local credit-memo application remains supported.
 - [x] Let clients view invoice details, balances/payment status, and ask questions.
 - [x] Add authenticated downloadable invoice PDFs.
 - Do not add online payment collection in this release.

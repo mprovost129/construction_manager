@@ -1,5 +1,13 @@
 .git
 .github
+.certs
+.claude
+.agents
+.codex
+*.pem
+*.key
+*.p12
+*.pfx
 .venv
 venv
 

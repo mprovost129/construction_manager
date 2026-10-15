@@ -18,6 +18,7 @@ from projects.models import (
     ActivityEvent,
     ChangeOrder,
     ChangeOrderLineItem,
+    CostCode,
     Organization,
     OrganizationMembership,
     Project,
@@ -169,6 +170,9 @@ class InvoiceModelAndServiceTests(InvoiceTestCase):
 
     def test_approved_change_order_creates_itemized_invoice_draft(self):
         now = timezone.now()
+        cost_code = CostCode.objects.create(
+            organization=self.organization, code='CAB', name='Cabinetry',
+        )
         change_order = ChangeOrder.objects.create(
             project=self.project,
             number=1,
@@ -184,6 +188,7 @@ class InvoiceModelAndServiceTests(InvoiceTestCase):
         )
         ChangeOrderLineItem.objects.create(
             change_order=change_order,
+            cost_code=cost_code,
             description='Cabinet materials',
             quantity=Decimal('2.00'),
             unit_price=Decimal('150.00'),
@@ -203,6 +208,7 @@ class InvoiceModelAndServiceTests(InvoiceTestCase):
         self.assertEqual(invoice.source_change_order, change_order)
         self.assertEqual(invoice.total_amount, Decimal('300.00'))
         self.assertEqual(invoice.line_items.count(), 1)
+        self.assertEqual(invoice.line_items.get().cost_code, cost_code)
         with self.assertRaisesMessage(ValidationError, 'already has an invoice'):
             create_invoice_from_change_order(
                 change_order_id=change_order.pk,

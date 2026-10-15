@@ -19,12 +19,14 @@ from .models import (
     QuickBooksPaymentMapping,
     QuickBooksSyncAttempt,
 )
+from .payment_allocations import invoice_payment_application
 from .quickbooks import QuickBooksAccountingClient, QuickBooksAPIError
 from .services import (
     QuickBooksMappingError,
-    save_credit_memo_mapping,
     save_payment_mapping,
+    tombstone_payment_mapping,
 )
+from .sync_execution import exclusive_execution
 
 _METHOD_KEYWORDS = {
     Payment.Method.CHECK: ('check',),
@@ -92,7 +94,9 @@ def _create_running_attempt(
         ) from exc
 
 
-def start_invoice_payment_sync(*, invoice_id, connection_id, actor, api_client=None):
+def start_invoice_payment_sync(
+    *, invoice_id, connection_id, actor, api_client=None, verify_invoice=False,
+):
     invoice = Invoice.objects.select_related('organization', 'project').get(pk=invoice_id)
     connection = QuickBooksConnection.objects.get(pk=connection_id)
     if invoice.organization_id != connection.organization_id:
@@ -116,12 +120,16 @@ def start_invoice_payment_sync(*, invoice_id, connection_id, actor, api_client=N
         invoice=invoice,
         operation=QuickBooksSyncAttempt.Operation.READ,
         direction=QuickBooksSyncAttempt.Direction.FROM_QUICKBOOKS,
-        request_payload={'quickbooks_invoice_id': invoice_mapping.quickbooks_invoice_id},
+        request_payload={
+            'quickbooks_invoice_id': invoice_mapping.quickbooks_invoice_id,
+            **({'verify_invoice': True} if verify_invoice else {}),
+        },
         actor=actor,
     )
     return execute_invoice_payment_sync_attempt(attempt.pk, api_client=api_client)
 
 
+@exclusive_execution
 def execute_invoice_payment_sync_attempt(attempt_id, *, api_client=None):
     attempt = QuickBooksSyncAttempt.objects.select_related(
         'connection', 'invoice__organization', 'invoice__project'
@@ -131,201 +139,140 @@ def execute_invoice_payment_sync_attempt(attempt_id, *, api_client=None):
     api_client = api_client or QuickBooksAccountingClient()
     invoice = attempt.invoice
     connection = attempt.connection
+    summary = {'created': [], 'reverified': [], 'possible_duplicates': []}
 
     try:
-        invoice_mapping = QuickBooksInvoiceMapping.objects.get(
+        invoice_mapping = QuickBooksInvoiceMapping.objects.filter(
             invoice=invoice,
             connection=connection,
             status=QuickBooksInvoiceMapping.Status.ACTIVE,
-        )
+        ).first()
+        if not invoice_mapping:
+            raise QuickBooksSyncError('Restore the active QuickBooks invoice mapping before syncing payments.')
+        if connection.status != QuickBooksConnection.Status.CONNECTED:
+            raise QuickBooksSyncError('Reconnect QuickBooks before synchronizing payments.')
+        if attempt.request_payload.get('verify_invoice'):
+            from .reconciliation import verify_remote_invoice
 
-        reverified = []
+            verify_remote_invoice(api_client.get_invoice(
+                connection, invoice_mapping.quickbooks_invoice_id,
+            ), invoice_mapping)
+        # Older versions imported CreditMemo totals without the application record.
+        # Never silently add Payment applications on top of those legacy credits.
+        if QuickBooksCreditMemoMapping.objects.filter(
+            invoice_mapping=invoice_mapping,
+            status=QuickBooksCreditMemoMapping.Status.ACTIVE,
+        ).exists():
+            raise QuickBooksSyncError(
+                'Legacy QuickBooks credit imports need reconciliation before payment sync. '
+                'Review the invoice and its credit applications with support.'
+            )
+
+        # Read before writing, then apply reductions first. Otherwise a legitimate
+        # redistribution between two receipts can temporarily appear to overpay.
+        reverifications = []
+        # Recheck inactive mappings too: a payment can be reapplied to this invoice.
         for mapping in QuickBooksPaymentMapping.objects.filter(
             invoice_mapping=invoice_mapping,
-            status=QuickBooksPaymentMapping.Status.ACTIVE,
-        ):
+        ).select_related('payment'):
             try:
                 payment = api_client.get_payment(connection, mapping.quickbooks_payment_id)
             except QuickBooksAPIError as exc:
                 if not exc.is_not_found:
                     raise
-                with transaction.atomic():
-                    stale = QuickBooksPaymentMapping.objects.select_for_update().get(
-                        pk=mapping.pk
-                    )
-                    stale.mark_tombstoned()
-                    stale.save()
-                reverified.append(
-                    {'quickbooks_payment_id': mapping.quickbooks_payment_id, 'status': 'tombstoned'}
-                )
+                payment = None
+            current_amount = mapping.payment.amount if mapping.status == mapping.Status.ACTIVE else Decimal('0')
+            applied_amount = (
+                invoice_payment_application(payment, invoice_mapping)[0]
+                if payment is not None else Decimal('0')
+            )
+            reverifications.append((applied_amount - current_amount, mapping, payment))
+        for _, mapping, payment in sorted(reverifications, key=lambda entry: entry[0]):
+            if payment is None:
+                tombstone_payment_mapping(mapping.pk, actor=attempt.requested_by)
+                summary['reverified'].append({
+                    'quickbooks_payment_id': mapping.quickbooks_payment_id,
+                    'status': 'tombstoned',
+                })
                 continue
-            save_payment_mapping(
+            updated = save_payment_mapping(
                 invoice_mapping=invoice_mapping,
                 connection=connection,
                 quickbooks_payment=payment,
                 local_payment=mapping.payment,
                 actor=attempt.requested_by,
             )
-            reverified.append(
-                {'quickbooks_payment_id': mapping.quickbooks_payment_id, 'status': 'updated'}
-            )
+            summary['reverified'].append({
+                'quickbooks_payment_id': mapping.quickbooks_payment_id,
+                'status': updated.status,
+            })
 
-        mapped_ids = set(
-            QuickBooksPaymentMapping.objects.filter(
-                invoice_mapping=invoice_mapping,
-            ).values_list('quickbooks_payment_id', flat=True)
-        )
+        mapped_ids = set(QuickBooksPaymentMapping.objects.filter(
+            invoice_mapping=invoice_mapping,
+        ).values_list('quickbooks_payment_id', flat=True))
         found = api_client.find_payments_for_invoice(
             connection,
             invoice_mapping.quickbooks_customer_id,
             invoice_mapping.quickbooks_invoice_id,
         )
-        created = []
-        possible_duplicates = []
         for qb_payment in found:
-            payment_id = str(qb_payment.get('Id') or '')
-            if not payment_id or payment_id in mapped_ids:
+            amount, cash_total, paid_date = invoice_payment_application(qb_payment, invoice_mapping)
+            payment_id = str(qb_payment['Id'])
+            if payment_id in mapped_ids or amount == 0:
                 continue
-            amount = qb_payment.get('TotalAmt')
-            paid_date = qb_payment.get('TxnDate')
-            duplicate = _find_possible_duplicate(invoice, amount, paid_date)
-            if duplicate:
-                possible_duplicates.append(
-                    {'quickbooks_payment_id': payment_id, 'local_payment_id': duplicate.pk}
+            # Commit the ledger entry and its external identity together. A failed
+            # mapping must never leave a payment that the next retry duplicates.
+            with transaction.atomic():
+                Invoice.objects.select_for_update().get(pk=invoice.pk)
+                # A competing import may have committed since mapped_ids was read.
+                if QuickBooksPaymentMapping.objects.filter(
+                    invoice_mapping=invoice_mapping, quickbooks_payment_id=payment_id,
+                ).exists():
+                    mapped_ids.add(payment_id)
+                    continue
+                duplicate = _find_possible_duplicate(invoice, amount, paid_date)
+                if duplicate:
+                    summary['possible_duplicates'].append({
+                        'quickbooks_payment_id': payment_id, 'local_payment_id': duplicate.pk,
+                    })
+                    continue
+                local_payment = record_payment(
+                    invoice_id=invoice.pk,
+                    actor=attempt.requested_by,
+                    amount=amount,
+                    method=(Payment.Method.CREDIT_MEMO if cash_total == 0
+                            else _method_from_quickbooks(qb_payment.get('PaymentMethodRef'))),
+                    reference=str(qb_payment.get('PaymentRefNum') or ''),
+                    paid_date=paid_date,
+                    note=f'Imported from QuickBooks payment {payment_id}.',
                 )
-                continue
-            local_payment = record_payment(
-                invoice_id=invoice.pk,
-                actor=attempt.requested_by,
-                amount=amount,
-                method=_method_from_quickbooks(qb_payment.get('PaymentMethodRef')),
-                reference=str(qb_payment.get('PaymentRefNum') or ''),
-                paid_date=paid_date,
-                note=f'Imported from QuickBooks payment {payment_id}.',
-            )
-            save_payment_mapping(
-                invoice_mapping=invoice_mapping,
-                connection=connection,
-                quickbooks_payment=qb_payment,
-                local_payment=local_payment,
-                actor=attempt.requested_by,
-            )
-            created.append(payment_id)
+                save_payment_mapping(
+                    invoice_mapping=invoice_mapping,
+                    connection=connection,
+                    quickbooks_payment=qb_payment,
+                    local_payment=local_payment,
+                    actor=attempt.requested_by,
+                )
+            mapped_ids.add(payment_id)
+            summary['created'].append(payment_id)
+        if attempt.request_payload.get('verify_invoice'):
+            from .reconciliation import verify_remote_invoice
+            from .services import save_invoice_mapping
 
-        credit_memos_reverified = []
-        for mapping in QuickBooksCreditMemoMapping.objects.filter(
-            invoice_mapping=invoice_mapping,
-            status=QuickBooksCreditMemoMapping.Status.ACTIVE,
-        ):
-            try:
-                credit_memo = api_client.get_credit_memo(
-                    connection, mapping.quickbooks_credit_memo_id
-                )
-            except QuickBooksAPIError as exc:
-                if not exc.is_not_found:
-                    raise
-                with transaction.atomic():
-                    stale = QuickBooksCreditMemoMapping.objects.select_for_update().get(
-                        pk=mapping.pk
-                    )
-                    stale.mark_tombstoned()
-                    stale.save()
-                credit_memos_reverified.append(
-                    {
-                        'quickbooks_credit_memo_id': mapping.quickbooks_credit_memo_id,
-                        'status': 'tombstoned',
-                    }
-                )
-                continue
-            save_credit_memo_mapping(
-                invoice_mapping=invoice_mapping,
-                connection=connection,
-                quickbooks_credit_memo=credit_memo,
-                local_payment=mapping.payment,
-                actor=attempt.requested_by,
+            remote = api_client.get_invoice(connection, invoice_mapping.quickbooks_invoice_id)
+            verify_remote_invoice(remote, invoice_mapping, check_balance=True)
+            save_invoice_mapping(
+                invoice=invoice, connection=connection,
+                quickbooks_invoice=remote, actor=attempt.requested_by,
             )
-            credit_memos_reverified.append(
-                {
-                    'quickbooks_credit_memo_id': mapping.quickbooks_credit_memo_id,
-                    'status': 'updated',
-                }
-            )
+    except (QuickBooksAPIError, QuickBooksMappingError, QuickBooksSyncError, ValidationError) as exc:
+        return _mark_attempt_failed(attempt.pk, exc, response_snapshot=summary)
 
-        mapped_credit_memo_ids = set(
-            QuickBooksCreditMemoMapping.objects.filter(
-                invoice_mapping=invoice_mapping,
-            ).values_list('quickbooks_credit_memo_id', flat=True)
-        )
-        found_credit_memos = api_client.find_credit_memos_for_invoice(
-            connection,
-            invoice_mapping.quickbooks_customer_id,
-            invoice_mapping.quickbooks_invoice_id,
-        )
-        credit_memos_created = []
-        credit_memo_possible_duplicates = []
-        for qb_credit_memo in found_credit_memos:
-            credit_memo_id = str(qb_credit_memo.get('Id') or '')
-            if not credit_memo_id or credit_memo_id in mapped_credit_memo_ids:
-                continue
-            amount = qb_credit_memo.get('TotalAmt')
-            txn_date = qb_credit_memo.get('TxnDate')
-            duplicate = _find_possible_duplicate(invoice, amount, txn_date)
-            if duplicate:
-                credit_memo_possible_duplicates.append(
-                    {
-                        'quickbooks_credit_memo_id': credit_memo_id,
-                        'local_payment_id': duplicate.pk,
-                    }
-                )
-                continue
-            local_payment = record_payment(
-                invoice_id=invoice.pk,
-                actor=attempt.requested_by,
-                amount=amount,
-                method=Payment.Method.CREDIT_MEMO,
-                reference=str(qb_credit_memo.get('DocNumber') or ''),
-                paid_date=txn_date,
-                note=f'Imported from QuickBooks credit memo {credit_memo_id}.',
-            )
-            save_credit_memo_mapping(
-                invoice_mapping=invoice_mapping,
-                connection=connection,
-                quickbooks_credit_memo=qb_credit_memo,
-                local_payment=local_payment,
-                actor=attempt.requested_by,
-            )
-            credit_memos_created.append(credit_memo_id)
-    except (QuickBooksAPIError, QuickBooksMappingError, ValidationError) as exc:
-        return _mark_attempt_failed(attempt.pk, exc)
-
-    summary = {
-        'created': created,
-        'credit_memos_created': credit_memos_created,
-        'reverified': reverified,
-        'credit_memos_reverified': credit_memos_reverified,
-        'possible_duplicates': possible_duplicates,
-        'credit_memo_possible_duplicates': credit_memo_possible_duplicates,
-    }
-    if possible_duplicates or credit_memo_possible_duplicates:
-        ids = ', '.join(
-            entry['quickbooks_payment_id'] for entry in possible_duplicates
-        )
-        credit_memo_ids = ', '.join(
-            entry['quickbooks_credit_memo_id'] for entry in credit_memo_possible_duplicates
-        )
-        messages = [
-            part
-            for part in (
-                f'payment(s) {ids}' if ids else '',
-                f'credit memo(s) {credit_memo_ids}' if credit_memo_ids else '',
-            )
-            if part
-        ]
+    if summary['possible_duplicates']:
+        ids = ', '.join(entry['quickbooks_payment_id'] for entry in summary['possible_duplicates'])
         return _mark_attempt_failed(
             attempt.pk,
-            QuickBooksSyncError(
-                f'Possible duplicate QuickBooks {" and ".join(messages)} need review.'
-            ),
+            QuickBooksSyncError(f'Possible duplicate QuickBooks payment(s) {ids} need review.'),
             response_snapshot=summary,
         )
     return _mark_attempt_succeeded(attempt.pk, summary)

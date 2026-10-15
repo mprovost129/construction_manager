@@ -44,10 +44,17 @@
                 {% if connection.capabilities_checked_at %}<p>Capabilities checked {{ connection.capabilities_checked_at|date:"M j, Y g:i A" }} &middot; {% if connection.capabilities.accounting_write %}Read/write{% else %}Read-only{% endif %}</p>{% else %}<p>Company details have not been checked yet.</p>{% endif %}
                 {% if connection.access_token_expires_at %}<p>Current access authorization expires {{ connection.access_token_expires_at|date:"M j, Y g:i A" }} and is refreshed as needed.</p>{% endif %}
                 {% if connection.last_error_message %}<p class="text-danger">{{ connection.last_error_message }}</p>{% endif %}
+                <p><strong>Automatic payment updates: {% if connection.automatic_payment_updates %}On{% else %}Off{% endif %}</strong></p>
+                {% if connection.automatic_payment_updates %}
+                <p>Mapped invoices, including paid invoices, are checked about every 15 minutes while the worker is running.</p>
+                {% if connection.payment_worker_is_stale %}<p class="text-danger" role="status">Payment worker has not checked in recently. Automatic updates may be delayed.</p>{% endif %}
+                {% if connection.payment_worker_seen_at %}<p>Worker last checked {{ connection.payment_worker_seen_at|date:"M j, Y g:i A" }}. Unresolved payment checks: {{ connection.payment_worker_summary.unresolved|default:0 }}.</p>{% endif %}
+                {% endif %}
             </div>
             <span class="status-pill status-pill--{% if connection.status == 'connected' %}active{% elif connection.status == 'disconnected' %}completed{% else %}declined{% endif %}">{{ connection.get_status_display }}</span>
             <div class="button-row">
-                {% if connection.status == 'connected' %}<form method="post" action="{% url 'integrations:quickbooks_capabilities_refresh' connection.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" type="submit">Refresh company info</button></form>{% endif %}
+                {% if connection.status == 'connected' or connection.automatic_payment_updates %}<form method="post" action="{% url 'integrations:quickbooks_payment_updates' connection.pk %}">{% csrf_token %}<input type="hidden" name="enabled" value="{% if connection.automatic_payment_updates %}false{% else %}true{% endif %}"><button class="btn btn-sm btn-outline-secondary" type="submit">{% if connection.automatic_payment_updates %}Pause payment updates{% else %}Enable payment updates{% endif %}</button></form>{% endif %}
+                {% if connection.status == 'connected' %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'integrations:quickbooks_tax_mappings' connection.pk %}">Sales tax mapping</a><form method="post" action="{% url 'integrations:quickbooks_capabilities_refresh' connection.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" type="submit">Refresh company info</button></form>{% endif %}
                 {% if connection.status != 'connected' %}<form method="post" action="{% url 'integrations:quickbooks_authorize' %}">{% csrf_token %}<input type="hidden" name="organization" value="{{ selected_organization.slug }}"><button class="btn btn-sm btn-primary" type="submit" {% if not quickbooks_configured %}disabled{% endif %}>Reconnect</button></form>{% endif %}
                 {% if connection.status != 'disconnected' %}<form method="post" action="{% url 'integrations:quickbooks_disconnect' connection.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit" {% if not quickbooks_configured %}disabled{% endif %}>Disconnect</button></form>{% endif %}
             </div>
@@ -95,7 +102,7 @@
     <div class="integration-list">
         {% for attempt in failed_sync_attempts %}
         <article class="integration-row">
-            <div><h3>{% firstof attempt.project.name attempt.cost_code.code "Deleted record" %} &middot; {{ attempt.get_operation_display }}</h3><p>{{ attempt.error_message }} &middot; Code {{ attempt.error_code|default:"unknown" }} &middot; Attempt {{ attempt.attempt_number }}</p>{% if attempt.next_retry_at %}<p>Automatic retry eligible after {{ attempt.next_retry_at|date:"M j, Y g:i A" }}</p>{% endif %}</div>
+            <div><h3>{% firstof attempt.project.name attempt.cost_code.code "Deleted record" %} &middot; {{ attempt.get_operation_display }}{% if attempt.invoice %} &middot; {{ attempt.invoice.display_number }}{% endif %}</h3><p>{{ attempt.error_message }} &middot; Code {{ attempt.error_code|default:"unknown" }} &middot; Attempt {{ attempt.attempt_number }}</p>{% if attempt.next_retry_at %}<p>Automatic retry eligible after {{ attempt.next_retry_at|date:"M j, Y g:i A" }}</p>{% endif %}</div>
             <span class="status-pill status-pill--declined">Failed</span>
             <div class="integration-error-actions">
                 {% if attempt.retryable %}<form method="post" action="{% url 'integrations:quickbooks_sync_retry' attempt.pk %}">{% csrf_token %}<button class="btn btn-sm btn-primary" type="submit">Retry now</button></form>{% endif %}
@@ -118,7 +125,7 @@
 
 <section class="integration-panel" aria-labelledby="item-mapping-heading">
     <div class="integration-panel__heading">
-        <div><p class="eyebrow">Stable accounting identity</p><h2 id="item-mapping-heading">Cost-code-to-item mappings</h2><p class="text-secondary mb-0">Each cost code maps to a QuickBooks Product/Service item, so invoice line items can eventually reference it.</p></div>
+        <div><p class="eyebrow">Accounting setup</p><h2 id="item-mapping-heading">Cost-code-to-item mappings</h2><p class="text-secondary mb-0">Map each cost code to a QuickBooks product or service for invoice exports.</p></div>
     </div>
     <form method="post" action="{% url 'integrations:quickbooks_item_mapping_save' %}" class="integration-mapping-form">
         {% csrf_token %}<input type="hidden" name="organization" value="{{ selected_organization.slug }}">
@@ -133,13 +140,15 @@
             <div>
                 <h3>{{ cost_code.code }} &middot; {{ cost_code.name }}</h3>
                 {% if mapping %}<p>{{ mapping.quickbooks_item_name }} &middot; Item {{ mapping.quickbooks_item_id }} &middot; {{ mapping.connection.display_name }}</p><p>Ownership: QuickBooks authoritative &middot; Conflict rule: QuickBooks wins</p>{% if mapping.last_seen_at %}<p>Last verified {{ mapping.last_seen_at|date:"M j, Y g:i A" }}</p>{% endif %}{% else %}<p>Not mapped to a QuickBooks item.</p>{% endif %}
+                {% if mapping.last_synced_values.IncomeAccountRef %}<p>Income account: {{ mapping.last_synced_values.IncomeAccountRef.name|default:mapping.last_synced_values.IncomeAccountRef.value }}</p>{% endif %}
             </div>
             {% if mapping %}<span class="status-pill status-pill--{% if mapping.status == 'active' %}active{% elif mapping.status == 'unlinked' %}completed{% else %}declined{% endif %}">{{ mapping.get_status_display }}</span>{% endif %}
             <div class="button-row">
-                <form method="post" action="{% url 'integrations:quickbooks_cost_code_item_sync' cost_code.pk %}" class="integration-sync-form">
-                    {% csrf_token %}
+                {% if mapping.status == 'active' %}<form method="post" action="{% url 'integrations:quickbooks_cost_code_item_sync' cost_code.pk %}" class="integration-sync-form">
+                {% else %}<form method="get" action="{% url 'integrations:quickbooks_service_item_setup' cost_code.pk %}" class="integration-sync-form">{% endif %}
+                    {% if mapping.status == 'active' %}{% csrf_token %}{% endif %}
                     {% if mapping.status == 'active' %}<input type="hidden" name="connection" value="{{ mapping.connection_id }}"><button class="btn btn-sm btn-primary" type="submit">Sync item</button>
-                    {% else %}<select name="connection" aria-label="QuickBooks company for {{ cost_code.code }}" required>{% for connection in connections %}{% if connection.status == 'connected' %}<option value="{{ connection.pk }}">{{ connection.display_name }}</option>{% endif %}{% endfor %}</select><button class="btn btn-sm btn-primary" type="submit">Find or create item</button>{% endif %}
+                    {% else %}<select name="connection" aria-label="QuickBooks company for {{ cost_code.code }}" required>{% for connection in connections %}{% if connection.status == 'connected' %}<option value="{{ connection.pk }}">{{ connection.display_name }}</option>{% endif %}{% endfor %}</select><button class="btn btn-sm btn-primary" type="submit">Set up service item</button>{% endif %}
                 </form>
                 {% if mapping.status == 'active' %}<form method="post" action="{% url 'integrations:quickbooks_item_mapping_unlink' mapping.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit">Unlink</button></form>{% endif %}
             </div>

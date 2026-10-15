@@ -60,7 +60,9 @@ def project_financial_summary(project, *, include_costs=False):
                 + credit
             )
 
-    invoices = list(project.invoices.exclude(status=Invoice.Status.VOIDED))
+    invoices = list(project.invoices.filter(status__in=(
+        Invoice.Status.ISSUED, Invoice.Status.PARTIALLY_PAID, Invoice.Status.PAID,
+    )))
     invoiced_total = money(sum((invoice.total_amount for invoice in invoices), Decimal('0')))
     paid_total = money(sum((invoice.amount_paid for invoice in invoices), Decimal('0')))
     balance_due = money(sum((invoice.balance_due for invoice in invoices), Decimal('0')))
