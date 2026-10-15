@@ -33,6 +33,8 @@ CACHES = {
         'LOCATION': os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/1'),
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'SOCKET_CONNECT_TIMEOUT': max(0.1, float(os.environ.get('REDIS_CONNECT_TIMEOUT_SECONDS', '3'))),
+            'SOCKET_TIMEOUT': max(0.1, float(os.environ.get('REDIS_SOCKET_TIMEOUT_SECONDS', '3'))),
         },
     }
 }
@@ -51,5 +53,8 @@ SESSION_COOKIE_AGE = int(os.environ.get('SESSION_COOKIE_AGE', '43200'))
 if env_bool('TRUST_PROXY_SSL_HEADER', False):  # noqa: F405
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
+DATABASES['default'].setdefault('OPTIONS', {})['connect_timeout'] = max(  # noqa: F405
+    1, int(os.environ.get('DB_CONNECT_TIMEOUT_SECONDS', '5')),
+)
 if env_bool('DB_SSL_REQUIRE', True):  # noqa: F405
-    DATABASES['default']['OPTIONS'] = {'sslmode': 'require'}  # noqa: F405
+    DATABASES['default']['OPTIONS']['sslmode'] = 'require'  # noqa: F405

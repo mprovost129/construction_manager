@@ -1,10 +1,12 @@
 from django.urls import path
 
-from . import views
+from . import health, views
 
 app_name = 'core'
 
 urlpatterns = [
+    path('health/live/', health.live, name='health_live'),
+    path('health/ready/', health.ready, name='health_ready'),
     path('', views.HomeView.as_view(), name='home'),
     path('help/', views.HelpCenterView.as_view(), name='help'),
     path(

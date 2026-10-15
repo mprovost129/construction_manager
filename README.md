@@ -85,4 +85,12 @@ SECRET_KEY=test-key DB_NAME=test DB_USER=test DB_PASSWORD=test \
 
 ## Deployment status
 
+Health probes are available at `/health/live/` (Django responds) and `/health/ready/`
+(database and configured cache respond). Both support GET/HEAD and return a small status-only
+JSON response; readiness returns HTTP 503 on a dependency failure. They do not read client
+records or call external APIs. Configure the client's hosting readiness check to use
+`/health/ready/` after deployment is approved. These checks do not establish that backups,
+uploads, email, or the QuickBooks worker are working. See the roadmap for operational limits
+and `.env.example` for database/Redis timeout settings.
+
 The application is suitable for controlled evaluation, not an unqualified production launch. Persistent private file storage, backups and restore testing, email delivery, monitoring, legal configuration, two-factor authentication, and live QuickBooks and Stripe acceptance remain release gates. Do not store live client records until the applicable gates in the implementation roadmap are complete.

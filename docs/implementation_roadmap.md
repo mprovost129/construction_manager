@@ -512,11 +512,42 @@ The following must be resolved before representing the application as production
   Render free web service does not run this command automatically.
 - Schedule interrupted invoice/payment recovery with `recover_quickbooks_syncs`, and verify
   the worker uses a direct or session-pooled PostgreSQL connection.
-- Add production error monitoring, health checks, alerting, and an incident-response procedure.
+- Public liveness and database/cache readiness checks are implemented locally (see below).
+  Configure production monitoring, alerting, and an incident-response procedure in the
+  client's approved hosting workspace.
 - Complete an end-to-end Stripe Sandbox subscription, configure and test Smart Retries, then create
   the equivalent live Prices, Customer Portal, and `/subscriptions/stripe/webhook/` endpoint. Enable
   subscription enforcement only after existing-company migration and live-mode validation.
 - Establish an operational privacy-request, data-export, QuickBooks-disconnect, and deletion procedure matching the published Privacy Policy.
+
+### Health checks implemented locally
+
+- `/health/live/` returns HTTP 200 with `{"status":"ok"}` when Django can answer a
+  request, without touching the database, cache, sessions, or third-party services.
+- `/health/ready/` executes `SELECT 1` and verifies a unique, short-lived cache value.
+  It returns HTTP 200 when both checks succeed or HTTP 503 with
+  `{"status":"unavailable"}` otherwise. It never reads client records or calls QuickBooks.
+  Probe keys expire after 15 seconds and are deleted after checking; existing cache data
+  is not cleared. Connection details and raw exception text are omitted from responses/logs.
+- Both routes accept GET/HEAD, require no login, prohibit response caching, and preserve
+  the existing HTTPS/allowed-host protections. A future hosting readiness monitor should
+  use `/health/ready/`; process-only monitoring can use `/health/live/`.
+- Production database connection timeout defaults to 5 seconds; Redis connection and
+  socket timeouts default to 3 seconds each. Environment overrides are documented in
+  `.env.example`. These are connection/operation limits, not an overall probe deadline;
+  configure a monitor request timeout as well.
+- These checks do not verify migrations, backups, uploads, email, payment-worker progress,
+  or external accounting/subscription availability. They complement the payment-worker
+  check-in indicators. Local readiness verifies the locally configured cache backend;
+  production Redis behavior still needs deployment acceptance in the client's workspace.
+- No hosting monitor was provisioned and no billing or deployment changes were made.
+
+Validation on October 15: **499 tests and 49 subtests passed on PostgreSQL**, including
+10 health-probe tests covering outages, silent cache failure, cleanup, privacy, HTTP methods,
+HTTPS redirects, and cache headers. Ruff, Django checks, migration consistency, and whitespace
+checks passed. Production timeout configuration was loaded with database TLS still required.
+Both routes returned HTTP 200 against the local app configuration, and the local HTTPS server
+was restarted. Changes are published to the release branch only.
 
 ### Security and legal
 
