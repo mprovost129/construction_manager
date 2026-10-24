@@ -14,6 +14,7 @@ Construction Manager is a Django application for residential builders and their 
 - Invoices, PDF downloads, payment records, and client-safe balances
 - Project financial summaries and internal job costing
 - Internal milestone schedule
+- Installable mobile web app with Home Screen icons and responsive navigation
 - QuickBooks OAuth, customer and item mappings, invoice sync, and payment import
 - Stripe organization subscriptions with staged enforcement
 

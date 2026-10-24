@@ -1,14 +1,23 @@
 <!DOCTYPE html>
+{% load static %}
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="{% block meta_description %}{% endblock %}">
+    <meta name="theme-color" content="#123d2d">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Construction Manager">
+    <link rel="manifest" href="{% static 'manifest.webmanifest' %}">
+    <link rel="icon" href="{% static 'images/app-icon.svg' %}" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="{% static 'images/app-icon-180.png' %}">
     <title>{% block title %}Construction Manager{% endblock %}</title>
     {% include 'partials/_styles.html' %}
     {% block extra_css %}{% endblock %}
 </head>
-<body class="app-body">
+<body class="app-body" data-service-worker-url="{% url 'core:service_worker' %}">
     {% block header %}{% include 'partials/_header.html' %}{% endblock %}
 
     <main class="app-main container-xl">

@@ -6,7 +6,8 @@ from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q
-from django.http import StreamingHttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
+from django.template.loader import get_template
 from django.utils import timezone
 from django.views import View
 from django.views.generic import ListView, TemplateView
@@ -54,6 +55,23 @@ class HelpCenterView(TemplateView):
     """Public first-use guidance for company users and clients."""
 
     template_name = 'core/help.html'
+
+
+class ServiceWorkerView(View):
+    """Serve the worker without request context or database-backed processors."""
+
+    def get(self, request):
+        worker = get_template('core/service-worker.js').render({})
+        response = HttpResponse(worker, content_type='application/javascript')
+        response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response['Service-Worker-Allowed'] = '/'
+        return response
+
+
+class OfflineView(TemplateView):
+    """Public, content-free fallback for an installed app without a connection."""
+
+    template_name = 'core/offline.html'
 
 
 class HomeView(TemplateView):

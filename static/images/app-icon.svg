@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Construction Manager</title>
+  <rect width="512" height="512" rx="104" fill="#123d2d"/>
+  <path d="M118 229 256 119l138 110v166H118V229Z" fill="#dfb95f"/>
+  <path d="M166 241v118h180V241l-90-72-90 72Z" fill="#f7faf8"/>
+  <path d="M218 359V253h76v106" fill="#174f3a"/>
+  <path d="M104 395h304" fill="none" stroke="#dfb95f" stroke-linecap="round" stroke-width="26"/>
+</svg>
