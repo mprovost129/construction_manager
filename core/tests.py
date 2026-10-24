@@ -534,7 +534,8 @@ class ManagementSettingsTests(SimpleTestCase):
         ensure_management_sentry.assert_called_once_with()
         scope_class.return_value.set_client.assert_called_once_with(client)
         scope_class.return_value.capture_exception.assert_called_once_with(failure)
-        client.flush.assert_called_once_with(timeout=2)
+        self.assertEqual(client.flush.call_args.kwargs['timeout'], 2)
+        self.assertTrue(callable(client.flush.call_args.kwargs['callback']))
 
     @patch('manage.sentry_sdk.Scope')
     @patch('manage.ensure_management_sentry')
@@ -558,7 +559,8 @@ class ManagementSettingsTests(SimpleTestCase):
             'Django management command failed with a non-zero exit status.',
             level='error',
         )
-        client.flush.assert_called_once_with(timeout=2)
+        self.assertEqual(client.flush.call_args.kwargs['timeout'], 2)
+        self.assertTrue(callable(client.flush.call_args.kwargs['callback']))
 
     @patch('manage.sentry_sdk.Scope')
     @patch('manage.ensure_management_sentry')
@@ -579,7 +581,8 @@ class ManagementSettingsTests(SimpleTestCase):
         ensure_management_sentry.assert_called_once_with()
         scope_class.return_value.set_client.assert_called_once_with(client)
         scope_class.return_value.capture_exception.assert_called_once_with(failure)
-        client.flush.assert_called_once_with(timeout=2)
+        self.assertEqual(client.flush.call_args.kwargs['timeout'], 2)
+        self.assertTrue(callable(client.flush.call_args.kwargs['callback']))
 
     @patch('manage.sentry_sdk.Scope')
     @patch('manage.ensure_management_sentry', return_value=None)
@@ -604,8 +607,10 @@ class ManagementSettingsTests(SimpleTestCase):
 
     @patch('manage.configure_sentry', side_effect=RuntimeError('setup failed'))
     @patch('manage.get_verified_sentry_client', return_value=None)
+    @patch('manage.surface_monitoring_failure')
     def test_monitoring_setup_error_does_not_replace_command_failure(
         self,
+        surface_monitoring_failure,
         configuration_is_active,
         configure_sentry,
     ):
@@ -625,11 +630,15 @@ class ManagementSettingsTests(SimpleTestCase):
                 )
 
         self.assertIs(raised.exception, failure)
+        configure_sentry.assert_called_once()
+        surface_monitoring_failure.assert_called_once_with()
 
     @patch('manage.sentry_sdk.Scope')
     @patch('manage.ensure_management_sentry')
+    @patch('manage.surface_monitoring_failure')
     def test_monitoring_capture_error_does_not_replace_command_failure(
         self,
+        surface_monitoring_failure,
         ensure_management_sentry,
         scope_class,
     ):
@@ -647,6 +656,72 @@ class ManagementSettingsTests(SimpleTestCase):
             )
 
         self.assertIs(raised.exception, failure)
+        scope_class.return_value.capture_exception.assert_called_once_with(failure)
+        surface_monitoring_failure.assert_called_once_with()
+
+    @patch('sys.stderr')
+    def test_monitoring_failure_warning_omits_exception_details(self, stderr):
+        manage.surface_monitoring_failure()
+
+        warning = ''.join(call.args[0] for call in stderr.write.call_args_list)
+        self.assertIn('Sentry monitoring could not report', warning)
+        self.assertNotIn('command failed', warning)
+
+    @patch('manage.surface_monitoring_failure')
+    @patch('manage.sentry_sdk.Scope')
+    @patch('manage.ensure_management_sentry')
+    def test_flush_timeout_surfaces_safe_warning(
+        self,
+        ensure_management_sentry,
+        scope_class,
+        surface_monitoring_failure,
+    ):
+        client = ensure_management_sentry.return_value
+        client.flush.side_effect = lambda *, timeout, callback: callback(1, timeout)
+
+        reported = manage.report_management_failure(exception=RuntimeError('failed'))
+
+        self.assertFalse(reported)
+        surface_monitoring_failure.assert_called_once_with()
+
+    @patch('sys.stderr.write', side_effect=OSError('closed'))
+    def test_monitoring_warning_write_failure_is_suppressed(self, stderr_write):
+        manage.surface_monitoring_failure()
+
+        stderr_write.assert_called()
+
+    @patch('manage.surface_monitoring_failure')
+    @patch('manage.configure_sentry', return_value=False)
+    @patch('manage.get_verified_sentry_client', return_value=None)
+    def test_invalid_monitoring_configuration_emits_safe_warning(
+        self,
+        get_verified_client,
+        configure_sentry,
+        surface_monitoring_failure,
+    ):
+        with patch.dict(
+            'os.environ',
+            {'SENTRY_MANAGEMENT_COMMAND': '1', 'SENTRY_DSN': 'invalid'},
+            clear=True,
+        ):
+            self.assertIsNone(manage.ensure_management_sentry())
+
+        configure_sentry.assert_called_once()
+        surface_monitoring_failure.assert_called_once_with()
+
+    @patch('manage.surface_monitoring_failure')
+    def test_disabled_monitoring_does_not_emit_failure_warning(
+        self,
+        surface_monitoring_failure,
+    ):
+        with patch.dict(
+            'os.environ',
+            {'SENTRY_MANAGEMENT_COMMAND': '1'},
+            clear=True,
+        ):
+            self.assertFalse(manage.ensure_management_sentry())
+
+        surface_monitoring_failure.assert_not_called()
 
     def test_management_command_is_marked_before_django_settings_load(self):
         with patch.dict(
@@ -703,16 +778,16 @@ class ManagementSettingsTests(SimpleTestCase):
         configuration_is_active.return_value = verified_client
         with patch.dict(
             'os.environ',
-            {'SENTRY_MANAGEMENT_COMMAND': '1'},
+            {'SENTRY_MANAGEMENT_COMMAND': '1', 'SENTRY_DSN': 'dsn'},
             clear=True,
         ):
             self.assertIs(manage.ensure_management_sentry(), verified_client)
 
         configuration_is_active.assert_called_once_with(
-            dsn='',
+            dsn='dsn',
             environment='production',
             release='',
-            traces_sample_rate=0.0,
+            traces_sample_rate=0.05,
             disabled_integrations=(manage.ExcepthookIntegration,),
         )
         configure_sentry.assert_not_called()
