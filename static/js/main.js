@@ -1,6 +1,47 @@
 (() => {
     'use strict';
 
+    const navigationToggle = document.querySelector('.app-nav__toggle');
+    const navigationMenu = document.querySelector('.app-nav__menu');
+    if (navigationToggle && navigationMenu) {
+        navigationToggle.addEventListener('click', () => {
+            const isOpen = navigationToggle.getAttribute('aria-expanded') === 'true';
+            navigationToggle.setAttribute('aria-expanded', String(!isOpen));
+            navigationToggle.querySelector('.visually-hidden').textContent = isOpen
+                ? 'Open navigation'
+                : 'Close navigation';
+            navigationMenu.toggleAttribute('data-open', !isOpen);
+        });
+    }
+
+    let installPrompt;
+    const installButton = document.querySelector('[data-install-app]');
+    window.addEventListener('beforeinstallprompt', (event) => {
+        event.preventDefault();
+        installPrompt = event;
+        if (installButton) {
+            installButton.hidden = false;
+        }
+    });
+    if (installButton) {
+        installButton.addEventListener('click', async () => {
+            if (!installPrompt) {
+                return;
+            }
+            installPrompt.prompt();
+            await installPrompt.userChoice;
+            installPrompt = undefined;
+            installButton.hidden = true;
+        });
+    }
+
+    const serviceWorkerUrl = document.body.dataset.serviceWorkerUrl;
+    if ('serviceWorker' in navigator && serviceWorkerUrl) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register(serviceWorkerUrl, {scope: '/'});
+        });
+    }
+
     const submitControlSelector = [
         'button[type="submit"]',
         'button:not([type])',

@@ -50,6 +50,25 @@ a:hover { color: var(--color-primary-dark); }
     padding: 0 1.5rem;
 }
 
+.app-nav__menu {
+    display: flex;
+    flex: 1;
+    gap: 1rem;
+    align-items: center;
+}
+
+.app-nav__toggle {
+    display: none;
+    width: 42px;
+    height: 42px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 8px;
+    color: white;
+    background: transparent;
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
 .app-brand {
     display: inline-flex;
     align-items: center;
@@ -1614,8 +1633,20 @@ input:focus {
 @media (max-width: 720px) {
     .app-nav { gap: 0.55rem; flex-wrap: wrap; padding: 0.65rem 1rem; }
     .app-brand { margin-right: 0.15rem; }
-    .app-nav__link { font-size: 0.82rem; }
-    .app-brand span:last-child, .app-nav__identity { display: none; }
+    .app-brand span:last-child { display: none; }
+    .app-nav__toggle { display: grid; place-items: center; margin-left: auto; }
+    .app-nav__menu {
+        display: none;
+        flex: 0 0 100%;
+        align-items: stretch;
+        flex-direction: column;
+        gap: 0.25rem;
+        padding: 0.35rem 0 0.45rem;
+    }
+    .app-nav__menu[data-open] { display: flex; }
+    .app-nav__link { padding: 0.6rem 0.2rem; font-size: 0.95rem; }
+    .app-nav__identity { margin: 0.4rem 0 0; }
+    .app-nav__logout, .app-nav__logout .btn, .app-nav__login { width: 100%; }
     .app-main { padding-top: 1.5rem; }
     .page-heading, .project-hero { flex-direction: column; gap: 1rem; }
     .project-hero .btn { width: 100%; }

@@ -56,6 +56,25 @@ class HelpCenterView(TemplateView):
     template_name = 'core/help.html'
 
 
+class ServiceWorkerView(TemplateView):
+    """Serve the worker from the site root without caching private app data."""
+
+    template_name = 'core/service-worker.js'
+    content_type = 'application/javascript'
+
+    def render_to_response(self, context, **response_kwargs):
+        response = super().render_to_response(context, **response_kwargs)
+        response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response['Service-Worker-Allowed'] = '/'
+        return response
+
+
+class OfflineView(TemplateView):
+    """Public, content-free fallback for an installed app without a connection."""
+
+    template_name = 'core/offline.html'
+
+
 class HomeView(TemplateView):
     template_name = 'core/home.html'
 

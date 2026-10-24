@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.contrib.staticfiles import finders
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -36,6 +37,8 @@ class PublicHelpPageTests(TestCase):
         self.assertContains(response, 'Use the client portal')
         self.assertContains(response, 'Connect and synchronize QuickBooks')
         self.assertContains(response, 'Clients do not have access to the project schedule')
+        self.assertContains(response, 'Install Construction Manager on a phone')
+        self.assertContains(response, 'Add to Home Screen')
 
     def test_help_page_links_anonymous_users_to_login(self):
         response = self.client.get(reverse('core:help'))
@@ -54,6 +57,52 @@ class PublicHelpPageTests(TestCase):
 
         self.assertContains(response, reverse('core:home'))
         self.assertContains(response, 'Open your projects')
+
+
+class ProgressiveWebAppTests(TestCase):
+    def test_base_template_exposes_install_metadata(self):
+        response = self.client.get(reverse('core:home'))
+
+        self.assertContains(response, 'rel="manifest"')
+        self.assertContains(response, 'rel="apple-touch-icon"')
+        self.assertContains(response, 'name="theme-color"')
+        self.assertContains(response, reverse('core:service_worker'))
+
+    def test_service_worker_is_public_and_not_cacheable(self):
+        response = self.client.get(reverse('core:service_worker'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/javascript')
+        self.assertEqual(response['Service-Worker-Allowed'], '/')
+        self.assertEqual(
+            response['Cache-Control'],
+            'no-cache, no-store, must-revalidate',
+        )
+        self.assertContains(response, 'self.skipWaiting()')
+        self.assertContains(response, "addEventListener('fetch'")
+        self.assertContains(response, reverse('core:offline'))
+        self.assertNotContains(response, 'cache.put')
+
+    def test_offline_fallback_is_public_and_contains_no_project_data(self):
+        response = self.client.get(reverse('core:offline'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'You are offline')
+        self.assertContains(response, 'Reconnect and try again')
+
+    def test_manifest_and_install_icons_are_collectable(self):
+        expected_paths = (
+            'manifest.webmanifest',
+            'images/app-icon.svg',
+            'images/app-icon-180.png',
+            'images/app-icon-192.png',
+            'images/app-icon-512.png',
+            'images/app-icon-maskable-512.png',
+        )
+
+        for path in expected_paths:
+            with self.subTest(path=path):
+                self.assertIsNotNone(finders.find(path))
 
 
 @override_settings(
