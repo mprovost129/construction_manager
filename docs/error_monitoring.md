@@ -47,9 +47,10 @@ explicitly. A missing DSN disables monitoring, and a malformed DSN is logged and
 ignored so an observability configuration mistake cannot prevent the app from
 starting. An invalid trace sample rate is also logged and falls back to zero
 performance traces while error reporting remains available.
-Production management commands initialize Sentry before Django imports settings,
-so settings-import failures can still be reported when a valid DSN is available.
-They disable Sentry's default uncaught-exception hook because the command wrapper
-captures and flushes failures explicitly, preventing duplicate events.
-The production settings reapply the full privacy configuration after Django
-loads, while preserving that management-command hook setting.
+Production management commands mark themselves before Django imports settings,
+allowing production settings to initialize the global client exactly once with
+the uncaught-exception hook disabled. The command wrapper captures and flushes
+failures explicitly, preventing duplicate events. If settings or Django fail to
+import before that initialization completes, the wrapper installs the same full
+privacy configuration immediately before capturing the startup failure. Django's
+management module import runs inside this wrapper as well.

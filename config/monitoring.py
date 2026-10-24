@@ -1,10 +1,14 @@
 import logging
 import re
+from threading import Lock
 from urllib.parse import unquote_plus
 
 import sentry_sdk
 
 logger = logging.getLogger(__name__)
+
+_configuration_lock = Lock()
+_configured_client = None
 
 EMAIL_PATTERN = re.compile(r'(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w-])')
 UUID_PATTERN = re.compile(
@@ -128,38 +132,54 @@ def configure_sentry(
     disabled_integrations=(),
 ):
     """Configure production error monitoring without collecting client PII."""
+    global _configured_client
+
     if not dsn:
         return False
     if not 0 <= traces_sample_rate <= 1:
         raise ValueError('SENTRY_TRACES_SAMPLE_RATE must be between 0 and 1.')
-    try:
-        sentry_sdk.init(
-            dsn=dsn,
-            environment=environment,
-            release=release or None,
-            sample_rate=1.0,
-            traces_sample_rate=traces_sample_rate,
-            disabled_integrations=list(disabled_integrations),
-            before_send=scrub_sensitive_event_values,
-            before_send_transaction=scrub_sensitive_event_values,
-            data_collection={
-                'user_info': False,
-                'cookies': {'mode': 'off'},
-                'http_headers': {'request': {'mode': 'off'}},
-                'http_bodies': [],
-                'url_query_params': {'mode': 'off'},
-                'graphql': {'document': False, 'variables': False},
-                'gen_ai': {'inputs': False, 'outputs': False},
-                'database_query_data': False,
-                'queues': False,
-                'stack_frame_variables': False,
-                'frame_context_lines': 5,
-            },
-        )
-    except ValueError:
-        logger.warning(
-            'Sentry monitoring is disabled because SENTRY_DSN is invalid.',
-            exc_info=True,
-        )
-        return False
+    disabled_integrations = tuple(disabled_integrations)
+
+    with _configuration_lock:
+        try:
+            sentry_sdk.init(
+                dsn=dsn,
+                environment=environment,
+                release=release or None,
+                sample_rate=1.0,
+                traces_sample_rate=traces_sample_rate,
+                disabled_integrations=list(disabled_integrations),
+                before_send=scrub_sensitive_event_values,
+                before_send_transaction=scrub_sensitive_event_values,
+                data_collection={
+                    'user_info': False,
+                    'cookies': {'mode': 'off'},
+                    'http_headers': {'request': {'mode': 'off'}},
+                    'http_bodies': [],
+                    'url_query_params': {'mode': 'off'},
+                    'graphql': {'document': False, 'variables': False},
+                    'gen_ai': {'inputs': False, 'outputs': False},
+                    'database_query_data': False,
+                    'queues': False,
+                    'stack_frame_variables': False,
+                    'frame_context_lines': 5,
+                },
+            )
+        except ValueError:
+            logger.warning(
+                'Sentry monitoring is disabled because SENTRY_DSN is invalid.',
+                exc_info=True,
+            )
+            return False
+
+        _configured_client = sentry_sdk.get_client()
     return True
+
+
+def sentry_configuration_is_active():
+    """Return whether the active client is the one configured above."""
+    with _configuration_lock:
+        return (
+            _configured_client is not None
+            and sentry_sdk.get_client() is _configured_client
+        )

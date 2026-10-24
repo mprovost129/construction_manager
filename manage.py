@@ -8,7 +8,11 @@ import sentry_sdk
 from dotenv import load_dotenv
 from sentry_sdk.integrations.excepthook import ExcepthookIntegration
 
-from config.monitoring import configure_sentry, get_traces_sample_rate
+from config.monitoring import (
+    configure_sentry,
+    get_traces_sample_rate,
+    sentry_configuration_is_active,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -20,11 +24,27 @@ def default_settings_module():
     return 'config.settings.dev'
 
 
-def execute_command(execute_from_command_line, argv):
+def load_django_command():
     try:
+        from django.core.management import execute_from_command_line
+    except ImportError as exc:
+        raise ImportError(
+            "Couldn't import Django. Are you sure it's installed and "
+            "available on your PYTHONPATH environment variable? Did you "
+            "forget to activate a virtual environment?"
+        ) from exc
+    return execute_from_command_line
+
+
+def execute_command(argv, command_loader=None):
+    try:
+        if command_loader is None:
+            command_loader = load_django_command
+        execute_from_command_line = command_loader()
         execute_from_command_line(argv)
     except SystemExit as exc:
         if exc.code not in (None, 0):
+            ensure_management_sentry()
             sentry_sdk.capture_message(
                 'Django management command failed with a non-zero exit status.',
                 level='error',
@@ -32,6 +52,7 @@ def execute_command(execute_from_command_line, argv):
             sentry_sdk.flush(timeout=2)
         raise
     except Exception as exc:
+        ensure_management_sentry()
         sentry_sdk.capture_exception(exc)
         sentry_sdk.flush(timeout=2)
         raise
@@ -42,6 +63,15 @@ def configure_management_sentry(settings_module):
         return False
 
     os.environ['SENTRY_MANAGEMENT_COMMAND'] = '1'
+    return True
+
+
+def ensure_management_sentry():
+    if os.environ.get('SENTRY_MANAGEMENT_COMMAND') != '1':
+        return False
+    if sentry_configuration_is_active():
+        return True
+
     dsn = os.environ.get('SENTRY_DSN', '').strip()
     return configure_sentry(
         dsn=dsn,
@@ -59,15 +89,7 @@ def main():
     """Run administrative tasks."""
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', default_settings_module())
     configure_management_sentry(os.environ['DJANGO_SETTINGS_MODULE'])
-    try:
-        from django.core.management import execute_from_command_line
-    except ImportError as exc:
-        raise ImportError(
-            "Couldn't import Django. Are you sure it's installed and "
-            "available on your PYTHONPATH environment variable? Did you "
-            "forget to activate a virtual environment?"
-        ) from exc
-    execute_command(execute_from_command_line, sys.argv)
+    execute_command(sys.argv)
 
 
 if __name__ == '__main__':
