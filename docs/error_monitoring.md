@@ -33,6 +33,9 @@ For database exceptions, the event keeps the exception type and stack trace but
 removes the exception detail, message, log entry, extra context, and breadcrumbs.
 This intentionally trades some diagnostic context for stronger protection of
 record values that database drivers may repeat across several event fields.
+When exceptions are chained, every exception message in the chain is removed if
+any member is a database exception, preventing wrapper messages from repeating
+the database detail.
 
 The Render-provided `RENDER_GIT_COMMIT` value is recorded as the Sentry release,
 so an error can be tied to the exact deployed commit without another secret or
@@ -46,3 +49,7 @@ starting. An invalid trace sample rate is also logged and falls back to zero
 performance traces while error reporting remains available.
 Production management commands initialize Sentry before Django imports settings,
 so settings-import failures can still be reported when a valid DSN is available.
+They disable Sentry's default uncaught-exception hook because the command wrapper
+captures and flushes failures explicitly, preventing duplicate events.
+The production settings reapply the full privacy configuration after Django
+loads, while preserving that management-command hook setting.

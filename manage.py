@@ -6,6 +6,7 @@ from pathlib import Path
 
 import sentry_sdk
 from dotenv import load_dotenv
+from sentry_sdk.integrations.excepthook import ExcepthookIntegration
 
 from config.monitoring import configure_sentry, get_traces_sample_rate
 
@@ -40,6 +41,7 @@ def configure_management_sentry(settings_module):
     if settings_module != 'config.settings.prod':
         return False
 
+    os.environ['SENTRY_MANAGEMENT_COMMAND'] = '1'
     dsn = os.environ.get('SENTRY_DSN', '').strip()
     return configure_sentry(
         dsn=dsn,
@@ -49,6 +51,7 @@ def configure_management_sentry(settings_module):
             dsn,
             os.environ.get('SENTRY_TRACES_SAMPLE_RATE', '0.05'),
         ),
+        disabled_integrations=(ExcepthookIntegration,),
     )
 
 
