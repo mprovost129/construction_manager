@@ -189,8 +189,7 @@ def configure_sentry(
             )
         except ValueError:
             logger.warning(
-                'Sentry monitoring is disabled because SENTRY_DSN is invalid.',
-                exc_info=True,
+                'Sentry monitoring is disabled because SENTRY_DSN is invalid.'
             )
             return False
 

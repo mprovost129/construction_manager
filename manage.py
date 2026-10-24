@@ -55,7 +55,7 @@ def report_management_failure(*, exception=None, exit_failure=False):
     """Report a command failure without ever replacing the original error."""
     try:
         client = ensure_management_sentry()
-        if client is None:
+        if not client:
             return False
         scope = sentry_sdk.Scope()
         scope.set_client(client)
@@ -66,10 +66,31 @@ def report_management_failure(*, exception=None, exit_failure=False):
             )
         else:
             scope.capture_exception(exception)
-        client.flush(timeout=2)
+        pending_events = 0
+
+        def record_pending_events(pending, timeout):
+            nonlocal pending_events
+            pending_events = pending
+
+        client.flush(timeout=2, callback=record_pending_events)
+        if pending_events:
+            surface_monitoring_failure()
+            return False
     except Exception:
+        surface_monitoring_failure()
         return False
     return True
+
+
+def surface_monitoring_failure():
+    """Warn on stderr without exposing error details to logging integrations."""
+    try:
+        print(
+            'Warning: Sentry monitoring could not report the management command failure.',
+            file=sys.stderr,
+        )
+    except Exception:
+        pass
 
 
 def configure_management_sentry(settings_module):
@@ -84,6 +105,8 @@ def ensure_management_sentry():
     if os.environ.get('SENTRY_MANAGEMENT_COMMAND') != '1':
         return False
     dsn = os.environ.get('SENTRY_DSN', '').strip()
+    if not dsn:
+        return False
     release = os.environ.get('RENDER_GIT_COMMIT', '')
     traces_sample_rate = get_traces_sample_rate(
         dsn,
@@ -101,9 +124,11 @@ def ensure_management_sentry():
         if client is not None:
             return client
         if not configure_sentry(**configuration):
+            surface_monitoring_failure()
             return None
         return get_verified_sentry_client(**configuration)
     except Exception:
+        surface_monitoring_failure()
         return None
 
 
