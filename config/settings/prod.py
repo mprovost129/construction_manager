@@ -1,5 +1,7 @@
 import os
 
+from config.monitoring import configure_sentry, get_traces_sample_rate
+
 from .base import *  # noqa: F403
 
 DEBUG = False
@@ -53,3 +55,17 @@ if env_bool('TRUST_PROXY_SSL_HEADER', False):  # noqa: F405
 
 if env_bool('DB_SSL_REQUIRE', True):  # noqa: F405
     DATABASES['default']['OPTIONS'] = {'sslmode': 'require'}  # noqa: F405
+
+# Error monitoring is enabled only when a production DSN is supplied. Render
+# exposes its source commit automatically, giving each event an exact release.
+SENTRY_DSN = os.environ.get('SENTRY_DSN', '').strip()
+SENTRY_TRACES_SAMPLE_RATE = get_traces_sample_rate(
+    SENTRY_DSN,
+    os.environ.get('SENTRY_TRACES_SAMPLE_RATE', '0.05'),
+)
+SENTRY_ENABLED = configure_sentry(
+    dsn=SENTRY_DSN,
+    environment=APP_ENVIRONMENT,  # noqa: F405
+    release=os.environ.get('RENDER_GIT_COMMIT', ''),
+    traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
+)
