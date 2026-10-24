@@ -155,6 +155,19 @@ If more than one client approval is required, set the required approval count be
 
 Open the document and upload a new version instead of creating a separate document. Construction Manager retains the version history and records client decisions against the version that was reviewed.
 
+### Request an electronic signature
+
+Open a client-visible PDF document and select **Request signature**. Choose one active project
+client, add optional instructions and a due date, and send the request. The request is tied to the
+exact PDF version using a SHA-256 fingerprint. If the stored bytes change, the application blocks
+the signature instead of accepting it against a different file.
+
+The client signs in through the portal, downloads and reviews the PDF, consents to electronic
+signing, and types their full legal name. They may also decline and provide a reason. The completed
+record includes the signer, consent language, date and time, document fingerprint, technical request
+information, and a downloadable PDF audit certificate. Upload a new document version before sending
+a replacement request if the content changes.
+
 ### Client uploads
 
 Clients can open Documents and select **Upload files or photos**. The upload appears in the project and assigned internal users receive a notification. Progress photos show the upload date with the file record.

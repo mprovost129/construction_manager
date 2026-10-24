@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block title %}Request signature | {{ document.title }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:document_list' project.pk %}">Documents</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:document_detail' project.pk document.pk %}">{{ document.title }}</a><i class="bi bi-chevron-right"></i><span>Request signature</span></nav>
+<div class="form-shell form-shell--top">
+    <section class="form-card form-card--wide">
+        <p class="eyebrow">Electronic signature</p>
+        <h1>Request a client signature</h1>
+        <p class="text-secondary">The selected client will sign the exact bytes of <strong>{{ version.original_filename }}</strong>, version {{ version.version_number }}. The document fingerprint, consent, identity, response time, and audit events will be preserved.</p>
+        <div class="role-banner"><i class="bi bi-file-earmark-lock"></i><span>Only PDF documents are eligible. Upload a new version before sending if the file needs any changes.</span></div>
+        <form method="post" class="stacked-form">{% csrf_token %}
+            {{ form.non_field_errors }}
+            {% for field in form %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{{ field.errors }}</div>{% endfor %}
+            <div class="form-actions"><a class="btn btn-outline-secondary" href="{% url 'projects:document_detail' project.pk document.pk %}">Cancel</a><button class="btn btn-primary" type="submit"><i class="bi bi-send"></i> Send signature request</button></div>
+        </form>
+    </section>
+</div>
+{% endblock %}

@@ -1,3 +1,4 @@
+import hashlib
 import logging
 
 from django.conf import settings
@@ -10,6 +11,7 @@ from django.utils import timezone
 
 from .models import (
     ActivityEvent,
+    DocumentSignatureEvent,
     OrganizationInvitation,
     OrganizationMembership,
     ProjectCostEntry,
@@ -18,6 +20,45 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+DOCUMENT_SIGNATURE_CONSENT = (
+    'I have reviewed the identified document and agree to use an electronic '
+    'signature for this transaction. I understand that typing my name and '
+    'selecting Sign document is intended to create my legally binding electronic '
+    'signature for this exact document version.'
+)
+
+
+def document_version_sha256(version):
+    """Return a stable SHA-256 fingerprint for the exact stored file bytes."""
+    digest = hashlib.sha256()
+    version.file.open('rb')
+    try:
+        for chunk in iter(lambda: version.file.read(1024 * 1024), b''):
+            digest.update(chunk)
+    finally:
+        version.file.close()
+    return digest.hexdigest()
+
+
+def signature_request_metadata(request):
+    """Capture conservative request metadata without trusting forwarded headers."""
+    return {
+        'ip_address': request.META.get('REMOTE_ADDR') or None,
+        'user_agent': request.META.get('HTTP_USER_AGENT', '')[:500],
+    }
+
+
+def record_signature_event(signature_request, event_type, request, *, metadata=None):
+    request_metadata = signature_request_metadata(request)
+    return DocumentSignatureEvent.objects.create(
+        signature_request=signature_request,
+        event_type=event_type,
+        actor=request.user if request.user.is_authenticated else None,
+        ip_address=request_metadata['ip_address'],
+        user_agent=request_metadata['user_agent'],
+        metadata=metadata or {},
+    )
 
 
 def evaluate_approval_progress(decisions, required_approvals):
@@ -254,6 +295,68 @@ def send_document_decision_notification(request, decision):
             f'{document.title} version {decision.version.version_number}.\n\n'
             f'Comment: {decision.comment or "No comment provided."}\n\n'
             f'View document: {document_url}'
+        ),
+        recipient_list=recipients,
+    )
+
+
+def send_document_signature_request_notification(request, signature_request):
+    document = signature_request.document
+    review_url = request.build_absolute_uri(
+        reverse(
+            'projects:document_signature_review',
+            args=(document.project_id, document.pk, signature_request.pk),
+        )
+    )
+    due_line = (
+        f'Please respond by {signature_request.due_date:%B %d, %Y}.\n\n'
+        if signature_request.due_date
+        else ''
+    )
+    message = (
+        f'{signature_request.requested_by.email} requested your electronic '
+        f'signature on {document.title} version '
+        f'{signature_request.version.version_number} for '
+        f'{document.project.name}.\n\n'
+    )
+    if signature_request.message:
+        message += f'{signature_request.message}\n\n'
+    return send_notification_email(
+        subject=f'Signature requested - {document.project.name}: {document.title}',
+        message=(
+            message
+            + due_line
+            + f'Review and sign securely: {review_url}\n\n'
+            + 'You must sign in with the invited client account before responding.'
+        ),
+        recipient_list=[signature_request.signer.email],
+    )
+
+
+def send_document_signature_result_notification(request, signature_request):
+    document = signature_request.document
+    recipients = document_internal_recipients(
+        document.project,
+        exclude_user=signature_request.signer,
+    )
+    recipients = sorted(set(recipients) | {signature_request.signer.email})
+    detail_url = request.build_absolute_uri(
+        reverse(
+            'projects:document_detail',
+            args=(document.project_id, document.pk),
+        )
+    )
+    return send_notification_email(
+        subject=(
+            f'Document {signature_request.get_status_display().lower()} - '
+            f'{document.project.name}: {document.title}'
+        ),
+        message=(
+            f'{signature_request.signer.email} '
+            f'{signature_request.get_status_display().lower()} '
+            f'{document.title} version '
+            f'{signature_request.version.version_number}.\n\n'
+            f'View the permanent record: {detail_url}'
         ),
         recipient_list=recipients,
     )

@@ -25,7 +25,7 @@ implemented and verified.
 | --- | --- | --- |
 | Authentication and company administration | Complete | Email authentication, invitations, roles, project assignments, password reset, and startup superuser bootstrap exist. |
 | Project and client portal foundation | Complete | Projects, scoped access, dashboard/action center, messaging, activity history, and client invitations exist. |
-| Documents and client uploads | Complete | Private documents, versions, downloads, configurable-approval-count decisions, client uploads, and email notifications exist. |
+| Documents and client uploads | Complete | Private documents, versions, downloads, configurable-approval-count decisions, client uploads, email notifications, and authenticated PDF signature requests with SHA-256 version binding and audit certificates exist. |
 | Change orders | Partial | Draft, submission, configurable multi-approval decisions, edit, optional cost-coded line items, revise/replace with a revision chain, void (including approved orders), and selection-allowance-credit application (a change order sourced from a selection's unused credit, validated and capped against that credit) exist; automated financial reversal on void does not — voiding still only sets a manual-follow-up flag. |
 | Finish selections | Complete | Options, allowance math, publishing, client choice, overage flag, reopening, package grouping for multi-area choices, vendor/link/spec/image/lead-time option metadata, client custom-option requests routed to a change order, credit disposition tracking, and manual + scheduler-driven overdue reminders exist. |
 | Schedule | Partial | Internal milestone/calendar workflow exists; dependencies, recurrence, and external calendar integration do not. |
@@ -100,6 +100,10 @@ These decisions govern remaining implementation work:
 - Client approve/decline decisions and activity audit events.
 - Configurable required-approval count per document, resolved from a per-client decision log.
 - Dedicated client upload workflow for documents and images.
+- Authenticated electronic-signature requests for exact PDF versions, including named signers,
+  optional due dates and messages, consent snapshots, typed signatures, decline/cancel paths,
+  byte-level SHA-256 verification, technical audit events, completion emails, and downloadable
+  audit certificates.
 - Assigned internal-recipient notification behavior.
 
 ### Change orders
@@ -304,6 +308,13 @@ The following must be resolved before representing the application as production
 - Provision a production-only QuickBooks token-encryption key in the Render secret store,
   document key rotation, and retain old keys during rotation until all stored tokens are re-encrypted.
 - Configure real `LEGAL_*` values and obtain legal review of the EULA and Privacy Policy.
+- Obtain attorney review of the electronic-signature consent, certificate wording, retention
+  policy, supported document types, and Heritage's intended uses before treating signatures as a
+  production contract-execution system.
+- Keep the signature-request and audit-event tables unavailable to Supabase's Data API by default.
+  Do not add `anon` or `authenticated` grants unless a future client-side API use case is designed
+  with row-level security and reviewed explicitly; the Django server connection is the intended
+  access path.
 - Assign support ownership, publish a monitored support address, and document response targets; the public help route and first-use guide are delivered.
 - Perform dependency, vulnerability, access-control, upload, and authorization testing before external users are admitted.
 
@@ -605,7 +616,8 @@ The following are intentionally outside the current release unless requirements 
 - Daily logs.
 - Online payment processing.
 - Historical Buildertrend or QuickBooks import.
-- Formal e-signatures/DocuSign; authenticated approval remains sufficient initially.
+- Advanced e-signature depth remains deferred: placed signature/initial fields, signer ordering,
+  SMS or knowledge-based identity verification, notarization, and optional DocuSign integration.
 - QuickBooks Desktop integration.
 - Payroll integration.
 - QuickBooks Self-Employed/Solopreneur and Intuit Enterprise Suite support.
