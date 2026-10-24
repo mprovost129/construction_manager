@@ -1,5 +1,6 @@
 import logging
 import re
+from urllib.parse import unquote_plus
 
 import sentry_sdk
 
@@ -42,7 +43,7 @@ def _scrub_string(value):
 
 def _scrub_query_parameter(match):
     delimiter, key, parameter_value = match.groups()
-    normalized_key = re.sub(r'[^a-z0-9]', '', key.lower())
+    normalized_key = re.sub(r'[^a-z0-9]', '', unquote_plus(key).lower())
     if normalized_key.endswith(SENSITIVE_QUERY_KEY_SUFFIXES):
         parameter_value = '[Filtered]'
     return f'{delimiter}{key}={parameter_value}'
@@ -60,18 +61,20 @@ def _scrub_database_exception_details(event):
     if not isinstance(values, list):
         return event
 
-    database_exception_found = False
-    for exception_value in values:
-        if not isinstance(exception_value, dict):
-            continue
-        module = str(exception_value.get('module', ''))
-        exception_type = str(exception_value.get('type', ''))
-        if module.startswith(DATABASE_EXCEPTION_MODULE_PREFIXES) or (
-            exception_type in DATABASE_EXCEPTION_TYPES
-        ):
-            database_exception_found = True
-            exception_value['value'] = '[Filtered database exception details]'
+    database_exception_found = any(
+        isinstance(exception_value, dict)
+        and (
+            str(exception_value.get('module', '')).startswith(
+                DATABASE_EXCEPTION_MODULE_PREFIXES
+            )
+            or str(exception_value.get('type', '')) in DATABASE_EXCEPTION_TYPES
+        )
+        for exception_value in values
+    )
     if database_exception_found:
+        for exception_value in values:
+            if isinstance(exception_value, dict) and 'value' in exception_value:
+                exception_value['value'] = '[Filtered database exception details]'
         for field in ('breadcrumbs', 'extra', 'logentry', 'message'):
             event.pop(field, None)
     return event
@@ -116,13 +119,19 @@ def get_traces_sample_rate(dsn, raw_value):
     return sample_rate
 
 
-def configure_sentry(*, dsn, environment, release, traces_sample_rate):
+def configure_sentry(
+    *,
+    dsn,
+    environment,
+    release,
+    traces_sample_rate,
+    disabled_integrations=(),
+):
     """Configure production error monitoring without collecting client PII."""
     if not dsn:
         return False
     if not 0 <= traces_sample_rate <= 1:
         raise ValueError('SENTRY_TRACES_SAMPLE_RATE must be between 0 and 1.')
-
     try:
         sentry_sdk.init(
             dsn=dsn,
@@ -130,6 +139,7 @@ def configure_sentry(*, dsn, environment, release, traces_sample_rate):
             release=release or None,
             sample_rate=1.0,
             traces_sample_rate=traces_sample_rate,
+            disabled_integrations=list(disabled_integrations),
             before_send=scrub_sensitive_event_values,
             before_send_transaction=scrub_sensitive_event_values,
             data_collection={

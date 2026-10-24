@@ -1,5 +1,7 @@
 import os
 
+from sentry_sdk.integrations.excepthook import ExcepthookIntegration
+
 from config.monitoring import configure_sentry, get_traces_sample_rate
 
 os.environ['APP_ENVIRONMENT'] = 'production'
@@ -70,4 +72,9 @@ SENTRY_ENABLED = configure_sentry(
     environment=APP_ENVIRONMENT,  # noqa: F405
     release=os.environ.get('RENDER_GIT_COMMIT', ''),
     traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
+    disabled_integrations=(
+        (ExcepthookIntegration,)
+        if os.environ.get('SENTRY_MANAGEMENT_COMMAND') == '1'
+        else ()
+    ),
 )

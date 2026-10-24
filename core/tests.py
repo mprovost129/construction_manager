@@ -207,6 +207,7 @@ class SentryConfigurationTests(SimpleTestCase):
         self.assertEqual(options['release'], 'abc123')
         self.assertEqual(options['sample_rate'], 1.0)
         self.assertEqual(options['traces_sample_rate'], 0.05)
+        self.assertEqual(options['disabled_integrations'], [])
         self.assertIs(options['before_send'], scrub_sensitive_event_values)
         self.assertIs(
             options['before_send_transaction'],
@@ -296,6 +297,7 @@ class SentryConfigurationTests(SimpleTestCase):
                             '&password=password-value'
                             '&auth=auth-value'
                             '&authorization=authorization-value'
+                            '&access%54oken=encoded-token-value'
                             '&accessToken=camel-token-value'
                             '&clientSecret=camel-secret-value&ok=1.'
                         )
@@ -325,6 +327,7 @@ class SentryConfigurationTests(SimpleTestCase):
         self.assertNotIn('password-value', exception_value)
         self.assertNotIn('auth-value', exception_value)
         self.assertNotIn('authorization-value', exception_value)
+        self.assertNotIn('encoded-token-value', exception_value)
         self.assertNotIn('camel-token-value', exception_value)
         self.assertNotIn('camel-secret-value', exception_value)
         self.assertIn('[Filtered email]', exception_value)
@@ -349,6 +352,11 @@ class SentryConfigurationTests(SimpleTestCase):
             'exception': {
                 'values': [
                     {
+                        'module': 'builtins',
+                        'type': 'RuntimeError',
+                        'value': 'Could not save private client name',
+                    },
+                    {
                         'module': 'django.db.utils',
                         'type': 'IntegrityError',
                         'value': 'duplicate key contains private client name',
@@ -360,7 +368,11 @@ class SentryConfigurationTests(SimpleTestCase):
 
         scrubbed = scrub_sensitive_event_values(event)
 
-        exception_value = scrubbed['exception']['values'][0]
+        wrapper_value, exception_value = scrubbed['exception']['values']
+        self.assertEqual(
+            wrapper_value['value'],
+            '[Filtered database exception details]',
+        )
         self.assertEqual(
             exception_value['value'],
             '[Filtered database exception details]',
@@ -447,10 +459,12 @@ class ManagementSettingsTests(SimpleTestCase):
             clear=True,
         ):
             manage.configure_management_sentry('config.settings.prod')
+            self.assertEqual(os.environ['SENTRY_MANAGEMENT_COMMAND'], '1')
 
         configure_sentry.assert_called_once_with(
             dsn='https://public@example.ingest.sentry.io/1',
             environment='production',
             release='abc123',
             traces_sample_rate=0.05,
+            disabled_integrations=(manage.ExcepthookIntegration,),
         )
