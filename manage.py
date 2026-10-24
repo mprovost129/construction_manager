@@ -11,7 +11,7 @@ from sentry_sdk.integrations.excepthook import ExcepthookIntegration
 from config.monitoring import (
     configure_sentry,
     get_traces_sample_rate,
-    sentry_configuration_is_active,
+    get_verified_sentry_client,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -44,18 +44,32 @@ def execute_command(argv, command_loader=None):
         execute_from_command_line(argv)
     except SystemExit as exc:
         if exc.code not in (None, 0):
-            ensure_management_sentry()
-            sentry_sdk.capture_message(
+            report_management_failure(exit_failure=True)
+        raise
+    except Exception as exc:
+        report_management_failure(exception=exc)
+        raise
+
+
+def report_management_failure(*, exception=None, exit_failure=False):
+    """Report a command failure without ever replacing the original error."""
+    try:
+        client = ensure_management_sentry()
+        if client is None:
+            return False
+        scope = sentry_sdk.Scope()
+        scope.set_client(client)
+        if exit_failure:
+            scope.capture_message(
                 'Django management command failed with a non-zero exit status.',
                 level='error',
             )
-            sentry_sdk.flush(timeout=2)
-        raise
-    except Exception as exc:
-        ensure_management_sentry()
-        sentry_sdk.capture_exception(exc)
-        sentry_sdk.flush(timeout=2)
-        raise
+        else:
+            scope.capture_exception(exception)
+        client.flush(timeout=2)
+    except Exception:
+        return False
+    return True
 
 
 def configure_management_sentry(settings_module):
@@ -69,20 +83,28 @@ def configure_management_sentry(settings_module):
 def ensure_management_sentry():
     if os.environ.get('SENTRY_MANAGEMENT_COMMAND') != '1':
         return False
-    if sentry_configuration_is_active():
-        return True
-
     dsn = os.environ.get('SENTRY_DSN', '').strip()
-    return configure_sentry(
-        dsn=dsn,
-        environment='production',
-        release=os.environ.get('RENDER_GIT_COMMIT', ''),
-        traces_sample_rate=get_traces_sample_rate(
-            dsn,
-            os.environ.get('SENTRY_TRACES_SAMPLE_RATE', '0.05'),
-        ),
-        disabled_integrations=(ExcepthookIntegration,),
+    release = os.environ.get('RENDER_GIT_COMMIT', '')
+    traces_sample_rate = get_traces_sample_rate(
+        dsn,
+        os.environ.get('SENTRY_TRACES_SAMPLE_RATE', '0.05'),
     )
+    configuration = {
+        'dsn': dsn,
+        'environment': 'production',
+        'release': release,
+        'traces_sample_rate': traces_sample_rate,
+        'disabled_integrations': (ExcepthookIntegration,),
+    }
+    try:
+        client = get_verified_sentry_client(**configuration)
+        if client is not None:
+            return client
+        if not configure_sentry(**configuration):
+            return None
+        return get_verified_sentry_client(**configuration)
+    except Exception:
+        return None
 
 
 def main():

@@ -7,6 +7,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
 import manage
+from config import monitoring
 from config.monitoring import (
     configure_sentry,
     get_traces_sample_rate,
@@ -263,15 +264,67 @@ class SentryConfigurationTests(SimpleTestCase):
 
     @patch('config.monitoring.sentry_sdk.get_client')
     def test_active_configuration_requires_the_owned_client(self, get_client):
-        owned_client = object()
+        owned_client = type('Client', (), {})()
+        owned_client.options = {
+            'before_send': scrub_sensitive_event_values,
+            'before_send_transaction': scrub_sensitive_event_values,
+            'data_collection': monitoring._privacy_data_collection(),
+        }
+        owned_client.get_integration = lambda integration: None
         replacement_client = object()
 
-        with patch('config.monitoring._configured_client', owned_client):
+        configured_options = (
+            'https://public@example.ingest.sentry.io/1',
+            'production',
+            'abc123',
+            0.05,
+            (),
+        )
+        with (
+            patch('config.monitoring._configured_client', owned_client),
+            patch('config.monitoring._configured_options', configured_options),
+        ):
             get_client.return_value = owned_client
             self.assertTrue(sentry_configuration_is_active())
 
             get_client.return_value = replacement_client
             self.assertFalse(sentry_configuration_is_active())
+
+    @patch('config.monitoring.sentry_sdk.get_client')
+    def test_changed_privacy_options_make_configuration_inactive(self, get_client):
+        owned_client = type('Client', (), {})()
+        owned_client.options = {
+            'before_send': None,
+            'before_send_transaction': scrub_sensitive_event_values,
+            'data_collection': monitoring._privacy_data_collection(),
+        }
+        owned_client.get_integration = lambda integration: None
+        get_client.return_value = owned_client
+
+        with (
+            patch('config.monitoring._configured_client', owned_client),
+            patch(
+                'config.monitoring._configured_options',
+                ('dsn', 'production', None, 0.05, ()),
+            ),
+        ):
+            self.assertFalse(sentry_configuration_is_active())
+
+    @patch('config.monitoring.sentry_sdk.get_client')
+    @patch('config.monitoring.sentry_sdk.init')
+    def test_later_public_initialization_is_blocked(self, init_mock, get_client):
+        get_client.return_value = object()
+
+        configure_sentry(
+            dsn='https://public@example.ingest.sentry.io/1',
+            environment='production',
+            release='abc123',
+            traces_sample_rate=0.05,
+        )
+
+        init_mock.assert_called_once()
+        with self.assertRaisesMessage(RuntimeError, 'config.monitoring'):
+            monitoring.sentry_sdk.init(dsn='https://other.invalid/1')
 
     @patch(
         'config.monitoring.sentry_sdk.init',
@@ -460,15 +513,14 @@ class ManagementSettingsTests(SimpleTestCase):
         self.assertEqual(manage.default_settings_module(), 'config.settings.prod')
         load_dotenv.assert_called_once_with(manage.BASE_DIR / '.env')
 
-    @patch('manage.sentry_sdk.flush')
-    @patch('manage.sentry_sdk.capture_exception')
+    @patch('manage.sentry_sdk.Scope')
     @patch('manage.ensure_management_sentry')
     def test_uncaught_management_command_error_is_reported(
         self,
         ensure_management_sentry,
-        capture_exception,
-        flush,
+        scope_class,
     ):
+        client = ensure_management_sentry.return_value
         failure = RuntimeError('command failed')
 
         with self.assertRaises(RuntimeError):
@@ -480,18 +532,18 @@ class ManagementSettingsTests(SimpleTestCase):
             )
 
         ensure_management_sentry.assert_called_once_with()
-        capture_exception.assert_called_once_with(failure)
-        flush.assert_called_once_with(timeout=2)
+        scope_class.return_value.set_client.assert_called_once_with(client)
+        scope_class.return_value.capture_exception.assert_called_once_with(failure)
+        client.flush.assert_called_once_with(timeout=2)
 
-    @patch('manage.sentry_sdk.flush')
-    @patch('manage.sentry_sdk.capture_message')
+    @patch('manage.sentry_sdk.Scope')
     @patch('manage.ensure_management_sentry')
     def test_failed_management_command_exit_is_reported(
         self,
         ensure_management_sentry,
-        capture_message,
-        flush,
+        scope_class,
     ):
+        client = ensure_management_sentry.return_value
         with self.assertRaises(SystemExit):
             manage.execute_command(
                 [],
@@ -501,21 +553,21 @@ class ManagementSettingsTests(SimpleTestCase):
             )
 
         ensure_management_sentry.assert_called_once_with()
-        capture_message.assert_called_once_with(
+        scope_class.return_value.set_client.assert_called_once_with(client)
+        scope_class.return_value.capture_message.assert_called_once_with(
             'Django management command failed with a non-zero exit status.',
             level='error',
         )
-        flush.assert_called_once_with(timeout=2)
+        client.flush.assert_called_once_with(timeout=2)
 
-    @patch('manage.sentry_sdk.flush')
-    @patch('manage.sentry_sdk.capture_exception')
+    @patch('manage.sentry_sdk.Scope')
     @patch('manage.ensure_management_sentry')
     def test_django_import_failure_is_reported(
         self,
         ensure_management_sentry,
-        capture_exception,
-        flush,
+        scope_class,
     ):
+        client = ensure_management_sentry.return_value
         failure = ImportError('Django import failed')
 
         with self.assertRaises(ImportError):
@@ -525,8 +577,76 @@ class ManagementSettingsTests(SimpleTestCase):
             )
 
         ensure_management_sentry.assert_called_once_with()
-        capture_exception.assert_called_once_with(failure)
-        flush.assert_called_once_with(timeout=2)
+        scope_class.return_value.set_client.assert_called_once_with(client)
+        scope_class.return_value.capture_exception.assert_called_once_with(failure)
+        client.flush.assert_called_once_with(timeout=2)
+
+    @patch('manage.sentry_sdk.Scope')
+    @patch('manage.ensure_management_sentry', return_value=None)
+    def test_unverified_client_does_not_receive_command_failure(
+        self,
+        ensure_management_sentry,
+        scope_class,
+    ):
+        failure = RuntimeError('command failed')
+
+        with self.assertRaises(RuntimeError) as raised:
+            manage.execute_command(
+                [],
+                command_loader=lambda: (
+                    lambda argv: (_ for _ in ()).throw(failure)
+                ),
+            )
+
+        self.assertIs(raised.exception, failure)
+        ensure_management_sentry.assert_called_once_with()
+        scope_class.assert_not_called()
+
+    @patch('manage.configure_sentry', side_effect=RuntimeError('setup failed'))
+    @patch('manage.get_verified_sentry_client', return_value=None)
+    def test_monitoring_setup_error_does_not_replace_command_failure(
+        self,
+        configuration_is_active,
+        configure_sentry,
+    ):
+        failure = RuntimeError('command failed')
+
+        with patch.dict(
+            'os.environ',
+            {'SENTRY_MANAGEMENT_COMMAND': '1', 'SENTRY_DSN': 'dsn'},
+            clear=True,
+        ):
+            with self.assertRaises(RuntimeError) as raised:
+                manage.execute_command(
+                    [],
+                    command_loader=lambda: (
+                        lambda argv: (_ for _ in ()).throw(failure)
+                    ),
+                )
+
+        self.assertIs(raised.exception, failure)
+
+    @patch('manage.sentry_sdk.Scope')
+    @patch('manage.ensure_management_sentry')
+    def test_monitoring_capture_error_does_not_replace_command_failure(
+        self,
+        ensure_management_sentry,
+        scope_class,
+    ):
+        scope_class.return_value.capture_exception.side_effect = RuntimeError(
+            'sdk failed'
+        )
+        failure = RuntimeError('command failed')
+
+        with self.assertRaises(RuntimeError) as raised:
+            manage.execute_command(
+                [],
+                command_loader=lambda: (
+                    lambda argv: (_ for _ in ()).throw(failure)
+                ),
+            )
+
+        self.assertIs(raised.exception, failure)
 
     def test_management_command_is_marked_before_django_settings_load(self):
         with patch.dict(
@@ -542,12 +662,15 @@ class ManagementSettingsTests(SimpleTestCase):
             self.assertEqual(os.environ['SENTRY_MANAGEMENT_COMMAND'], '1')
 
     @patch('manage.configure_sentry')
-    @patch('manage.sentry_configuration_is_active', return_value=False)
+    @patch('manage.get_verified_sentry_client', return_value=None)
     def test_startup_failure_installs_monitoring_when_settings_did_not(
         self,
         configuration_is_active,
         configure_sentry,
     ):
+        verified_client = object()
+        configuration_is_active.side_effect = (None, verified_client)
+        configure_sentry.return_value = True
         with patch.dict(
             'os.environ',
             {
@@ -567,19 +690,50 @@ class ManagementSettingsTests(SimpleTestCase):
             traces_sample_rate=0.05,
             disabled_integrations=(manage.ExcepthookIntegration,),
         )
+        self.assertEqual(configuration_is_active.call_count, 2)
 
     @patch('manage.configure_sentry')
-    @patch('manage.sentry_configuration_is_active', return_value=True)
+    @patch('manage.get_verified_sentry_client')
     def test_active_settings_client_is_preserved(
         self,
         configuration_is_active,
         configure_sentry,
     ):
+        verified_client = object()
+        configuration_is_active.return_value = verified_client
         with patch.dict(
             'os.environ',
             {'SENTRY_MANAGEMENT_COMMAND': '1'},
             clear=True,
         ):
-            self.assertTrue(manage.ensure_management_sentry())
+            self.assertIs(manage.ensure_management_sentry(), verified_client)
 
+        configuration_is_active.assert_called_once_with(
+            dsn='',
+            environment='production',
+            release='',
+            traces_sample_rate=0.0,
+            disabled_integrations=(manage.ExcepthookIntegration,),
+        )
         configure_sentry.assert_not_called()
+
+    @patch('manage.configure_sentry', return_value=True)
+    @patch(
+        'manage.get_verified_sentry_client',
+    )
+    def test_inactive_settings_client_is_reconfigured(
+        self,
+        configuration_is_active,
+        configure_sentry,
+    ):
+        verified_client = object()
+        configuration_is_active.side_effect = (None, verified_client)
+        with patch.dict(
+            'os.environ',
+            {'SENTRY_MANAGEMENT_COMMAND': '1', 'SENTRY_DSN': 'dsn'},
+            clear=True,
+        ):
+            self.assertIs(manage.ensure_management_sentry(), verified_client)
+
+        configure_sentry.assert_called_once()
+        self.assertEqual(configuration_is_active.call_count, 2)

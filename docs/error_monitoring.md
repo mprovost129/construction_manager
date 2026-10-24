@@ -54,3 +54,9 @@ failures explicitly, preventing duplicate events. If settings or Django fail to
 import before that initialization completes, the wrapper installs the same full
 privacy configuration immediately before capturing the startup failure. Django's
 management module import runs inside this wrapper as well.
+
+After successful setup, the application blocks later calls to the public Sentry
+initialization API. This prevents another component from replacing the client
+with weaker collection settings during runtime. Management-command failures are
+sent only after the active client and its privacy options have been verified;
+monitoring setup errors never replace the original command failure.
