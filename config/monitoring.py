@@ -5,44 +5,115 @@ import sentry_sdk
 
 logger = logging.getLogger(__name__)
 
-EMAIL_PATTERN = re.compile(r'(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w.-])')
+EMAIL_PATTERN = re.compile(r'(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w-])')
 UUID_PATTERN = re.compile(
     r'(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-'
     r'[89ab][0-9a-f]{3}-[0-9a-f]{12}\b'
 )
-SENSITIVE_QUERY_VALUE_PATTERN = re.compile(
-    r'(?i)([?&](?:(?:[a-z0-9]+[_-])*)'
-    r'(?:code|key|secret|signature|state|token)=)[^&#\s]+'
+QUERY_PARAMETER_PATTERN = re.compile(r'(?i)([?&])([^=&#\s]+)=([^&#\s]+)')
+SENSITIVE_QUERY_KEY_SUFFIXES = (
+    'auth',
+    'authorization',
+    'code',
+    'credential',
+    'key',
+    'password',
+    'secret',
+    'signature',
+    'state',
+    'token',
 )
+DATABASE_EXCEPTION_MODULE_PREFIXES = ('django.db', 'psycopg', 'psycopg2')
+DATABASE_EXCEPTION_TYPES = {
+    'DataError',
+    'DatabaseError',
+    'IntegrityError',
+    'InternalError',
+    'OperationalError',
+    'ProgrammingError',
+}
 
 
 def _scrub_string(value):
     value = UUID_PATTERN.sub('[Filtered UUID]', value)
     value = EMAIL_PATTERN.sub('[Filtered email]', value)
-    return SENSITIVE_QUERY_VALUE_PATTERN.sub(r'\1[Filtered]', value)
+    return QUERY_PARAMETER_PATTERN.sub(_scrub_query_parameter, value)
+
+
+def _scrub_query_parameter(match):
+    delimiter, key, parameter_value = match.groups()
+    normalized_key = re.sub(r'[^a-z0-9]', '', key.lower())
+    if normalized_key.endswith(SENSITIVE_QUERY_KEY_SUFFIXES):
+        parameter_value = '[Filtered]'
+    return f'{delimiter}{key}={parameter_value}'
+
+
+def _scrub_database_exception_details(event):
+    if not isinstance(event, dict):
+        return event
+
+    exception = event.get('exception')
+    if not isinstance(exception, dict):
+        return event
+
+    values = exception.get('values')
+    if not isinstance(values, list):
+        return event
+
+    database_exception_found = False
+    for exception_value in values:
+        if not isinstance(exception_value, dict):
+            continue
+        module = str(exception_value.get('module', ''))
+        exception_type = str(exception_value.get('type', ''))
+        if module.startswith(DATABASE_EXCEPTION_MODULE_PREFIXES) or (
+            exception_type in DATABASE_EXCEPTION_TYPES
+        ):
+            database_exception_found = True
+            exception_value['value'] = '[Filtered database exception details]'
+    if database_exception_found:
+        for field in ('breadcrumbs', 'extra', 'logentry', 'message'):
+            event.pop(field, None)
+    return event
+
+
+def _scrub_nested_value(value):
+    if isinstance(value, dict):
+        return {
+            _scrub_nested_value(key): _scrub_nested_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_scrub_nested_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_scrub_nested_value(item) for item in value)
+    if isinstance(value, str):
+        return _scrub_string(value)
+    return value
 
 
 def scrub_sensitive_event_values(value, hint=None):
     """Remove common client identifiers wherever Sentry places event data."""
-    if isinstance(value, dict):
-        return {
-            scrub_sensitive_event_values(key): scrub_sensitive_event_values(item)
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [scrub_sensitive_event_values(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(scrub_sensitive_event_values(item) for item in value)
-    if isinstance(value, str):
-        return _scrub_string(value)
-    return value
+    return _scrub_nested_value(_scrub_database_exception_details(value))
 
 
 def get_traces_sample_rate(dsn, raw_value):
     """Avoid parsing optional Sentry settings while monitoring is disabled."""
     if not dsn:
         return 0.0
-    return float(raw_value)
+    try:
+        sample_rate = float(raw_value)
+    except (TypeError, ValueError):
+        logger.warning(
+            'SENTRY_TRACES_SAMPLE_RATE is invalid; performance tracing is disabled.'
+        )
+        return 0.0
+    if not 0 <= sample_rate <= 1:
+        logger.warning(
+            'SENTRY_TRACES_SAMPLE_RATE is outside 0–1; performance tracing is disabled.'
+        )
+        return 0.0
+    return sample_rate
 
 
 def configure_sentry(*, dsn, environment, release, traces_sample_rate):

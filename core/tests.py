@@ -1,3 +1,4 @@
+import os
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -263,12 +264,15 @@ class SentryConfigurationTests(SimpleTestCase):
     def test_disabled_sentry_ignores_invalid_trace_sample_rate(self):
         self.assertEqual(get_traces_sample_rate('', 'not-a-number'), 0.0)
 
-    def test_enabled_sentry_rejects_invalid_trace_sample_rate(self):
-        with self.assertRaises(ValueError):
-            get_traces_sample_rate(
+    def test_invalid_trace_sample_rate_disables_tracing_without_startup_failure(self):
+        with self.assertLogs('config.monitoring', level='WARNING') as logs:
+            sample_rate = get_traces_sample_rate(
                 'https://public@example.ingest.sentry.io/1',
                 'not-a-number',
             )
+
+        self.assertEqual(sample_rate, 0.0)
+        self.assertIn('performance tracing is disabled', logs.output[0])
 
     def test_event_scrubber_redacts_identifiers_in_nested_event_data(self):
         # Assemble the UUID so secret scanners do not mistake a public test
@@ -288,7 +292,12 @@ class SentryConfigurationTests(SimpleTestCase):
                             '&access_token=access-value'
                             '&refresh_token=refresh-value'
                             '&client_secret=client-value'
-                            '&api_key=key-value&ok=1'
+                            '&api_key=key-value'
+                            '&password=password-value'
+                            '&auth=auth-value'
+                            '&authorization=authorization-value'
+                            '&accessToken=camel-token-value'
+                            '&clientSecret=camel-secret-value&ok=1.'
                         )
                     }
                 ]
@@ -313,8 +322,64 @@ class SentryConfigurationTests(SimpleTestCase):
         self.assertNotIn('refresh-value', exception_value)
         self.assertNotIn('client-value', exception_value)
         self.assertNotIn('key-value', exception_value)
+        self.assertNotIn('password-value', exception_value)
+        self.assertNotIn('auth-value', exception_value)
+        self.assertNotIn('authorization-value', exception_value)
+        self.assertNotIn('camel-token-value', exception_value)
+        self.assertNotIn('camel-secret-value', exception_value)
         self.assertIn('[Filtered email]', exception_value)
         self.assertIn('code=[Filtered]', exception_value)
+
+    def test_database_exception_details_are_removed(self):
+        event = {
+            'message': 'duplicate key contains private client name',
+            'logentry': {
+                'message': 'Database insert failed: %s',
+                'params': ['private client name'],
+            },
+            'extra': {'record_name': 'private client name'},
+            'breadcrumbs': {
+                'values': [
+                    {
+                        'category': 'query',
+                        'message': 'private client name',
+                    }
+                ]
+            },
+            'exception': {
+                'values': [
+                    {
+                        'module': 'django.db.utils',
+                        'type': 'IntegrityError',
+                        'value': 'duplicate key contains private client name',
+                        'stacktrace': {'frames': []},
+                    }
+                ]
+            }
+        }
+
+        scrubbed = scrub_sensitive_event_values(event)
+
+        exception_value = scrubbed['exception']['values'][0]
+        self.assertEqual(
+            exception_value['value'],
+            '[Filtered database exception details]',
+        )
+        self.assertEqual(exception_value['stacktrace'], {'frames': []})
+        self.assertNotIn('message', scrubbed)
+        self.assertNotIn('logentry', scrubbed)
+        self.assertNotIn('extra', scrubbed)
+        self.assertNotIn('breadcrumbs', scrubbed)
+
+    def test_email_before_sentence_period_is_removed(self):
+        scrubbed = scrub_sensitive_event_values(
+            {'message': 'Notify client@example.com. Then retry.'}
+        )
+
+        self.assertEqual(
+            scrubbed['message'],
+            'Notify [Filtered email]. Then retry.',
+        )
 
 
 class ManagementSettingsTests(SimpleTestCase):
@@ -325,3 +390,67 @@ class ManagementSettingsTests(SimpleTestCase):
     @patch.dict('os.environ', {}, clear=True)
     def test_local_management_commands_default_to_development_settings(self):
         self.assertEqual(manage.default_settings_module(), 'config.settings.dev')
+
+    @patch.dict('os.environ', {}, clear=True)
+    @patch('manage.load_dotenv')
+    def test_environment_file_is_loaded_before_selecting_settings(self, load_dotenv):
+        load_dotenv.side_effect = lambda path: os.environ.__setitem__(
+            'APP_ENVIRONMENT',
+            'production',
+        )
+
+        self.assertEqual(manage.default_settings_module(), 'config.settings.prod')
+        load_dotenv.assert_called_once_with(manage.BASE_DIR / '.env')
+
+    @patch('manage.sentry_sdk.flush')
+    @patch('manage.sentry_sdk.capture_exception')
+    def test_uncaught_management_command_error_is_reported(
+        self,
+        capture_exception,
+        flush,
+    ):
+        failure = RuntimeError('command failed')
+
+        with self.assertRaises(RuntimeError):
+            manage.execute_command(lambda argv: (_ for _ in ()).throw(failure), [])
+
+        capture_exception.assert_called_once_with(failure)
+        flush.assert_called_once_with(timeout=2)
+
+    @patch('manage.sentry_sdk.flush')
+    @patch('manage.sentry_sdk.capture_message')
+    def test_failed_management_command_exit_is_reported(self, capture_message, flush):
+        with self.assertRaises(SystemExit):
+            manage.execute_command(
+                lambda argv: (_ for _ in ()).throw(SystemExit(1)),
+                [],
+            )
+
+        capture_message.assert_called_once_with(
+            'Django management command failed with a non-zero exit status.',
+            level='error',
+        )
+        flush.assert_called_once_with(timeout=2)
+
+    @patch('manage.configure_sentry')
+    def test_management_monitoring_starts_before_django_settings_load(
+        self,
+        configure_sentry,
+    ):
+        with patch.dict(
+            'os.environ',
+            {
+                'SENTRY_DSN': 'https://public@example.ingest.sentry.io/1',
+                'SENTRY_TRACES_SAMPLE_RATE': '0.05',
+                'RENDER_GIT_COMMIT': 'abc123',
+            },
+            clear=True,
+        ):
+            manage.configure_management_sentry('config.settings.prod')
+
+        configure_sentry.assert_called_once_with(
+            dsn='https://public@example.ingest.sentry.io/1',
+            environment='production',
+            release='abc123',
+            traces_sample_rate=0.05,
+        )

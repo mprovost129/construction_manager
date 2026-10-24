@@ -24,10 +24,15 @@ The application sends errors and 5 percent of performance traces. It does not
 send authenticated user identity, cookies, request headers, request or response
 bodies, URL query parameters, database query values, or local stack variables.
 Before sending errors or traces, a final recursive scrubber also removes email
-addresses, UUIDs such as invitation tokens, and sensitive query values that may
-appear in URLs, exception messages, breadcrumbs, or span data. These restrictions
-protect client emails, invitation tokens, signature records, and document metadata.
-Do not weaken them without a documented privacy review.
+addresses, UUIDs such as invitation tokens, sensitive query values, and database
+exception detail text that may contain record values. These restrictions protect
+client emails, invitation tokens, signature records, and document metadata. Do
+not weaken them without a documented privacy review.
+
+For database exceptions, the event keeps the exception type and stack trace but
+removes the exception detail, message, log entry, extra context, and breadcrumbs.
+This intentionally trades some diagnostic context for stronger protection of
+record values that database drivers may repeat across several event fields.
 
 The Render-provided `RENDER_GIT_COMMIT` value is recorded as the Sentry release,
 so an error can be tied to the exact deployed commit without another secret or
@@ -37,4 +42,7 @@ Production management commands select the production settings whenever
 `APP_ENVIRONMENT=production`, even if `DJANGO_SETTINGS_MODULE` is not supplied
 explicitly. A missing DSN disables monitoring, and a malformed DSN is logged and
 ignored so an observability configuration mistake cannot prevent the app from
-starting.
+starting. An invalid trace sample rate is also logged and falls back to zero
+performance traces while error reporting remains available.
+Production management commands initialize Sentry before Django imports settings,
+so settings-import failures can still be reported when a valid DSN is available.
