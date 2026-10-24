@@ -88,6 +88,26 @@ urlpatterns = [
         name='document_decision',
     ),
     path(
+        'projects/<int:pk>/documents/<int:document_pk>/versions/<int:version_pk>/signatures/new/',
+        views.ProjectDocumentSignatureRequestCreateView.as_view(),
+        name='document_signature_request',
+    ),
+    path(
+        'projects/<int:pk>/documents/<int:document_pk>/signatures/<int:signature_request_pk>/',
+        views.ProjectDocumentSignatureReviewView.as_view(),
+        name='document_signature_review',
+    ),
+    path(
+        'projects/<int:pk>/documents/<int:document_pk>/signatures/<int:signature_request_pk>/cancel/',
+        views.ProjectDocumentSignatureCancelView.as_view(),
+        name='document_signature_cancel',
+    ),
+    path(
+        'projects/<int:pk>/documents/<int:document_pk>/signatures/<int:signature_request_pk>/certificate/',
+        views.ProjectDocumentSignatureCertificateView.as_view(),
+        name='document_signature_certificate',
+    ),
+    path(
         'projects/<int:pk>/change-orders/',
         views.ChangeOrderListView.as_view(),
         name='change_order_list',

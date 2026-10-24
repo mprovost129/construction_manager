@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+
+{% block title %}Review and sign | {{ document.title }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:document_list' project.pk %}">Documents</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:document_detail' project.pk document.pk %}">{{ document.title }}</a><i class="bi bi-chevron-right"></i><span>Review and sign</span></nav>
+
+<section class="page-heading">
+    <div><p class="eyebrow">Electronic signature request</p><h1>{{ document.title }}</h1><p class="text-secondary mb-0">Version {{ version.version_number }} · Requested by {{ signature_request.requested_by.email }}{% if signature_request.due_date %} · Due {{ signature_request.due_date|date:"M j, Y" }}{% endif %}</p></div>
+    <a class="btn btn-primary" href="{% url 'projects:document_download' project.pk document.pk version.pk %}"><i class="bi bi-download"></i> Download and review PDF</a>
+</section>
+
+{% if signature_request.message %}<div class="role-banner"><i class="bi bi-chat-left-text"></i><span>{{ signature_request.message }}</span></div>{% endif %}
+
+{% if signature_request.status == 'pending' %}
+<section class="decision-panel signature-panel">
+    <div>
+        <p class="eyebrow">Your response</p>
+        <h2>Review the complete PDF before responding</h2>
+        <p>Your authenticated account, consent, typed name, date and time, technical request information, and the PDF's SHA-256 fingerprint will be retained in the audit record.</p>
+        <p><strong>Document fingerprint:</strong><br><code>{{ signature_request.document_sha256 }}</code></p>
+    </div>
+    <form method="post" class="stacked-form">{% csrf_token %}
+        {{ form.non_field_errors }}
+        {% for field in form %}<div class="form-field{% if field.field.widget.input_type == 'checkbox' %} form-field--checkbox{% endif %}"><label{% if field.id_for_label %} for="{{ field.id_for_label }}"{% endif %}>{{ field.label }}</label>{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{{ field.errors }}</div>{% endfor %}
+        <button class="btn btn-primary" type="submit">Submit response</button>
+    </form>
+</section>
+{% else %}
+<section class="decision-panel decision-panel--recorded"><i class="bi bi-shield-check"></i><div><p class="eyebrow">Request closed</p><h2>{{ signature_request.get_status_display }}</h2><p>{% if signature_request.signed_at %}Signed as {{ signature_request.typed_name }} on {{ signature_request.signed_at|date:"M j, Y g:i A" }}.{% elif signature_request.declined_at %}Declined on {{ signature_request.declined_at|date:"M j, Y g:i A" }}. {{ signature_request.decline_reason }}{% endif %}</p><a class="btn btn-outline-secondary" href="{% url 'projects:document_signature_certificate' project.pk document.pk signature_request.pk %}"><i class="bi bi-file-earmark-pdf"></i> Download audit certificate</a></div></section>
+{% endif %}
+{% endblock %}

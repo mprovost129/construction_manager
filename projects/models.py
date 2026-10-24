@@ -479,6 +479,19 @@ class ActivityEvent(models.Model):
             'document_decision_recorded',
             'Document decision recorded',
         )
+        DOCUMENT_SIGNATURE_REQUESTED = (
+            'document_signature_requested',
+            'Document signature requested',
+        )
+        DOCUMENT_SIGNED = 'document_signed', 'Document signed'
+        DOCUMENT_SIGNATURE_DECLINED = (
+            'document_signature_declined',
+            'Document signature declined',
+        )
+        DOCUMENT_SIGNATURE_CANCELLED = (
+            'document_signature_cancelled',
+            'Document signature request cancelled',
+        )
         CHANGE_ORDER_CREATED = 'change_order_created', 'Change order created'
         CHANGE_ORDER_UPDATED = 'change_order_updated', 'Change order updated'
         CHANGE_ORDER_SUBMITTED = 'change_order_submitted', 'Change order submitted'
@@ -907,6 +920,140 @@ class DocumentDecision(models.Model):
             f'{self.decided_by.email} {self.get_decision_display().lower()} '
             f'{self.version}'
         )
+
+
+class DocumentSignatureRequest(models.Model):
+    """A request for one authenticated project client to sign one file version."""
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Awaiting signature'
+        SIGNED = 'signed', 'Signed'
+        DECLINED = 'declined', 'Declined'
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    version = models.ForeignKey(
+        ProjectDocumentVersion,
+        on_delete=models.PROTECT,
+        related_name='signature_requests',
+    )
+    signer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='document_signature_requests',
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='document_signature_requests_created',
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    message = models.TextField(blank=True)
+    due_date = models.DateField(blank=True, null=True)
+    document_sha256 = models.CharField(max_length=64)
+    consent_text = models.TextField()
+    typed_name = models.CharField(max_length=200, blank=True)
+    signed_at = models.DateTimeField(blank=True, null=True)
+    declined_at = models.DateTimeField(blank=True, null=True)
+    decline_reason = models.TextField(blank=True)
+    completed_ip = models.GenericIPAddressField(blank=True, null=True)
+    completed_user_agent = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-created_at', '-pk')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('version', 'signer'),
+                name='projects_unique_signature_request_per_signer_version',
+            ),
+        ]
+
+    @property
+    def document(self):
+        return self.version.document
+
+    @property
+    def is_overdue(self):
+        return bool(
+            self.status == self.Status.PENDING
+            and self.due_date
+            and self.due_date < timezone.localdate()
+        )
+
+    def clean(self):
+        super().clean()
+        project = self.version.document.project
+        is_active_client = project.project_memberships.filter(
+            user=self.signer,
+            role=OrganizationMembership.Role.CLIENT,
+            is_active=True,
+        ).exists()
+        if not is_active_client:
+            raise ValidationError(
+                {'signer': 'The signer must be an active client on this project.'}
+            )
+        if len(self.document_sha256) != 64:
+            raise ValidationError(
+                {'document_sha256': 'A valid SHA-256 document hash is required.'}
+            )
+        if self.status == self.Status.SIGNED:
+            if not self.typed_name.strip() or not self.signed_at:
+                raise ValidationError(
+                    'A signed request requires a typed name and signature time.'
+                )
+        elif self.typed_name or self.signed_at:
+            raise ValidationError(
+                'Signature details may only be stored on a signed request.'
+            )
+        if self.status == self.Status.DECLINED and not self.declined_at:
+            raise ValidationError('A declined request requires a decision time.')
+        if self.status != self.Status.DECLINED and self.declined_at:
+            raise ValidationError(
+                'A decline time may only be stored on a declined request.'
+            )
+
+    def __str__(self):
+        return f'{self.signer.email} - {self.version} ({self.get_status_display()})'
+
+
+class DocumentSignatureEvent(models.Model):
+    """Append-only audit events for a document signature request."""
+
+    class Type(models.TextChoices):
+        REQUESTED = 'requested', 'Requested'
+        VIEWED = 'viewed', 'Viewed'
+        SIGNED = 'signed', 'Signed'
+        DECLINED = 'declined', 'Declined'
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    signature_request = models.ForeignKey(
+        DocumentSignatureRequest,
+        on_delete=models.PROTECT,
+        related_name='events',
+    )
+    event_type = models.CharField(max_length=10, choices=Type.choices)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='document_signature_events',
+    )
+    ip_address = models.GenericIPAddressField(blank=True, null=True)
+    user_agent = models.CharField(max_length=500, blank=True)
+    metadata = models.JSONField(blank=True, default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('created_at', 'pk')
+
+    def __str__(self):
+        return f'{self.get_event_type_display()} - {self.signature_request}'
 
 
 class CostCode(models.Model):

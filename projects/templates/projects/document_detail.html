@@ -7,7 +7,7 @@
 
 <section class="page-heading">
     <div><p class="eyebrow">{{ document.get_category_display }}</p><h1>{{ document.title }}</h1>{% if document.description %}<p class="text-secondary mb-0">{{ document.description }}</p>{% endif %}</div>
-    <div class="button-row">{% if current_version %}<a class="btn btn-primary" href="{% url 'projects:document_download' project.pk document.pk current_version.pk %}"><i class="bi bi-download"></i> Download version {{ current_version.version_number }}</a>{% endif %}{% if can_manage_project %}<a class="btn btn-outline-secondary" href="{% url 'projects:document_version_create' project.pk document.pk %}"><i class="bi bi-upload"></i> New version</a>{% endif %}</div>
+    <div class="button-row">{% if current_version %}<a class="btn btn-primary" href="{% url 'projects:document_download' project.pk document.pk current_version.pk %}"><i class="bi bi-download"></i> Download version {{ current_version.version_number }}</a>{% endif %}{% if can_manage_project and current_version_can_sign %}<a class="btn btn-outline-secondary" href="{% url 'projects:document_signature_request' project.pk document.pk current_version.pk %}"><i class="bi bi-pen"></i> Request signature</a>{% endif %}{% if can_manage_project %}<a class="btn btn-outline-secondary" href="{% url 'projects:document_version_create' project.pk document.pk %}"><i class="bi bi-upload"></i> New version</a>{% endif %}</div>
 </section>
 
 {% if can_manage_project %}<div class="role-banner"><i class="bi bi-eye"></i><span>{% if document.client_visible %}Visible to assigned clients{% else %}Internal company document{% endif %}{% if document.requires_client_approval %} · Client approval required{% endif %}</span></div>{% endif %}
@@ -21,6 +21,27 @@
 <section class="decision-panel decision-panel--recorded"><i class="bi bi-shield-check"></i><div><p class="eyebrow">Decision recorded</p><h2>{{ viewer_decision.get_decision_display }}</h2><p>{{ viewer_decision.decided_at|date:"M j, Y g:i A" }}{% if viewer_decision.comment %} · {{ viewer_decision.comment }}{% endif %}</p></div></section>
 {% endif %}
 
+{% if viewer_signature_request %}
+<section class="decision-panel{% if viewer_signature_request.status != 'pending' %} decision-panel--recorded{% endif %}">
+    <div><p class="eyebrow">Electronic signature</p><h2>{{ viewer_signature_request.get_status_display }}</h2><p>Signature requested for version {{ viewer_signature_request.version.version_number }}{% if viewer_signature_request.due_date %} · Due {{ viewer_signature_request.due_date|date:"M j, Y" }}{% endif %}.</p></div>
+    <div class="button-row">{% if viewer_signature_request.status == 'pending' %}<a class="btn btn-primary" href="{% url 'projects:document_signature_review' project.pk document.pk viewer_signature_request.pk %}"><i class="bi bi-pen"></i> Review and sign</a>{% else %}<a class="btn btn-outline-secondary" href="{% url 'projects:document_signature_certificate' project.pk document.pk viewer_signature_request.pk %}"><i class="bi bi-file-earmark-pdf"></i> Audit certificate</a>{% endif %}</div>
+</section>
+{% endif %}
+
+{% if can_manage_project and current_version %}
+<section class="admin-panel">
+    <div class="section-heading"><div><p class="eyebrow">Electronic signatures</p><h2>Current version requests</h2></div>{% if current_version_can_sign %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:document_signature_request' project.pk document.pk current_version.pk %}">Request signature</a>{% endif %}</div>
+    <div class="version-list">
+        {% for signature_request in current_version.signature_requests.all %}
+        <article class="version-row">
+            <div><h3>{{ signature_request.signer.email }} <span class="status-pill {% if signature_request.status == 'signed' %}status-pill--active{% elif signature_request.status == 'declined' or signature_request.status == 'cancelled' %}status-pill--declined{% else %}status-pill--on_hold{% endif %}">{{ signature_request.get_status_display }}</span></h3><p>Requested by {{ signature_request.requested_by.email }} on {{ signature_request.created_at|date:"M j, Y g:i A" }}{% if signature_request.due_date %} · Due {{ signature_request.due_date|date:"M j, Y" }}{% endif %}</p>{% if signature_request.signed_at %}<p>Signed as {{ signature_request.typed_name }} on {{ signature_request.signed_at|date:"M j, Y g:i A" }}</p>{% elif signature_request.decline_reason %}<p>Reason: {{ signature_request.decline_reason }}</p>{% endif %}</div>
+            <div class="button-row">{% if signature_request.status == 'signed' or signature_request.status == 'declined' %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:document_signature_certificate' project.pk document.pk signature_request.pk %}"><i class="bi bi-file-earmark-pdf"></i> Certificate</a>{% elif signature_request.status == 'pending' %}<form method="post" action="{% url 'projects:document_signature_cancel' project.pk document.pk signature_request.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit">Cancel request</button></form>{% endif %}</div>
+        </article>
+        {% empty %}<p>No signatures have been requested for the current version.</p>{% endfor %}
+    </div>
+</section>
+{% endif %}
+
 <section class="admin-panel">
     <div class="section-heading"><div><p class="eyebrow">Permanent record</p><h2>Version history</h2></div></div>
     <div class="version-list">
@@ -28,7 +49,7 @@
         <article class="version-row">
             <div><h3>Version {{ version.version_number }}{% if version == current_version %} <span class="status-pill status-pill--active">Current</span>{% endif %}</h3><p>{{ version.original_filename }} · Uploaded by {{ version.uploaded_by.email }} on {{ version.created_at|date:"M j, Y g:i A" }}</p>{% if version.notes %}<p>{{ version.notes }}</p>{% endif %}</div>
             <a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:document_download' project.pk document.pk version.pk %}"><i class="bi bi-download"></i> Download</a>
-            {% if document.requires_client_approval %}<div class="version-decisions">{% for decision in version.decisions.all %}<span class="status-pill {% if decision.decision == 'approved' %}status-pill--active{% else %}status-pill--declined{% endif %}">{{ decision.get_decision_display }} by {{ decision.decided_by.email }} · {{ decision.decided_at|date:"M j, Y" }}</span>{% empty %}<span class="status-pill status-pill--on_hold">Awaiting decision</span>{% endfor %}</div>{% endif %}
+            {% if document.requires_client_approval %}<div class="version-decisions">{% for decision in version.decisions.all %}<span class="status-pill {% if decision.decision == 'approved' %}status-pill--active{% else %}status-pill--declined{% endif %}">{{ decision.get_decision_display }} by {{ decision.decided_by.email }} · {{ decision.decided_at|date:"M j, Y" }}</span>{% empty %}<span class="status-pill status-pill--on_hold">Awaiting decision</span>{% endfor %}</div>{% endif %}{% if can_manage_project %}<div class="version-decisions">{% for signature_request in version.signature_requests.all %}<span class="status-pill {% if signature_request.status == 'signed' %}status-pill--active{% elif signature_request.status == 'pending' %}status-pill--on_hold{% else %}status-pill--declined{% endif %}">Signature: {{ signature_request.signer.email }} · {{ signature_request.get_status_display }}</span>{% endfor %}</div>{% endif %}
         </article>
         {% empty %}<p>No versions have been uploaded.</p>{% endfor %}
     </div>
