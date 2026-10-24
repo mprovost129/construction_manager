@@ -8,6 +8,7 @@ from .models import (
     ChangeOrder,
     ConversationThread,
     DocumentDecision,
+    DocumentSignatureRequest,
     FinishSelection,
     OrganizationMembership,
     ProjectDocument,
@@ -85,6 +86,17 @@ def build_project_action_center(user, project):
             }
         )
 
+    signature_actions = list(
+        DocumentSignatureRequest.objects.filter(
+            version__document__project=project,
+            status=DocumentSignatureRequest.Status.PENDING,
+        ).select_related('version__document', 'signer', 'requested_by')
+    )
+    if viewer_is_client:
+        signature_actions = [
+            item for item in signature_actions if item.signer_id == user.pk
+        ]
+
     # The schedule is an internal-only module. Hiding every milestone here keeps
     # client action links from leading to a schedule page they cannot open.
     delayed_milestones = []
@@ -105,6 +117,7 @@ def build_project_action_center(user, project):
         len(pending_change_orders)
         + len(open_selections)
         + len(document_actions)
+        + len(signature_actions)
     )
     draft_count = len(draft_change_orders) + len(draft_selections)
     schedule_count = len(delayed_milestones)
@@ -116,6 +129,7 @@ def build_project_action_center(user, project):
         'open_selections': open_selections,
         'draft_selections': draft_selections,
         'document_actions': document_actions,
+        'signature_actions': signature_actions,
         'delayed_milestones': delayed_milestones,
         'open_conversations': open_conversations,
         'decision_count': decision_count,
@@ -229,6 +243,18 @@ def build_portfolio_action_center(user, projects):
             )
         if requires_action:
             counts[document.project_id]['decision_count'] += 1
+
+    signature_requests = DocumentSignatureRequest.objects.filter(
+        version__document__project_id__in=allowed_project_ids,
+        status=DocumentSignatureRequest.Status.PENDING,
+    ).values('version__document__project_id', 'signer_id')
+    for signature_request in signature_requests:
+        project_id = signature_request['version__document__project_id']
+        if (
+            project_id in internal_project_ids
+            or signature_request['signer_id'] == user.pk
+        ):
+            counts[project_id]['decision_count'] += 1
 
     milestone_counts = (
         ScheduleMilestone.objects.filter(

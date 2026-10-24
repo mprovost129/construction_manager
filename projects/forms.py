@@ -12,6 +12,7 @@ from .models import (
     ConversationMessage,
     CostCode,
     DocumentDecision,
+    DocumentSignatureRequest,
     Estimate,
     EstimateLineItem,
     FinishSelection,
@@ -134,6 +135,89 @@ class DocumentDecisionForm(forms.ModelForm):
             'decision': forms.RadioSelect,
             'comment': forms.Textarea(attrs={'rows': 4}),
         }
+
+
+class DocumentSignatureRequestForm(forms.ModelForm):
+    class Meta:
+        model = DocumentSignatureRequest
+        fields = ('signer', 'message', 'due_date')
+        widgets = {
+            'message': forms.Textarea(attrs={'rows': 4}),
+            'due_date': forms.DateInput(attrs={'type': 'date'}),
+        }
+        help_texts = {
+            'message': 'Optional instructions shown to the signer and included by email.',
+            'due_date': 'Optional. The request remains available after this date but is marked overdue.',
+        }
+
+    def __init__(self, *args, project, version, **kwargs):
+        super().__init__(*args, **kwargs)
+        # ModelForm validation runs before the view can attach these immutable
+        # request fields. Seed safe temporary values so model-level signer
+        # validation can still verify project membership.
+        self.instance.version = version
+        self.instance.document_sha256 = '0' * 64
+        self.instance.consent_text = 'Pending signature request consent snapshot.'
+        already_requested = version.signature_requests.values('signer_id')
+        self.fields['signer'].queryset = get_user_model().objects.filter(
+            project_memberships__project=project,
+            project_memberships__role=OrganizationMembership.Role.CLIENT,
+            project_memberships__is_active=True,
+            is_active=True,
+        ).exclude(pk__in=already_requested).distinct().order_by('email')
+
+    def clean_due_date(self):
+        due_date = self.cleaned_data.get('due_date')
+        if due_date and due_date < timezone.localdate():
+            raise forms.ValidationError('The due date cannot be in the past.')
+        return due_date
+
+
+class DocumentSignatureResponseForm(forms.Form):
+    class Action:
+        SIGN = 'sign'
+        DECLINE = 'decline'
+
+    ACTION_CHOICES = (
+        (Action.SIGN, 'Sign document'),
+        (Action.DECLINE, 'Decline to sign'),
+    )
+
+    action = forms.ChoiceField(choices=ACTION_CHOICES, widget=forms.RadioSelect)
+    typed_name = forms.CharField(
+        required=False,
+        max_length=200,
+        label='Your full legal name',
+        help_text='Typing your name constitutes your electronic signature.',
+    )
+    consent = forms.BooleanField(
+        required=False,
+        label=(
+            'I have reviewed this document and agree to use an electronic '
+            'signature for this transaction.'
+        ),
+    )
+    decline_reason = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'rows': 4}),
+        label='Reason for declining',
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        action = cleaned_data.get('action')
+        typed_name = cleaned_data.get('typed_name', '').strip()
+        decline_reason = cleaned_data.get('decline_reason', '').strip()
+        cleaned_data['typed_name'] = typed_name
+        cleaned_data['decline_reason'] = decline_reason
+        if action == self.Action.SIGN:
+            if not typed_name:
+                self.add_error('typed_name', 'Enter your full legal name to sign.')
+            if not cleaned_data.get('consent'):
+                self.add_error('consent', 'Consent is required to sign electronically.')
+        elif action == self.Action.DECLINE and not decline_reason:
+            self.add_error('decline_reason', 'Explain why you are declining to sign.')
+        return cleaned_data
 
 
 class ChangeOrderForm(forms.ModelForm):

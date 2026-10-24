@@ -479,7 +479,9 @@ class PortfolioDashboardTests(TestCase):
             projects_for_user(self.staff_user).select_related('organization')
         )
 
-        with self.assertNumQueries(9):
+        # Signature requests add one aggregate query; the count remains fixed
+        # as the number of projects grows.
+        with self.assertNumQueries(10):
             portfolio = build_portfolio_action_center(
                 self.staff_user,
                 projects,

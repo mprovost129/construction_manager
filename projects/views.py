@@ -1,5 +1,7 @@
 import mimetypes
+from io import BytesIO
 from pathlib import Path
+from textwrap import wrap
 from urllib.parse import urlencode
 
 from django.contrib import messages
@@ -10,12 +12,14 @@ from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Max, OuterRef, Q, Subquery, Value
 from django.db.models.functions import Coalesce
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views import View
 from django.views.generic import DetailView, FormView, TemplateView
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
 from billing.access import can_use_invoices
 
@@ -50,6 +54,8 @@ from .forms import (
     ConversationThreadForm,
     CostCodeForm,
     DocumentDecisionForm,
+    DocumentSignatureRequestForm,
+    DocumentSignatureResponseForm,
     EstimateDecisionForm,
     EstimateForm,
     EstimateLineItemForm,
@@ -79,6 +85,8 @@ from .models import (
     ConversationMessage,
     ConversationThread,
     CostCode,
+    DocumentSignatureEvent,
+    DocumentSignatureRequest,
     Estimate,
     EstimateDecision,
     EstimateLineItem,
@@ -104,19 +112,24 @@ from .schedule_calendar import (
     shift_month,
 )
 from .services import (
+    DOCUMENT_SIGNATURE_CONSENT,
     accept_organization_invitation,
     accept_project_invitation,
     delete_cost_entry,
     document_client_recipients,
+    document_version_sha256,
     evaluate_approval_progress,
     record_activity,
     record_cost_entry,
+    record_signature_event,
     send_change_order_decision_notification,
     send_change_order_review_notification,
     send_change_order_voided_notification,
     send_client_upload_notification,
     send_document_available_notification,
     send_document_decision_notification,
+    send_document_signature_request_notification,
+    send_document_signature_result_notification,
     send_estimate_decision_notification,
     send_estimate_review_notification,
     send_estimate_voided_notification,
@@ -918,14 +931,21 @@ class ProjectDocumentDetailView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         versions = self.document.versions.prefetch_related(
-            'decisions__decided_by'
+            'decisions__decided_by',
+            'signature_requests__signer',
+            'signature_requests__requested_by',
+            'signature_requests__events__actor',
         ).select_related('uploaded_by')
         current_version = versions.first()
         viewer_is_client = is_project_client(self.request.user, self.project)
         viewer_decision = None
+        viewer_signature_request = None
         if current_version:
             viewer_decision = current_version.decisions.filter(
                 decided_by=self.request.user
+            ).first()
+            viewer_signature_request = current_version.signature_requests.filter(
+                signer=self.request.user
             ).first()
         context.update(
             {
@@ -933,7 +953,12 @@ class ProjectDocumentDetailView(LoginRequiredMixin, TemplateView):
                 'document': self.document,
                 'versions': versions,
                 'current_version': current_version,
+                'current_version_can_sign': bool(
+                    current_version
+                    and Path(current_version.original_filename).suffix.lower() == '.pdf'
+                ),
                 'viewer_decision': viewer_decision,
+                'viewer_signature_request': viewer_signature_request,
                 'can_manage_project': can_manage_project(
                     self.request.user, self.project
                 ),
@@ -1080,6 +1105,358 @@ class ProjectDocumentDecisionView(LoginRequiredMixin, View):
         return redirect(
             'projects:document_detail', pk=project.pk, document_pk=document.pk
         )
+
+
+class ProjectDocumentSignatureRequestCreateView(LoginRequiredMixin, FormView):
+    form_class = DocumentSignatureRequestForm
+    template_name = 'projects/document_signature_request_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = managed_project_or_404(request.user, kwargs['pk'])
+        self.document = get_object_or_404(
+            ProjectDocument,
+            pk=kwargs['document_pk'],
+            project=self.project,
+            client_visible=True,
+        )
+        self.version = get_object_or_404(
+            ProjectDocumentVersion,
+            pk=kwargs['version_pk'],
+            document=self.document,
+        )
+        if Path(self.version.original_filename).suffix.lower() != '.pdf':
+            messages.error(
+                request,
+                'Electronic signature requests currently require a PDF document.',
+            )
+            return redirect(
+                'projects:document_detail',
+                pk=self.project.pk,
+                document_pk=self.document.pk,
+            )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs.update(project=self.project, version=self.version)
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'project': self.project,
+                'document': self.document,
+                'version': self.version,
+            }
+        )
+        return context
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            signature_request = form.save(commit=False)
+            signature_request.version = self.version
+            signature_request.requested_by = self.request.user
+            signature_request.document_sha256 = document_version_sha256(self.version)
+            signature_request.consent_text = DOCUMENT_SIGNATURE_CONSENT
+            signature_request.full_clean()
+            signature_request.save()
+            record_signature_event(
+                signature_request,
+                DocumentSignatureEvent.Type.REQUESTED,
+                self.request,
+                metadata={
+                    'document_sha256': signature_request.document_sha256,
+                    'version_number': self.version.version_number,
+                },
+            )
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=ActivityEvent.Type.DOCUMENT_SIGNATURE_REQUESTED,
+                summary=(
+                    f'{self.request.user.email} requested '
+                    f'{signature_request.signer.email}\'s signature on '
+                    f'"{self.document.title}" version '
+                    f'{self.version.version_number}.'
+                ),
+                metadata={
+                    'document_id': self.document.pk,
+                    'version_id': self.version.pk,
+                    'signature_request_id': signature_request.pk,
+                    'signer_id': signature_request.signer_id,
+                },
+            )
+        delivery_result = send_document_signature_request_notification(
+            self.request, signature_request
+        )
+        warn_if_notification_failed(self.request, delivery_result)
+        messages.success(
+            self.request,
+            f'Signature request sent to {signature_request.signer.email}.',
+        )
+        return redirect(
+            'projects:document_detail',
+            pk=self.project.pk,
+            document_pk=self.document.pk,
+        )
+
+
+class ProjectDocumentSignatureReviewView(LoginRequiredMixin, FormView):
+    form_class = DocumentSignatureResponseForm
+    template_name = 'projects/document_signature_review.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = documents_project_or_404(request.user, kwargs['pk'])
+        self.signature_request = get_object_or_404(
+            DocumentSignatureRequest.objects.select_related(
+                'version__document', 'signer', 'requested_by'
+            ),
+            pk=kwargs['signature_request_pk'],
+            version__document_id=kwargs['document_pk'],
+            version__document__project=self.project,
+        )
+        if request.user != self.signature_request.signer or not is_project_client(
+            request.user, self.project
+        ):
+            raise PermissionDenied(
+                'Only the client named on this request can review and sign it.'
+            )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        record_signature_event(
+            self.signature_request,
+            DocumentSignatureEvent.Type.VIEWED,
+            request,
+        )
+        return super().get(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'project': self.project,
+                'document': self.signature_request.document,
+                'version': self.signature_request.version,
+                'signature_request': self.signature_request,
+            }
+        )
+        return context
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            signature_request = DocumentSignatureRequest.objects.select_for_update().get(
+                pk=self.signature_request.pk
+            )
+            if signature_request.status != DocumentSignatureRequest.Status.PENDING:
+                messages.info(self.request, 'This signature request is already closed.')
+                return redirect(
+                    'projects:document_detail',
+                    pk=self.project.pk,
+                    document_pk=signature_request.document.pk,
+                )
+            current_hash = document_version_sha256(signature_request.version)
+            if current_hash != signature_request.document_sha256:
+                raise PermissionDenied(
+                    'The stored document no longer matches the version sent for signature.'
+                )
+            now = timezone.now()
+            request_metadata = {
+                'ip_address': self.request.META.get('REMOTE_ADDR') or None,
+                'user_agent': self.request.META.get('HTTP_USER_AGENT', '')[:500],
+            }
+            if form.cleaned_data['action'] == DocumentSignatureResponseForm.Action.SIGN:
+                signature_request.status = DocumentSignatureRequest.Status.SIGNED
+                signature_request.typed_name = form.cleaned_data['typed_name']
+                signature_request.signed_at = now
+                event_type = DocumentSignatureEvent.Type.SIGNED
+                activity_type = ActivityEvent.Type.DOCUMENT_SIGNED
+                verb = 'signed'
+            else:
+                signature_request.status = DocumentSignatureRequest.Status.DECLINED
+                signature_request.declined_at = now
+                signature_request.decline_reason = form.cleaned_data['decline_reason']
+                event_type = DocumentSignatureEvent.Type.DECLINED
+                activity_type = ActivityEvent.Type.DOCUMENT_SIGNATURE_DECLINED
+                verb = 'declined to sign'
+            signature_request.completed_ip = request_metadata['ip_address']
+            signature_request.completed_user_agent = request_metadata['user_agent']
+            signature_request.full_clean()
+            signature_request.save()
+            record_signature_event(
+                signature_request,
+                event_type,
+                self.request,
+                metadata={
+                    'document_sha256': signature_request.document_sha256,
+                    'typed_name': signature_request.typed_name,
+                },
+            )
+            record_activity(
+                organization=self.project.organization,
+                project=self.project,
+                actor=self.request.user,
+                event_type=activity_type,
+                summary=(
+                    f'{self.request.user.email} {verb} '
+                    f'"{signature_request.document.title}" version '
+                    f'{signature_request.version.version_number}.'
+                ),
+                metadata={
+                    'document_id': signature_request.document.pk,
+                    'version_id': signature_request.version.pk,
+                    'signature_request_id': signature_request.pk,
+                    'document_sha256': signature_request.document_sha256,
+                },
+            )
+        delivery_result = send_document_signature_result_notification(
+            self.request, signature_request
+        )
+        warn_if_notification_failed(self.request, delivery_result)
+        messages.success(
+            self.request,
+            'Your electronic signature was recorded.'
+            if signature_request.status == DocumentSignatureRequest.Status.SIGNED
+            else 'Your decision not to sign was recorded.',
+        )
+        return redirect(
+            'projects:document_detail',
+            pk=self.project.pk,
+            document_pk=signature_request.document.pk,
+        )
+
+
+class ProjectDocumentSignatureCancelView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, document_pk, signature_request_pk):
+        project = managed_project_or_404(request.user, pk)
+        with transaction.atomic():
+            signature_request = get_object_or_404(
+                DocumentSignatureRequest.objects.select_for_update(),
+                pk=signature_request_pk,
+                version__document_id=document_pk,
+                version__document__project=project,
+            )
+            if signature_request.status != DocumentSignatureRequest.Status.PENDING:
+                messages.info(request, 'Only an open signature request can be cancelled.')
+                return redirect(
+                    'projects:document_detail', pk=project.pk, document_pk=document_pk
+                )
+            signature_request.status = DocumentSignatureRequest.Status.CANCELLED
+            signature_request.full_clean()
+            signature_request.save(update_fields=('status', 'updated_at'))
+            record_signature_event(
+                signature_request,
+                DocumentSignatureEvent.Type.CANCELLED,
+                request,
+            )
+            record_activity(
+                organization=project.organization,
+                project=project,
+                actor=request.user,
+                event_type=ActivityEvent.Type.DOCUMENT_SIGNATURE_CANCELLED,
+                summary=(
+                    f'{request.user.email} cancelled the signature request for '
+                    f'{signature_request.signer.email} on '
+                    f'"{signature_request.document.title}" version '
+                    f'{signature_request.version.version_number}.'
+                ),
+                metadata={'signature_request_id': signature_request.pk},
+            )
+        messages.success(request, 'The signature request was cancelled.')
+        return redirect(
+            'projects:document_detail', pk=project.pk, document_pk=document_pk
+        )
+
+
+class ProjectDocumentSignatureCertificateView(LoginRequiredMixin, View):
+    def get(self, request, pk, document_pk, signature_request_pk):
+        project = documents_project_or_404(request.user, pk)
+        signature_request = get_object_or_404(
+            DocumentSignatureRequest.objects.select_related(
+                'version__document', 'signer', 'requested_by'
+            ).prefetch_related('events__actor'),
+            pk=signature_request_pk,
+            version__document_id=document_pk,
+            version__document__project=project,
+        )
+        if not (
+            can_manage_project(request.user, project)
+            or request.user == signature_request.signer
+        ):
+            raise PermissionDenied('You cannot access this signature certificate.')
+        if signature_request.status not in (
+            DocumentSignatureRequest.Status.SIGNED,
+            DocumentSignatureRequest.Status.DECLINED,
+        ):
+            raise PermissionDenied('A certificate is available after the response.')
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=letter)
+        _width, height = letter
+        y = height - 54
+
+        def draw_line(label, value, *, font='Helvetica', size=10, gap=16):
+            nonlocal y
+            if y < 72:
+                pdf.showPage()
+                y = height - 54
+            pdf.setFont('Helvetica-Bold', size)
+            pdf.drawString(54, y, label)
+            pdf.setFont(font, size)
+            value_lines = wrap(str(value or 'Not provided'), width=82) or ['']
+            for index, line in enumerate(value_lines):
+                pdf.drawString(180 if index == 0 else 54, y, line)
+                y -= gap
+
+        pdf.setTitle(f'Signature certificate - {signature_request.document.title}')
+        pdf.setFont('Helvetica-Bold', 18)
+        pdf.drawString(54, y, 'Electronic Signature Certificate')
+        y -= 30
+        draw_line('Project:', project.name)
+        draw_line('Document:', signature_request.document.title)
+        draw_line('File:', signature_request.version.original_filename)
+        draw_line('Version:', signature_request.version.version_number)
+        draw_line('SHA-256:', signature_request.document_sha256, size=8, gap=13)
+        draw_line('Signer:', signature_request.signer.email)
+        draw_line('Status:', signature_request.get_status_display())
+        draw_line('Typed name:', signature_request.typed_name)
+        draw_line('Signed at:', signature_request.signed_at)
+        draw_line('Declined at:', signature_request.declined_at)
+        draw_line('Decline reason:', signature_request.decline_reason)
+        draw_line('IP address:', signature_request.completed_ip)
+        draw_line(
+            'Consent accepted:',
+            'Yes'
+            if signature_request.status == DocumentSignatureRequest.Status.SIGNED
+            else 'No',
+        )
+        draw_line(
+            'Consent presented:', signature_request.consent_text, size=9, gap=13
+        )
+        y -= 10
+        pdf.setFont('Helvetica-Bold', 12)
+        pdf.drawString(54, y, 'Audit trail')
+        y -= 20
+        for event in signature_request.events.all():
+            actor = event.actor.email if event.actor else 'System'
+            draw_line(
+                event.get_event_type_display() + ':',
+                f'{event.created_at:%Y-%m-%d %H:%M:%S %Z} by {actor} '
+                f'(IP {event.ip_address or "not available"})',
+                size=8,
+                gap=12,
+            )
+        pdf.save()
+        buffer.seek(0)
+        response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
+        response['Content-Disposition'] = (
+            f'attachment; filename="signature-certificate-{signature_request.pk}.pdf"'
+        )
+        return response
 
 
 class ChangeOrderListView(LoginRequiredMixin, TemplateView):

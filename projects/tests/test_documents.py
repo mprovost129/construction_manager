@@ -1,3 +1,4 @@
+import hashlib
 import shutil
 import tempfile
 from pathlib import Path
@@ -11,6 +12,8 @@ from django.urls import reverse
 from projects.models import (
     ActivityEvent,
     DocumentDecision,
+    DocumentSignatureEvent,
+    DocumentSignatureRequest,
     Organization,
     OrganizationMembership,
     Project,
@@ -462,6 +465,206 @@ class ProjectDocumentTests(TestCase):
         self.assertEqual(new_version.version_number, 2)
         self.assertFalse(new_version.decisions.exists())
         self.assertEqual(first_version.decisions.count(), 1)
+
+    def test_manager_requests_authenticated_client_signature(self):
+        document, version = self.create_document(approval=False)
+        self.client.force_login(self.admin_user)
+        response = self.client.post(
+            reverse(
+                'projects:document_signature_request',
+                args=(self.project.pk, document.pk, version.pk),
+            ),
+            {
+                'signer': self.client_user.pk,
+                'message': 'Please sign before work begins.',
+            },
+            REMOTE_ADDR='203.0.113.10',
+            HTTP_USER_AGENT='Signature test browser',
+        )
+
+        signature_request = DocumentSignatureRequest.objects.get()
+        self.assertRedirects(
+            response,
+            reverse(
+                'projects:document_detail', args=(self.project.pk, document.pk)
+            ),
+        )
+        self.assertEqual(signature_request.signer, self.client_user)
+        self.assertEqual(
+            signature_request.document_sha256,
+            hashlib.sha256(b'%PDF-1.4 test').hexdigest(),
+        )
+        self.assertEqual(signature_request.events.count(), 1)
+        event = signature_request.events.get()
+        self.assertEqual(event.event_type, DocumentSignatureEvent.Type.REQUESTED)
+        self.assertEqual(event.ip_address, '203.0.113.10')
+        self.assertEqual(mail.outbox[0].to, ['client@example.com'])
+        self.assertIn('Please sign before work begins.', mail.outbox[0].body)
+        self.assertTrue(
+            ActivityEvent.objects.filter(
+                project=self.project,
+                event_type=ActivityEvent.Type.DOCUMENT_SIGNATURE_REQUESTED,
+            ).exists()
+        )
+
+    def test_named_client_can_review_sign_and_download_certificate(self):
+        document, version = self.create_document(approval=False)
+        signature_request = DocumentSignatureRequest.objects.create(
+            version=version,
+            signer=self.client_user,
+            requested_by=self.admin_user,
+            document_sha256=hashlib.sha256(b'%PDF-1.4 test').hexdigest(),
+            consent_text='Test consent text.',
+        )
+        review_url = reverse(
+            'projects:document_signature_review',
+            args=(self.project.pk, document.pk, signature_request.pk),
+        )
+        self.client.force_login(self.client_user)
+
+        get_response = self.client.get(
+            review_url,
+            REMOTE_ADDR='198.51.100.20',
+            HTTP_USER_AGENT='Client browser',
+        )
+        self.assertContains(get_response, 'Review the complete PDF')
+        self.assertTrue(
+            signature_request.events.filter(
+                event_type=DocumentSignatureEvent.Type.VIEWED
+            ).exists()
+        )
+
+        response = self.client.post(
+            review_url,
+            {
+                'action': 'sign',
+                'typed_name': 'Jane Homeowner',
+                'consent': 'on',
+            },
+            REMOTE_ADDR='198.51.100.20',
+            HTTP_USER_AGENT='Client browser',
+        )
+        signature_request.refresh_from_db()
+        self.assertRedirects(
+            response,
+            reverse(
+                'projects:document_detail', args=(self.project.pk, document.pk)
+            ),
+        )
+        self.assertEqual(
+            signature_request.status, DocumentSignatureRequest.Status.SIGNED
+        )
+        self.assertEqual(signature_request.typed_name, 'Jane Homeowner')
+        self.assertIsNotNone(signature_request.signed_at)
+        self.assertEqual(signature_request.completed_ip, '198.51.100.20')
+        self.assertTrue(
+            signature_request.events.filter(
+                event_type=DocumentSignatureEvent.Type.SIGNED
+            ).exists()
+        )
+        self.assertTrue(
+            ActivityEvent.objects.filter(
+                event_type=ActivityEvent.Type.DOCUMENT_SIGNED,
+                project=self.project,
+            ).exists()
+        )
+
+        certificate_response = self.client.get(
+            reverse(
+                'projects:document_signature_certificate',
+                args=(self.project.pk, document.pk, signature_request.pk),
+            )
+        )
+        self.assertEqual(certificate_response.status_code, 200)
+        self.assertEqual(certificate_response['Content-Type'], 'application/pdf')
+        self.assertTrue(certificate_response.content.startswith(b'%PDF'))
+
+    def test_client_cannot_open_another_clients_signature_request(self):
+        other_client = get_user_model().objects.create_user(
+            'other-client@example.com', 'password'
+        )
+        OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=other_client,
+            role=OrganizationMembership.Role.CLIENT,
+        )
+        ProjectMembership.objects.create(
+            project=self.project,
+            user=other_client,
+            role=OrganizationMembership.Role.CLIENT,
+        )
+        document, version = self.create_document(approval=False)
+        signature_request = DocumentSignatureRequest.objects.create(
+            version=version,
+            signer=self.client_user,
+            requested_by=self.admin_user,
+            document_sha256=hashlib.sha256(b'%PDF-1.4 test').hexdigest(),
+            consent_text='Test consent text.',
+        )
+        self.client.force_login(other_client)
+        response = self.client.get(
+            reverse(
+                'projects:document_signature_review',
+                args=(self.project.pk, document.pk, signature_request.pk),
+            )
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(signature_request.events.exists())
+
+    def test_signature_is_blocked_if_stored_document_bytes_change(self):
+        document, version = self.create_document(approval=False)
+        signature_request = DocumentSignatureRequest.objects.create(
+            version=version,
+            signer=self.client_user,
+            requested_by=self.admin_user,
+            document_sha256=hashlib.sha256(b'%PDF-1.4 test').hexdigest(),
+            consent_text='Test consent text.',
+        )
+        Path(version.file.path).write_bytes(b'%PDF-1.4 altered')
+        self.client.force_login(self.client_user)
+        response = self.client.post(
+            reverse(
+                'projects:document_signature_review',
+                args=(self.project.pk, document.pk, signature_request.pk),
+            ),
+            {
+                'action': 'sign',
+                'typed_name': 'Jane Homeowner',
+                'consent': 'on',
+            },
+        )
+        signature_request.refresh_from_db()
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            signature_request.status, DocumentSignatureRequest.Status.PENDING
+        )
+
+    def test_manager_can_cancel_pending_signature_request(self):
+        document, version = self.create_document(approval=False)
+        signature_request = DocumentSignatureRequest.objects.create(
+            version=version,
+            signer=self.client_user,
+            requested_by=self.admin_user,
+            document_sha256=hashlib.sha256(b'%PDF-1.4 test').hexdigest(),
+            consent_text='Test consent text.',
+        )
+        self.client.force_login(self.admin_user)
+        response = self.client.post(
+            reverse(
+                'projects:document_signature_cancel',
+                args=(self.project.pk, document.pk, signature_request.pk),
+            )
+        )
+        signature_request.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            signature_request.status, DocumentSignatureRequest.Status.CANCELLED
+        )
+        self.assertTrue(
+            signature_request.events.filter(
+                event_type=DocumentSignatureEvent.Type.CANCELLED
+            ).exists()
+        )
 
     def test_cross_project_download_is_not_found(self):
         document, version = self.create_document()

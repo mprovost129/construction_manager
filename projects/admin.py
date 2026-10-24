@@ -7,6 +7,8 @@ from .models import (
     ConversationThread,
     CostCode,
     DocumentDecision,
+    DocumentSignatureEvent,
+    DocumentSignatureRequest,
     Estimate,
     EstimateLineItem,
     FinishSelection,
@@ -241,6 +243,60 @@ class DocumentDecisionAdmin(admin.ModelAdmin):
         'decided_by__email',
     )
     readonly_fields = ('version', 'decided_by', 'decision', 'comment', 'decided_at')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(DocumentSignatureRequest)
+class DocumentSignatureRequestAdmin(admin.ModelAdmin):
+    list_display = (
+        'created_at',
+        'version',
+        'signer',
+        'status',
+        'requested_by',
+    )
+    list_filter = ('status', 'version__document__project__organization')
+    search_fields = (
+        'version__document__title',
+        'version__document__project__name',
+        'signer__email',
+        'typed_name',
+    )
+    readonly_fields = tuple(
+        field.name for field in DocumentSignatureRequest._meta.fields
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(DocumentSignatureEvent)
+class DocumentSignatureEventAdmin(admin.ModelAdmin):
+    list_display = ('created_at', 'signature_request', 'event_type', 'actor')
+    list_filter = (
+        'event_type',
+        'signature_request__version__document__project__organization',
+    )
+    search_fields = (
+        'signature_request__version__document__title',
+        'signature_request__signer__email',
+        'actor__email',
+    )
+    readonly_fields = tuple(field.name for field in DocumentSignatureEvent._meta.fields)
 
     def has_add_permission(self, request):
         return False

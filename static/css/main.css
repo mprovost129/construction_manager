@@ -1066,6 +1066,7 @@ input:focus {
 }
 
 .decision-panel--recorded > i { color: var(--color-primary); font-size: 2rem; }
+.signature-panel code { overflow-wrap: anywhere; font-size: 0.78rem; }
 
 .version-list { display: grid; }
 

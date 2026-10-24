@@ -10,6 +10,7 @@ from projects.models import (
     ChangeOrder,
     ConversationThread,
     DocumentDecision,
+    DocumentSignatureRequest,
     FinishSelection,
     Organization,
     OrganizationMembership,
@@ -257,6 +258,24 @@ class ProjectActionCenterTests(TestCase):
             '2100.00',
         ):
             self.assertNotContains(response, hidden)
+
+    def test_pending_signature_request_appears_for_signer_and_internal_team(self):
+        signature_request = DocumentSignatureRequest.objects.create(
+            version=self.pending_document_version,
+            signer=self.client_user,
+            requested_by=self.admin_user,
+            document_sha256='a' * 64,
+            consent_text='Test consent text.',
+        )
+
+        for user in (self.client_user, self.staff_user):
+            with self.subTest(user=user.email):
+                self.client.force_login(user)
+                response = self.client.get(
+                    reverse('projects:action_center', args=(self.project.pk,))
+                )
+                self.assertContains(response, 'Signature requests')
+                self.assertContains(response, signature_request.document.title)
 
     def test_client_document_action_disappears_after_their_decision(self):
         DocumentDecision.objects.create(
