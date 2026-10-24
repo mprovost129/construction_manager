@@ -2,7 +2,9 @@ import os
 
 from config.monitoring import configure_sentry, get_traces_sample_rate
 
-from .base import *  # noqa: F403
+os.environ['APP_ENVIRONMENT'] = 'production'
+
+from .base import *  # noqa: E402,F403
 
 DEBUG = False
 
