@@ -4,6 +4,8 @@
     const navigationToggle = document.querySelector('.app-nav__toggle');
     const navigationMenu = document.querySelector('.app-nav__menu');
     if (navigationToggle && navigationMenu) {
+        navigationMenu.setAttribute('data-collapsible', '');
+        navigationToggle.hidden = false;
         navigationToggle.addEventListener('click', () => {
             const isOpen = navigationToggle.getAttribute('aria-expanded') === 'true';
             navigationToggle.setAttribute('aria-expanded', String(!isOpen));
@@ -14,16 +16,14 @@
         });
     }
 
-    let installPrompt;
     const installButton = document.querySelector('[data-install-app]');
-    window.addEventListener('beforeinstallprompt', (event) => {
-        event.preventDefault();
-        installPrompt = event;
-        if (installButton) {
-            installButton.hidden = false;
-        }
-    });
     if (installButton) {
+        let installPrompt;
+        window.addEventListener('beforeinstallprompt', (event) => {
+            event.preventDefault();
+            installPrompt = event;
+            installButton.hidden = false;
+        });
         installButton.addEventListener('click', async () => {
             if (!installPrompt) {
                 return;

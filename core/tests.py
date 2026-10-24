@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.contrib.staticfiles import finders
 from django.test import TestCase, override_settings
@@ -14,6 +16,8 @@ class BaseTemplatePartialTests(TestCase):
         self.assertContains(response, 'static/js/main.js')
         self.assertContains(response, 'Log in')
         self.assertContains(response, reverse('core:help'))
+        self.assertContains(response, 'class="app-nav__toggle"')
+        self.assertContains(response, 'hidden')
 
     def test_authenticated_header_renders_from_partial(self):
         user = get_user_model().objects.create_user(
@@ -61,10 +65,20 @@ class PublicHelpPageTests(TestCase):
 
 class ProgressiveWebAppTests(TestCase):
     def test_base_template_exposes_install_metadata(self):
-        response = self.client.get(reverse('core:home'))
+        response = self.client.get(reverse('core:help'))
 
-        self.assertContains(response, 'rel="manifest"')
-        self.assertContains(response, 'rel="apple-touch-icon"')
+        self.assertContains(
+            response,
+            'rel="manifest" href="/static/manifest.webmanifest"',
+        )
+        self.assertContains(
+            response,
+            'rel="apple-touch-icon" href="/static/images/app-icon-180.png"',
+        )
+        self.assertContains(
+            response,
+            'rel="icon" href="/static/images/app-icon.svg"',
+        )
         self.assertContains(response, 'name="theme-color"')
         self.assertContains(response, reverse('core:service_worker'))
 
@@ -81,7 +95,25 @@ class ProgressiveWebAppTests(TestCase):
         self.assertContains(response, 'self.skipWaiting()')
         self.assertContains(response, "addEventListener('fetch'")
         self.assertContains(response, reverse('core:offline'))
+        self.assertContains(response, "event.request.method !== 'GET'")
+        self.assertContains(response, "{cache: 'no-store'}")
+        self.assertContains(response, '.catch(() => undefined)')
         self.assertNotContains(response, 'cache.put')
+
+    def test_service_worker_skips_request_context_processors(self):
+        user = get_user_model().objects.create_user(
+            email='member@example.com',
+            password='password',
+        )
+        self.client.force_login(user)
+
+        with patch(
+            'projects.context_processors.workspace_navigation',
+            side_effect=AssertionError('context processor should not run'),
+        ):
+            response = self.client.get(reverse('core:service_worker'))
+
+        self.assertEqual(response.status_code, 200)
 
     def test_offline_fallback_is_public_and_contains_no_project_data(self):
         response = self.client.get(reverse('core:offline'))

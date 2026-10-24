@@ -1634,16 +1634,16 @@ input:focus {
     .app-nav { gap: 0.55rem; flex-wrap: wrap; padding: 0.65rem 1rem; }
     .app-brand { margin-right: 0.15rem; }
     .app-brand span:last-child { display: none; }
-    .app-nav__toggle { display: grid; place-items: center; margin-left: auto; }
+    .app-nav__toggle:not([hidden]) { display: grid; place-items: center; margin-left: auto; }
     .app-nav__menu {
-        display: none;
         flex: 0 0 100%;
         align-items: stretch;
         flex-direction: column;
         gap: 0.25rem;
         padding: 0.35rem 0 0.45rem;
     }
-    .app-nav__menu[data-open] { display: flex; }
+    .app-nav__menu[data-collapsible] { display: none; }
+    .app-nav__menu[data-collapsible][data-open] { display: flex; }
     .app-nav__link { padding: 0.6rem 0.2rem; font-size: 0.95rem; }
     .app-nav__identity { margin: 0.4rem 0 0; }
     .app-nav__logout, .app-nav__logout .btn, .app-nav__login { width: 100%; }
