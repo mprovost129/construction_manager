@@ -8,7 +8,11 @@ import sentry_sdk
 from dotenv import load_dotenv
 from sentry_sdk.integrations.excepthook import ExcepthookIntegration
 
-from config.monitoring import configure_sentry, get_traces_sample_rate
+from config.monitoring import (
+    configure_sentry,
+    get_traces_sample_rate,
+    get_verified_sentry_client,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -20,45 +24,7 @@ def default_settings_module():
     return 'config.settings.dev'
 
 
-def execute_command(execute_from_command_line, argv):
-    try:
-        execute_from_command_line(argv)
-    except SystemExit as exc:
-        if exc.code not in (None, 0):
-            sentry_sdk.capture_message(
-                'Django management command failed with a non-zero exit status.',
-                level='error',
-            )
-            sentry_sdk.flush(timeout=2)
-        raise
-    except Exception as exc:
-        sentry_sdk.capture_exception(exc)
-        sentry_sdk.flush(timeout=2)
-        raise
-
-
-def configure_management_sentry(settings_module):
-    if settings_module != 'config.settings.prod':
-        return False
-
-    os.environ['SENTRY_MANAGEMENT_COMMAND'] = '1'
-    dsn = os.environ.get('SENTRY_DSN', '').strip()
-    return configure_sentry(
-        dsn=dsn,
-        environment='production',
-        release=os.environ.get('RENDER_GIT_COMMIT', ''),
-        traces_sample_rate=get_traces_sample_rate(
-            dsn,
-            os.environ.get('SENTRY_TRACES_SAMPLE_RATE', '0.05'),
-        ),
-        disabled_integrations=(ExcepthookIntegration,),
-    )
-
-
-def main():
-    """Run administrative tasks."""
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', default_settings_module())
-    configure_management_sentry(os.environ['DJANGO_SETTINGS_MODULE'])
+def load_django_command():
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:
@@ -67,7 +33,85 @@ def main():
             "available on your PYTHONPATH environment variable? Did you "
             "forget to activate a virtual environment?"
         ) from exc
-    execute_command(execute_from_command_line, sys.argv)
+    return execute_from_command_line
+
+
+def execute_command(argv, command_loader=None):
+    try:
+        if command_loader is None:
+            command_loader = load_django_command
+        execute_from_command_line = command_loader()
+        execute_from_command_line(argv)
+    except SystemExit as exc:
+        if exc.code not in (None, 0):
+            report_management_failure(exit_failure=True)
+        raise
+    except Exception as exc:
+        report_management_failure(exception=exc)
+        raise
+
+
+def report_management_failure(*, exception=None, exit_failure=False):
+    """Report a command failure without ever replacing the original error."""
+    try:
+        client = ensure_management_sentry()
+        if client is None:
+            return False
+        scope = sentry_sdk.Scope()
+        scope.set_client(client)
+        if exit_failure:
+            scope.capture_message(
+                'Django management command failed with a non-zero exit status.',
+                level='error',
+            )
+        else:
+            scope.capture_exception(exception)
+        client.flush(timeout=2)
+    except Exception:
+        return False
+    return True
+
+
+def configure_management_sentry(settings_module):
+    if settings_module != 'config.settings.prod':
+        return False
+
+    os.environ['SENTRY_MANAGEMENT_COMMAND'] = '1'
+    return True
+
+
+def ensure_management_sentry():
+    if os.environ.get('SENTRY_MANAGEMENT_COMMAND') != '1':
+        return False
+    dsn = os.environ.get('SENTRY_DSN', '').strip()
+    release = os.environ.get('RENDER_GIT_COMMIT', '')
+    traces_sample_rate = get_traces_sample_rate(
+        dsn,
+        os.environ.get('SENTRY_TRACES_SAMPLE_RATE', '0.05'),
+    )
+    configuration = {
+        'dsn': dsn,
+        'environment': 'production',
+        'release': release,
+        'traces_sample_rate': traces_sample_rate,
+        'disabled_integrations': (ExcepthookIntegration,),
+    }
+    try:
+        client = get_verified_sentry_client(**configuration)
+        if client is not None:
+            return client
+        if not configure_sentry(**configuration):
+            return None
+        return get_verified_sentry_client(**configuration)
+    except Exception:
+        return None
+
+
+def main():
+    """Run administrative tasks."""
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', default_settings_module())
+    configure_management_sentry(os.environ['DJANGO_SETTINGS_MODULE'])
+    execute_command(sys.argv)
 
 
 if __name__ == '__main__':

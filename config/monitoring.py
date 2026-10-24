@@ -1,10 +1,16 @@
 import logging
 import re
+from threading import Lock
 from urllib.parse import unquote_plus
 
 import sentry_sdk
 
 logger = logging.getLogger(__name__)
+
+_configuration_lock = Lock()
+_configured_client = None
+_configured_options = None
+_sdk_init = None
 
 EMAIL_PATTERN = re.compile(r'(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w-])')
 UUID_PATTERN = re.compile(
@@ -33,6 +39,28 @@ DATABASE_EXCEPTION_TYPES = {
     'OperationalError',
     'ProgrammingError',
 }
+
+
+def _privacy_data_collection():
+    return {
+        'user_info': False,
+        'cookies': {'mode': 'off'},
+        'http_headers': {'request': {'mode': 'off'}},
+        'http_bodies': [],
+        'url_query_params': {'mode': 'off'},
+        'graphql': {'document': False, 'variables': False},
+        'gen_ai': {'inputs': False, 'outputs': False},
+        'database_query_data': False,
+        'queues': False,
+        'stack_frame_variables': False,
+        'frame_context_lines': 5,
+    }
+
+
+def _reject_unmanaged_sentry_initialization(*args, **kwargs):
+    raise RuntimeError(
+        'Sentry must be initialized through config.monitoring.configure_sentry.'
+    )
 
 
 def _scrub_string(value):
@@ -128,38 +156,94 @@ def configure_sentry(
     disabled_integrations=(),
 ):
     """Configure production error monitoring without collecting client PII."""
+    global _configured_client, _configured_options, _sdk_init
+
     if not dsn:
         return False
     if not 0 <= traces_sample_rate <= 1:
         raise ValueError('SENTRY_TRACES_SAMPLE_RATE must be between 0 and 1.')
-    try:
-        sentry_sdk.init(
-            dsn=dsn,
-            environment=environment,
-            release=release or None,
-            sample_rate=1.0,
-            traces_sample_rate=traces_sample_rate,
-            disabled_integrations=list(disabled_integrations),
-            before_send=scrub_sensitive_event_values,
-            before_send_transaction=scrub_sensitive_event_values,
-            data_collection={
-                'user_info': False,
-                'cookies': {'mode': 'off'},
-                'http_headers': {'request': {'mode': 'off'}},
-                'http_bodies': [],
-                'url_query_params': {'mode': 'off'},
-                'graphql': {'document': False, 'variables': False},
-                'gen_ai': {'inputs': False, 'outputs': False},
-                'database_query_data': False,
-                'queues': False,
-                'stack_frame_variables': False,
-                'frame_context_lines': 5,
-            },
-        )
-    except ValueError:
-        logger.warning(
-            'Sentry monitoring is disabled because SENTRY_DSN is invalid.',
-            exc_info=True,
-        )
-        return False
+    disabled_integrations = tuple(disabled_integrations)
+    requested_options = (
+        dsn,
+        environment,
+        release or None,
+        traces_sample_rate,
+        disabled_integrations,
+    )
+
+    with _configuration_lock:
+        if sentry_sdk.init is not _reject_unmanaged_sentry_initialization:
+            _sdk_init = sentry_sdk.init
+            sentry_sdk.init = _reject_unmanaged_sentry_initialization
+        try:
+            _sdk_init(
+                dsn=dsn,
+                environment=environment,
+                release=release or None,
+                sample_rate=1.0,
+                traces_sample_rate=traces_sample_rate,
+                disabled_integrations=list(disabled_integrations),
+                before_send=scrub_sensitive_event_values,
+                before_send_transaction=scrub_sensitive_event_values,
+                data_collection=_privacy_data_collection(),
+            )
+        except ValueError:
+            logger.warning(
+                'Sentry monitoring is disabled because SENTRY_DSN is invalid.',
+                exc_info=True,
+            )
+            return False
+
+        _configured_client = sentry_sdk.get_client()
+        _configured_options = requested_options
     return True
+
+
+def get_verified_sentry_client(
+    *,
+    dsn=None,
+    environment=None,
+    release=None,
+    traces_sample_rate=None,
+    disabled_integrations=None,
+):
+    """Return the application-owned client only while its safeguards are intact."""
+    with _configuration_lock:
+        client = sentry_sdk.get_client()
+        if _configured_client is None or client is not _configured_client:
+            return None
+
+        expected_options = _configured_options
+        if dsn is not None:
+            expected_options = (
+                dsn,
+                environment,
+                release or None,
+                traces_sample_rate,
+                tuple(disabled_integrations or ()),
+            )
+        if expected_options != _configured_options:
+            return None
+
+        options = getattr(client, 'options', {})
+        if options.get('before_send') is not scrub_sensitive_event_values:
+            return None
+        if options.get('before_send_transaction') is not scrub_sensitive_event_values:
+            return None
+        data_collection = options.get('data_collection', {})
+        if any(
+            data_collection.get(key) != value
+            for key, value in _privacy_data_collection().items()
+        ):
+            return None
+
+        for integration in _configured_options[4]:
+            get_integration = getattr(client, 'get_integration', None)
+            if get_integration is None or get_integration(integration) is not None:
+                return None
+        return client
+
+
+def sentry_configuration_is_active(**configuration):
+    """Return whether the active client still has the required safeguards."""
+    return get_verified_sentry_client(**configuration) is not None
