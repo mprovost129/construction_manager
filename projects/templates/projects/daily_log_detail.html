@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ daily_log.title }} | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb">
+    <a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a>
+    <i class="bi bi-chevron-right" aria-hidden="true"></i>
+    <a href="{% url 'projects:daily_log_list' project.pk %}">Project updates</a>
+    <i class="bi bi-chevron-right" aria-hidden="true"></i>
+    <span>{{ daily_log.title }}</span>
+</nav>
+
+<section class="page-heading daily-log-heading">
+    <div>
+        <p class="eyebrow"><time datetime="{{ daily_log.log_date|date:'Y-m-d' }}">{{ daily_log.log_date|date:"F j, Y" }}</time></p>
+        <h1>{{ daily_log.title }}</h1>
+        {% if can_manage_daily_logs %}<p class="mb-0"><span class="status-pill {% if daily_log.client_visible %}status-pill--active{% endif %}">{% if daily_log.client_visible %}Published to client{% else %}Internal only{% endif %}</span></p>{% endif %}
+    </div>
+    {% if can_manage_daily_logs %}<a class="btn btn-outline-secondary" href="{% url 'projects:daily_log_edit' project.pk daily_log.pk %}"><i class="bi bi-pencil" aria-hidden="true"></i> Edit update</a>{% endif %}
+</section>
+
+<section class="admin-panel daily-log-summary">
+    <div class="daily-log-summary__content">{{ daily_log.summary|linebreaks }}</div>
+    <footer>Posted by {{ daily_log.created_by.email }}{% if daily_log.published_at %} · Published {{ daily_log.published_at|date:"M j, Y g:i A" }}{% endif %}</footer>
+</section>
+
+<section class="admin-panel">
+    <div class="section-heading">
+        <div><p class="eyebrow">Job-site record</p><h2>Progress photos</h2></div>
+        <span class="text-secondary">{{ photos|length }} photo{{ photos|length|pluralize }}</span>
+    </div>
+    {% if photos %}
+    <div class="daily-log-photo-grid">
+        {% for photo in photos %}
+        <figure class="daily-log-photo">
+            <a href="{% url 'projects:daily_log_photo' project.pk daily_log.pk photo.pk %}" target="_blank" rel="noopener"><img src="{% url 'projects:daily_log_photo' project.pk daily_log.pk photo.pk %}" alt="{% if photo.caption %}{{ photo.caption }}{% else %}Progress photo for {{ daily_log.title }}{% endif %}"></a>
+            {% if photo.caption %}<figcaption>{{ photo.caption }}</figcaption>{% endif %}
+            {% if can_manage_daily_logs %}
+            <form method="post" action="{% url 'projects:daily_log_photo_delete' project.pk daily_log.pk photo.pk %}">
+                {% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit">Remove photo</button>
+            </form>
+            {% endif %}
+        </figure>
+        {% endfor %}
+    </div>
+    {% else %}<p class="text-secondary mb-0">No photos have been added to this update.</p>{% endif %}
+</section>
+
+{% if can_manage_daily_logs %}
+<section class="admin-panel">
+    <div class="section-heading"><div><p class="eyebrow">Add evidence</p><h2>Upload a progress photo</h2></div></div>
+    <form method="post" enctype="multipart/form-data" action="{% url 'projects:daily_log_photo_create' project.pk daily_log.pk %}" class="stacked-form">
+        {% csrf_token %}
+        <div class="form-grid">
+            {% for field in photo_form %}<div class="form-field{% if field.name == 'caption' %} form-field--wide{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<div class="help-text">{{ field.help_text }}</div>{% endif %}{{ field.errors }}</div>{% endfor %}
+        </div>
+        <div class="form-actions"><button class="btn btn-primary" type="submit"><i class="bi bi-image" aria-hidden="true"></i> Add photo</button></div>
+    </form>
+</section>
+{% endif %}
+{% endblock %}

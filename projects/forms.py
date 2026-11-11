@@ -11,6 +11,8 @@ from .models import (
     ChangeOrderLineItem,
     ConversationMessage,
     CostCode,
+    DailyLog,
+    DailyLogPhoto,
     DocumentDecision,
     DocumentSignatureRequest,
     Estimate,
@@ -669,6 +671,39 @@ class ScheduleMilestoneForm(forms.ModelForm):
             'end_date': forms.DateInput(attrs={'type': 'date'}),
             'internal_notes': forms.Textarea(attrs={'rows': 4}),
         }
+
+
+class DailyLogForm(forms.ModelForm):
+    class Meta:
+        model = DailyLog
+        fields = ('log_date', 'title', 'summary', 'client_visible')
+        labels = {
+            'log_date': 'Update date',
+            'summary': 'Progress update',
+            'client_visible': 'Publish to the client dashboard',
+        }
+        help_texts = {
+            'client_visible': (
+                'Clients can see this update and its photos only while this is selected.'
+            ),
+        }
+        widgets = {
+            'log_date': forms.DateInput(attrs={'type': 'date'}),
+            'summary': forms.Textarea(attrs={'rows': 7}),
+        }
+
+
+class DailyLogPhotoForm(forms.ModelForm):
+    class Meta:
+        model = DailyLogPhoto
+        fields = ('image', 'caption', 'sort_order')
+        labels = {
+            'image': 'Photo',
+            'sort_order': 'Display order',
+        }
+
+    def clean_image(self):
+        return validate_image_file(self.cleaned_data['image'])
 
 
 class ConversationThreadForm(forms.Form):

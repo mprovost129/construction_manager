@@ -6,6 +6,8 @@ from .models import (
     ConversationMessage,
     ConversationThread,
     CostCode,
+    DailyLog,
+    DailyLogPhoto,
     DocumentDecision,
     DocumentSignatureEvent,
     DocumentSignatureRequest,
@@ -48,6 +50,25 @@ class ProjectMembershipInline(admin.TabularInline):
 class ProjectInternalAccessInline(admin.TabularInline):
     model = ProjectInternalAccess
     extra = 0
+
+
+class DailyLogPhotoInline(admin.TabularInline):
+    model = DailyLogPhoto
+    extra = 0
+
+
+@admin.register(DailyLog)
+class DailyLogAdmin(admin.ModelAdmin):
+    list_display = (
+        'log_date',
+        'title',
+        'project',
+        'client_visible',
+        'created_by',
+    )
+    list_filter = ('client_visible', 'project__organization')
+    search_fields = ('title', 'summary', 'project__name')
+    inlines = (DailyLogPhotoInline,)
 
 
 @admin.register(Project)

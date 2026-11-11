@@ -211,6 +211,30 @@ def document_client_recipients(project):
     return sorted(set(emails))
 
 
+def send_daily_log_published_notification(request, daily_log):
+    if not daily_log.client_visible:
+        return 0
+    recipients = document_client_recipients(daily_log.project)
+    if not recipients:
+        return 0
+    log_url = request.build_absolute_uri(
+        reverse(
+            'projects:daily_log_detail',
+            args=(daily_log.project_id, daily_log.pk),
+        )
+    )
+    return send_notification_email(
+        subject=f'Project update - {daily_log.project.name}: {daily_log.title}',
+        message=(
+            f'{daily_log.project.organization.name} posted a new project update '
+            f'for {daily_log.project.name}.\n\n'
+            f'{daily_log.title}\n{daily_log.summary}\n\n'
+            f'View the update and photos: {log_url}'
+        ),
+        recipient_list=recipients,
+    )
+
+
 def document_internal_recipients(project, *, exclude_user=None):
     admin_memberships = project.organization.memberships.filter(
         role=OrganizationMembership.Role.ADMIN,

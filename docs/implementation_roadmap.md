@@ -1,6 +1,6 @@
 # Construction Manager Implementation Roadmap
 
-Last updated: September 15, 2026
+Last updated: November 11, 2026
 
 This is the authoritative implementation-status document for Construction Manager.
 It translates the answers in [Construction Manager.md](./Construction%20Manager.md)
@@ -25,6 +25,7 @@ implemented and verified.
 | --- | --- | --- |
 | Authentication and company administration | Complete | Email authentication, invitations, roles, project assignments, password reset, and startup superuser bootstrap exist. |
 | Project and client portal foundation | Complete | Projects, scoped access, dashboard/action center, messaging, activity history, and client invitations exist. |
+| Client progress updates | Complete | Internal drafts, controlled client publishing, chronological progress notes, private job-site photos, email notification on release, mobile layouts, and audit events exist. |
 | Documents and client uploads | Complete | Private documents, versions, downloads, configurable-approval-count decisions, client uploads, email notifications, and authenticated PDF signature requests with SHA-256 version binding and audit certificates exist. |
 | Change orders | Partial | Draft, submission, configurable multi-approval decisions, edit, optional cost-coded line items, revise/replace with a revision chain, void (including approved orders), and selection-allowance-credit application (a change order sourced from a selection's unused credit, validated and capped against that credit) exist; automated financial reversal on void does not — voiding still only sets a manual-follow-up flag. |
 | Finish selections | Complete | Options, allowance math, publishing, client choice, overage flag, reopening, package grouping for multi-area choices, vendor/link/spec/image/lead-time option metadata, client custom-option requests routed to a change order, credit disposition tracking, and manual + scheduler-driven overdue reminders exist. |
@@ -33,7 +34,7 @@ implemented and verified.
 | Project pricing and financials | Partial | An organization-scoped cost-code catalog (now also mappable to a QuickBooks Item), an estimate/proposal workflow (with a revision chain) and client approval that sets a project's fixed, tax-inclusive contract amount, an organization-level tax-rate engine applied to invoices and estimates, a staff+client-safe financial rollup view (contract, change orders, selection overage/credit, invoicing, payments), a role-gated budget/committed/actual-cost/profitability view backed by a staff-recorded job-costing ledger, and a manual invoice payment ledger exist. Every confirmed APP-1 item is now delivered; remaining accounting integration work (live sandbox verification) lives under QB-3. |
 | Invoices and payment visibility | Partial | Local drafts, approved-change-order conversion, immutable company numbering, line items, totals, client-visible issued invoices, authenticated PDF downloads, balances, status fields, notification, questions, unpaid voiding, a manual payment ledger (status transitions from issued to partially paid to paid), outbound QuickBooks Invoice create/void synchronization (wiring mapped Item IDs into outbound `Line` payloads, admin-triggered from the invoice detail page), QuickBooks payment import/reconciliation (per-invoice scan, soft duplicate detection against manually-recorded payments, admin-triggered), a local `CreditMemo` document bridging an approved selection credit to a real invoice (applying one creates an ordinary `Payment` tagged `method=credit_memo`, reusing the existing balance/status machine unchanged), selected-finish invoice origination (an approved selection bills its allowance amount directly, additive with the change-order-based overage/credit path), and QuickBooks-sourced credit memo import (folded into the existing per-invoice payment scan — a QuickBooks credit memo becomes an ordinary `Payment` the same way a QuickBooks payment does) exist. Online payment is deferred. |
 | QuickBooks Online | Partial | Company-scoped OAuth, encrypted tokens, capability/subscription discovery, stable customer/invoice/item/payment mappings, customer sync, cost-code item sync, tested Invoice API primitives, Invoice sync orchestration (create/void, retry/backoff, admin error queue), read-only Payment/Credit-Memo import and reconciliation (per-invoice scan discovers both QuickBooks payments and QuickBooks credit memos in one pass, re-verify, retry/backoff, admin error queue), and a local Credit Memo document bridging an approved selection credit to a real invoice exist. Live sandbox acceptance, an Automated-Sales-Tax compatibility check, and change-detection work remain. |
-| SaaS subscription billing | Partial | Organization-level Stripe Billing, hosted Checkout, Customer Portal, signed webhook reconciliation, audit records, grace-period access rules, and staged entitlement enforcement exist. The Sandbox Product, monthly/yearly Prices, default Portal, and webhook are configured; a real end-to-end Sandbox test plus live-mode setup and validation remain. |
+| SaaS subscription billing | Deferred | Stripe subscription infrastructure exists but is not part of the Heritage MVP and subscription enforcement remains disabled. Heritage is purchasing a custom implementation, not subscribing to the platform. |
 | Tasks and punch lists | Not started | Confirmed as required, but no models or workflow exist. |
 | Two-factor authentication | Not started | Confirmed as optional per user/admin policy, but not implemented. |
 | Public legal and help pages | Complete with launch action | Public EULA, privacy, and first-use help pages exist; a printable user guide is included. Real legal entity values, counsel review, and a staffed support process are still required before production submission. |
@@ -44,8 +45,8 @@ implemented and verified.
 These decisions govern remaining implementation work:
 
 - QuickBooks is the accounting source of truth.
-- Stripe bills construction companies for access to Construction Manager; one subscription belongs to one Organization and its users inherit that entitlement.
-- A tenant's Stripe subscription is separate from its connected QuickBooks company. Homeowner invoices and payments do not flow through the platform Stripe account.
+- Heritage does not subscribe to the platform. Existing Stripe subscription code remains disabled and outside the Heritage MVP.
+- Homeowner invoices and payments do not flow through the platform Stripe account.
 - Exchange customers, invoices, credit memos, and payments in both directions.
 - Invoices may originate in Construction Manager.
 - An approved change order is sent or marked ready for QuickBooks when invoiced, not merely when approved.
@@ -71,7 +72,7 @@ These decisions govern remaining implementation work:
 - Tax is a single organization-wide rate (not per-jurisdiction/per-product), defaulted onto new
   invoice and estimate drafts and overridable per draft; margin/profitability figures always
   exclude tax since it is collected on the client's behalf, not revenue.
-- Subcontractor login, subcontractor financial access, daily logs, and online payments are deferred.
+- Subcontractor login, subcontractor financial access, and online payments are deferred.
 
 ## Delivered baseline
 
@@ -92,6 +93,14 @@ These decisions govern remaining implementation work:
 - Client-visible project detail and explicit project membership.
 - Threaded project messages with replies and status management.
 - Email notifications for implemented workflows.
+
+### Client progress updates
+
+- Internal project-update drafts with an explicit client-visibility control.
+- Chronological progress history with update date, author, publication timestamp, and audit events.
+- Private job-site photo storage with captions, ordering, authenticated delivery, and mobile layouts.
+- Client email notification when an internal update is published to the client dashboard.
+- Clients can read published updates and photos but cannot create, edit, publish, upload, or remove them.
 
 ### Documents and photos
 
@@ -215,11 +224,8 @@ These decisions govern remaining implementation work:
 - Environment-driven legal entity, contact, address, governing law, and effective date.
 - Development/production environment examples, production HTTPS controls, database SSL option, and console-first logging.
 - Docker static build settings, runtime migrations, and superuser bootstrap.
-- Organization-level Stripe subscription records, hosted subscription Checkout, hosted Customer
-  Portal sessions, signed/replay-safe webhook processing, current-state Subscription refresh,
-  test/live isolation, configurable past-due grace, and project entitlement filtering. Enforcement
-  is staged behind `STRIPE_ENFORCE_SUBSCRIPTIONS` so existing companies can be migrated before the
-  production gate is enabled.
+- Organization-level Stripe subscription code remains available for a possible future general-market
+  offering, but it is disabled and is not a Heritage production dependency.
 - Company-scoped QuickBooks OAuth foundation with rotatable Fernet token encryption,
   one-time state validation, authorization-code exchange, serialized token refresh,
   revoke-before-disconnect behavior, connection-state UI, and audit events.
@@ -297,9 +303,8 @@ The following must be resolved before representing the application as production
 - Schedule `retry_quickbooks_syncs` on a persistent production worker or cron service; the
   Render free web service does not run this command automatically.
 - Add production error monitoring, health checks, alerting, and an incident-response procedure.
-- Complete an end-to-end Stripe Sandbox subscription, configure and test Smart Retries, then create
-  the equivalent live Prices, Customer Portal, and `/subscriptions/stripe/webhook/` endpoint. Enable
-  subscription enforcement only after existing-company migration and live-mode validation.
+- Keep `STRIPE_ENFORCE_SUBSCRIPTIONS` disabled for Heritage. Any future subscription launch requires
+  its own sandbox and live-mode acceptance work before enforcement is enabled.
 - Establish an operational privacy-request, data-export, QuickBooks-disconnect, and deletion procedure matching the published Privacy Policy.
 
 ### Security and legal
@@ -613,7 +618,6 @@ Acceptance gate:
 The following are intentionally outside the current release unless requirements change:
 
 - Subcontractor portal and subcontractor financial visibility.
-- Daily logs.
 - Online payment processing.
 - Historical Buildertrend or QuickBooks import.
 - Advanced e-signature depth remains deferred: placed signature/initial fields, signer ordering,
