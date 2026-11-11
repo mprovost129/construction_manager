@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if daily_log %}Edit {{ daily_log.title }}{% else %}New project update{% endif %} | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb">
+    <a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a>
+    <i class="bi bi-chevron-right" aria-hidden="true"></i>
+    <a href="{% url 'projects:daily_log_list' project.pk %}">Project updates</a>
+    <i class="bi bi-chevron-right" aria-hidden="true"></i>
+    <span>{% if daily_log %}Edit update{% else %}New update{% endif %}</span>
+</nav>
+
+<div class="form-shell form-shell--top">
+    <section class="form-card form-card--wide">
+        <p class="eyebrow">Progress update</p>
+        <h1>{% if daily_log %}Edit {{ daily_log.title }}{% else %}Create a project update{% endif %}</h1>
+        <p class="text-secondary">Save it internally while preparing the update, then publish it to the client when it is ready.</p>
+        <form method="post" class="stacked-form">
+            {% csrf_token %}
+            {{ form.non_field_errors }}
+            <div class="form-grid">
+                {% for field in form %}
+                <div class="form-field{% if field.name == 'summary' %} form-field--wide{% endif %}{% if field.field.widget.input_type == 'checkbox' %} form-field--checkbox{% endif %}">
+                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.help_text %}<div class="help-text">{{ field.help_text }}</div>{% endif %}
+                    {{ field.errors }}
+                </div>
+                {% endfor %}
+            </div>
+            <div class="form-actions">
+                <a class="btn btn-outline-secondary" href="{% if daily_log %}{% url 'projects:daily_log_detail' project.pk daily_log.pk %}{% else %}{% url 'projects:daily_log_list' project.pk %}{% endif %}">Cancel</a>
+                <button class="btn btn-primary" type="submit">Save update</button>
+            </div>
+        </form>
+    </section>
+</div>
+{% endblock %}

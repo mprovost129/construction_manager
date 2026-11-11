@@ -38,6 +38,16 @@ def selection_option_upload_path(instance, filename):
     )
 
 
+def daily_log_photo_upload_path(instance, filename):
+    safe_name = Path(filename).name
+    unique_name = f'{uuid.uuid4().hex}_{safe_name}'
+    daily_log = instance.daily_log
+    return (
+        f'daily_log_photos/{daily_log.project.organization_id}/'
+        f'{daily_log.project_id}/{daily_log.pk}/{unique_name}'
+    )
+
+
 class Organization(models.Model):
     name = models.CharField(max_length=200)
     slug = models.SlugField(unique=True)
@@ -556,6 +566,14 @@ class ActivityEvent(models.Model):
         SCHEDULE_MILESTONE_UPDATED = (
             'schedule_milestone_updated',
             'Schedule milestone updated',
+        )
+        DAILY_LOG_CREATED = 'daily_log_created', 'Daily log created'
+        DAILY_LOG_UPDATED = 'daily_log_updated', 'Daily log updated'
+        DAILY_LOG_PUBLISHED = 'daily_log_published', 'Daily log published'
+        DAILY_LOG_PHOTO_ADDED = 'daily_log_photo_added', 'Daily log photo added'
+        DAILY_LOG_PHOTO_REMOVED = (
+            'daily_log_photo_removed',
+            'Daily log photo removed',
         )
         QUICKBOOKS_CONNECTED = 'quickbooks_connected', 'QuickBooks connected'
         QUICKBOOKS_RECONNECTED = 'quickbooks_reconnected', 'QuickBooks reconnected'
@@ -2236,6 +2254,111 @@ class SelectionCustomRequest(models.Model):
 
     def __str__(self):
         return f'{self.selection.display_number}: custom request by {self.requested_by.email}'
+
+
+class DailyLog(models.Model):
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='daily_logs',
+    )
+    log_date = models.DateField(default=timezone.localdate)
+    title = models.CharField(max_length=200)
+    summary = models.TextField()
+    client_visible = models.BooleanField(default=False)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='daily_logs_created',
+    )
+    published_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name='daily_logs_published',
+    )
+    published_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-log_date', '-created_at', '-pk')
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(client_visible=False)
+                    | models.Q(
+                        published_by__isnull=False,
+                        published_at__isnull=False,
+                    )
+                ),
+                name='projects_daily_log_visible_requires_publication',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        published_by__isnull=True,
+                        published_at__isnull=True,
+                    )
+                    | models.Q(
+                        published_by__isnull=False,
+                        published_at__isnull=False,
+                    )
+                ),
+                name='projects_daily_log_publication_pair',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        self.title = self.title.strip()
+        self.summary = self.summary.strip()
+        errors = {}
+        if not self.title:
+            errors['title'] = 'Title cannot be blank.'
+        if not self.summary:
+            errors['summary'] = 'Add a progress summary.'
+        if bool(self.published_by_id) != bool(self.published_at):
+            errors['published_at'] = (
+                'The publication user and timestamp must be recorded together.'
+            )
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f'{self.project}: {self.log_date} - {self.title}'
+
+
+class DailyLogPhoto(models.Model):
+    daily_log = models.ForeignKey(
+        DailyLog,
+        on_delete=models.CASCADE,
+        related_name='photos',
+    )
+    image = models.FileField(
+        storage=private_document_storage,
+        upload_to=daily_log_photo_upload_path,
+    )
+    original_filename = models.CharField(max_length=255)
+    caption = models.CharField(max_length=300, blank=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='daily_log_photos_uploaded',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('sort_order', 'created_at', 'pk')
+
+    def clean(self):
+        super().clean()
+        self.caption = self.caption.strip()
+
+    def __str__(self):
+        return f'{self.daily_log}: {self.original_filename}'
 
 
 class ScheduleMilestone(models.Model):

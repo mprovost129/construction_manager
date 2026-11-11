@@ -209,3 +209,11 @@ def can_manage_schedule(user, project):
 
 def can_use_action_center(user, project):
     return can_use_project_messaging(user, project)
+
+
+def can_use_daily_logs(user, project):
+    return can_use_project_messaging(user, project)
+
+
+def can_manage_daily_logs(user, project):
+    return can_manage_project(user, project)

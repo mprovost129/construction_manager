@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+
+{% block title %}Project updates | {{ project.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb">
+    <a href="{% url 'core:home' %}">Projects</a>
+    <i class="bi bi-chevron-right" aria-hidden="true"></i>
+    <a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a>
+    <i class="bi bi-chevron-right" aria-hidden="true"></i>
+    <span>Project updates</span>
+</nav>
+
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">Progress history</p>
+        <h1>Project updates</h1>
+        <p class="text-secondary mb-0">Progress notes and job-site photos in one chronological record.</p>
+    </div>
+    {% if can_manage_daily_logs %}
+    <a class="btn btn-primary" href="{% url 'projects:daily_log_create' project.pk %}"><i class="bi bi-plus-lg" aria-hidden="true"></i> New update</a>
+    {% endif %}
+</section>
+
+{% if daily_logs %}
+<section class="daily-log-grid" aria-label="Project update history">
+    {% for daily_log in daily_logs %}
+    <article class="daily-log-card">
+        {% with photo=daily_log.photos.all|first %}
+        {% if photo %}<a class="daily-log-card__photo" href="{% url 'projects:daily_log_detail' project.pk daily_log.pk %}"><img src="{% url 'projects:daily_log_photo' project.pk daily_log.pk photo.pk %}" alt="{% if photo.caption %}{{ photo.caption }}{% else %}Progress photo for {{ daily_log.title }}{% endif %}"></a>{% endif %}
+        {% endwith %}
+        <div class="daily-log-card__body">
+            <div class="daily-log-card__meta">
+                <time datetime="{{ daily_log.log_date|date:'Y-m-d' }}">{{ daily_log.log_date|date:"M j, Y" }}</time>
+                {% if can_manage_daily_logs %}<span class="status-pill {% if daily_log.client_visible %}status-pill--active{% endif %}">{% if daily_log.client_visible %}Client visible{% else %}Internal{% endif %}</span>{% endif %}
+            </div>
+            <h2><a href="{% url 'projects:daily_log_detail' project.pk daily_log.pk %}">{{ daily_log.title }}</a></h2>
+            <p>{{ daily_log.summary|truncatewords:35 }}</p>
+            <a class="daily-log-card__link" href="{% url 'projects:daily_log_detail' project.pk daily_log.pk %}">View update{% if daily_log.photos.count %} and {{ daily_log.photos.count }} photo{{ daily_log.photos.count|pluralize }}{% endif %} <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+        </div>
+    </article>
+    {% endfor %}
+</section>
+
+{% if page_obj.has_other_pages %}
+<nav class="pagination-nav" aria-label="Project update pages">
+    {% if page_obj.has_previous %}<a class="btn btn-outline-secondary" href="?page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}<a class="btn btn-outline-secondary" href="?page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+</nav>
+{% endif %}
+{% else %}
+<div class="empty-state">
+    <i class="bi bi-journal-text" aria-hidden="true"></i>
+    <h2>No project updates yet</h2>
+    <p>{% if can_manage_daily_logs %}Create the first update and decide when it is ready for the client.{% else %}Progress updates will appear here when they are published.{% endif %}</p>
+    {% if can_manage_daily_logs %}<a class="btn btn-primary" href="{% url 'projects:daily_log_create' project.pk %}">Create update</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

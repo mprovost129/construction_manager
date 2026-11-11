@@ -7,6 +7,7 @@ Construction Manager is a Django application for residential builders and their 
 - Company roles, project assignments, invitations, and scoped access
 - Portfolio dashboard, Action center, activity history, and CSV export
 - Project messages and email notifications
+- Client progress updates with private job-site photos and controlled publishing
 - Private documents, client uploads, file versions, and approvals
 - Estimates, cost-coded line items, tax, revisions, and client approval
 - Finish selections, allowances, option details, packages, overages, and credits
@@ -16,7 +17,7 @@ Construction Manager is a Django application for residential builders and their 
 - Internal milestone schedule
 - Installable mobile web app with Home Screen icons and responsive navigation
 - QuickBooks OAuth, customer and item mappings, invoice sync, and payment import
-- Stripe organization subscriptions with staged enforcement
+- Dormant Stripe subscription infrastructure, excluded from the Heritage MVP
 
 See [the implementation roadmap](docs/implementation_roadmap.md) for the exact delivered status, known gaps, and production gates. See [the first-time user guide](docs/user_guide.md) for the staff and client workflow.
 
@@ -57,7 +58,7 @@ cp .env.example .env
 .venv/bin/python manage.py runserver
 ```
 
-Configure the PostgreSQL, Redis, email, QuickBooks, and Stripe values in `.env` for the services you plan to exercise.
+Configure the PostgreSQL, Redis, email, and QuickBooks values in `.env` for the services you plan to exercise. Stripe is not required for the Heritage deployment.
 
 ## Validation
 
@@ -86,4 +87,4 @@ SECRET_KEY=test-key DB_NAME=test DB_USER=test DB_PASSWORD=test \
 
 ## Deployment status
 
-The application is suitable for controlled evaluation, not an unqualified production launch. Persistent private file storage, backups and restore testing, email delivery, monitoring, legal configuration, two-factor authentication, and live QuickBooks and Stripe acceptance remain release gates. Do not store live client records until the applicable gates in the implementation roadmap are complete.
+The application is suitable for controlled evaluation, not an unqualified production launch. Persistent private file storage, backups and restore testing, email delivery, monitoring, legal configuration, two-factor authentication, and live QuickBooks acceptance remain release gates. Stripe subscriptions are outside the Heritage MVP. Do not store live client records until the applicable gates in the implementation roadmap are complete.

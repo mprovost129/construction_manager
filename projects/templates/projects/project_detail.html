@@ -57,6 +57,11 @@
         <div><h2>Documents</h2><p>Review, approve, or decline project documents.</p></div>
         <span>Open documents <i class="bi bi-arrow-right"></i></span>
     </a>{% endif %}
+    {% if can_use_daily_logs %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:daily_log_list' project.pk %}">
+        <i class="bi bi-journal-text"></i>
+        <div><h2>Project updates</h2><p>Progress notes and job-site photos shared with the client.</p></div>
+        <span>Open updates <i class="bi bi-arrow-right"></i></span>
+    </a>{% endif %}
     {% if can_use_estimates %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:estimate_list' project.pk %}">
         <i class="bi bi-file-earmark-text"></i>
         <div><h2>Estimates</h2><p>Propose the project price and set the contract amount.</p></div>

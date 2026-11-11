@@ -338,6 +338,41 @@ urlpatterns = [
         name='selection_package_edit',
     ),
     path(
+        'projects/<int:pk>/daily-logs/',
+        views.DailyLogListView.as_view(),
+        name='daily_log_list',
+    ),
+    path(
+        'projects/<int:pk>/daily-logs/new/',
+        views.DailyLogCreateView.as_view(),
+        name='daily_log_create',
+    ),
+    path(
+        'projects/<int:pk>/daily-logs/<int:daily_log_pk>/',
+        views.DailyLogDetailView.as_view(),
+        name='daily_log_detail',
+    ),
+    path(
+        'projects/<int:pk>/daily-logs/<int:daily_log_pk>/edit/',
+        views.DailyLogUpdateView.as_view(),
+        name='daily_log_edit',
+    ),
+    path(
+        'projects/<int:pk>/daily-logs/<int:daily_log_pk>/photos/new/',
+        views.DailyLogPhotoCreateView.as_view(),
+        name='daily_log_photo_create',
+    ),
+    path(
+        'projects/<int:pk>/daily-logs/<int:daily_log_pk>/photos/<int:photo_pk>/',
+        views.DailyLogPhotoView.as_view(),
+        name='daily_log_photo',
+    ),
+    path(
+        'projects/<int:pk>/daily-logs/<int:daily_log_pk>/photos/<int:photo_pk>/delete/',
+        views.DailyLogPhotoDeleteView.as_view(),
+        name='daily_log_photo_delete',
+    ),
+    path(
         'projects/<int:pk>/schedule/',
         views.ProjectScheduleView.as_view(),
         name='schedule',
