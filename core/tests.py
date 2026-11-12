@@ -46,12 +46,14 @@ class PublicHelpPageTests(TestCase):
         response = self.client.get(reverse('core:help'))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Get started with Construction Manager')
+        self.assertContains(response, 'Get started with Heritage Construction Management')
         self.assertContains(response, 'Set up the company workspace')
         self.assertContains(response, 'Use the client portal')
         self.assertContains(response, 'Connect and synchronize QuickBooks')
         self.assertContains(response, 'Clients do not have access to the project schedule')
-        self.assertContains(response, 'Install Construction Manager on a phone')
+        self.assertContains(
+            response, 'Install Heritage Construction Management on a phone'
+        )
         self.assertContains(response, 'Add to Home Screen')
 
     def test_help_page_links_anonymous_users_to_login(self):

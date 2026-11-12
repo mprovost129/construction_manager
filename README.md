@@ -7,10 +7,12 @@ Construction Manager is a Django application for residential builders and their 
 - Company roles, project assignments, invitations, and scoped access
 - Portfolio dashboard, Action center, activity history, and CSV export
 - Project messages and email notifications
+- Per-user email and in-app notification controls
 - Client progress updates with private job-site photos and controlled publishing
 - Private documents, client uploads, file versions, and approvals
 - Estimates, cost-coded line items, tax, revisions, and client approval
 - Finish selections, allowances, option details, packages, overages, and credits
+- Single designated client account holder per project and expanded client audit history
 - Change orders, approval history, revisions, invoice and credit-memo handoff
 - Invoices, PDF downloads, payment records, and client-safe balances
 - Project financial summaries and internal job costing
@@ -18,6 +20,10 @@ Construction Manager is a Django application for residential builders and their 
 - Installable mobile web app with Home Screen icons and responsive navigation
 - QuickBooks OAuth, customer and item mappings, invoice sync, and payment import
 - Dormant Stripe subscription infrastructure, excluded from the Heritage MVP
+
+See [the Heritage controlled-launch checklist](docs/heritage_launch_checklist.md)
+for the production settings, smoke test, and explicitly deferred work for the
+first customer rollout.
 
 See [the implementation roadmap](docs/implementation_roadmap.md) for the exact delivered status, known gaps, and production gates. See [the first-time user guide](docs/user_guide.md) for the staff and client workflow.
 

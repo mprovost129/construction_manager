@@ -341,6 +341,15 @@ a:hover { color: var(--color-primary-dark); }
 
 .status-pill--active { color: #0f5132; background: #d7ecdf; }
 .status-pill--on_hold { color: #72520d; background: #fff0c2; }
+.selection-status--unreleased { color: #202227; background: #c7d0d9; }
+.selection-status--pending { color: #653200; background: #fbe9b1; }
+.selection-status--selected { color: #005c35; background: #c4fae2; }
+.selection-status--expired { color: #7a1d1d; background: #f6d3d3; }
+.notification-row--unread { border-left: 4px solid var(--color-primary, #123d2d); padding-left: 1rem; }
+.notification-count { display: inline-grid; place-items: center; min-width: 1.3rem; height: 1.3rem; padding: 0 0.3rem; border-radius: 999px; background: #fff; color: #123d2d; font-size: 0.75rem; font-weight: 700; }
+.public-share-panel { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1.5rem; align-items: center; }
+.public-share-panel img { background: #fff; border: 1px solid #d8ded9; border-radius: 0.75rem; padding: 0.5rem; }
+.public-share-panel input { width: 100%; margin-top: 0.5rem; }
 .status-pill--declined { color: #8a2530; background: #f8dfe2; }
 .status-pill--completed { color: #38516f; background: #dfeaf7; }
 
@@ -1806,5 +1815,6 @@ input:focus {
     .help-hero { align-items: flex-start; flex-direction: column; }
     .help-hero > .btn { width: 100%; }
     .guide-two-column, .guide-checklist { grid-template-columns: 1fr; }
+    .public-share-panel { grid-template-columns: 1fr; }
     .empty-state__actions { align-items: stretch; flex-direction: column; }
 }

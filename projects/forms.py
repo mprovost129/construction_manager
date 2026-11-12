@@ -19,6 +19,7 @@ from .models import (
     EstimateLineItem,
     FinishSelection,
     Organization,
+    OrganizationDisclosure,
     OrganizationInvitation,
     OrganizationMembership,
     Project,
@@ -885,6 +886,23 @@ class ClientInvitationForm(forms.ModelForm):
 
     def clean_email(self):
         email = self.cleaned_data['email'].strip().lower()
+        if self.project.project_memberships.filter(
+            role=OrganizationMembership.Role.CLIENT,
+            is_active=True,
+        ).exists():
+            raise forms.ValidationError(
+                'This project already has a designated client account holder. '
+                'Revoke that access before inviting a replacement.'
+            )
+        if self.project.invitations.filter(
+            role=OrganizationMembership.Role.CLIENT,
+            accepted_at__isnull=True,
+            revoked_at__isnull=True,
+            expires_at__gt=timezone.now(),
+        ).exclude(email__iexact=email).exists():
+            raise forms.ValidationError(
+                'A designated client invitation is already pending for this project.'
+            )
         user = get_user_model().objects.filter(email__iexact=email).first()
         if user and self.project.project_memberships.filter(user=user).exists():
             raise forms.ValidationError('This customer already has access to the project.')
@@ -900,6 +918,27 @@ class ClientInvitationForm(forms.ModelForm):
                 )
             self.expired_invitation = pending_invitation
         return email
+
+
+class OrganizationDisclosureForm(forms.ModelForm):
+    class Meta:
+        model = OrganizationDisclosure
+        fields = (
+            'title',
+            'body',
+            'include_on_change_orders',
+            'include_on_invoices',
+            'is_active',
+            'sort_order',
+        )
+        widgets = {'body': forms.Textarea(attrs={'rows': 6})}
+
+
+class PublicDocumentVerificationForm(forms.Form):
+    human_verified = forms.BooleanField(
+        label='I am a person requesting this project document',
+        required=True,
+    )
 
 
 class InvitationSignupForm(UserCreationForm):

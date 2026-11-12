@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
-{% block title %}Privacy Policy | Construction Manager{% endblock %}
-{% block meta_description %}How Construction Manager collects, uses, discloses, retains, and protects personal and business information.{% endblock %}
+{% block title %}Privacy Policy | {{ app_name }}{% endblock %}
+{% block meta_description %}How {{ app_name }} collects, uses, discloses, retains, and protects personal and business information.{% endblock %}
 
 {% block content %}
 <article class="legal-document">
@@ -15,7 +15,7 @@
         <p>
             This Privacy Policy explains how {{ legal_business_name }} (“Company,”
             “we,” “us,” or “our”) collects, uses, discloses, retains, and protects
-            information when you use Construction Manager (the “Service”). It applies
+            information when you use {{ app_name }} (the “Service”). It applies
             to contractors, employees, project personnel, clients, and other authorized
             users. It should be read with our
             <a href="{% url 'core:eula' %}">Terms of Use and End-User License Agreement</a>.

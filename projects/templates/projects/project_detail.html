@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}{{ project.name }} | Construction Manager{% endblock %}
+{% block title %}{{ project.name }} | {{ app_name }}{% endblock %}
 
 {% block content %}
 <nav class="breadcrumb-nav" aria-label="Breadcrumb">
@@ -87,6 +87,11 @@
         <div><h2>Schedule</h2><p>Internal milestones and project dates.</p></div>
         <span>Open schedule <i class="bi bi-arrow-right"></i></span>
     </a>{% endif %}
+    <a class="module-card module-card--ready module-card--link" href="{% url 'projects:notification_settings' project.pk %}">
+        <i class="bi bi-bell"></i>
+        <div><h2>Notification settings</h2><p>Choose email and in-app alerts for this project.</p></div>
+        <span>Manage alerts <i class="bi bi-arrow-right"></i></span>
+    </a>
     {% if can_view_project_financials %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:financial_summary' project.pk %}">
         <i class="bi bi-graph-up-arrow"></i>
         <div><h2>Project financials</h2><p>Contract amount, change orders, selections, and invoicing.</p></div>

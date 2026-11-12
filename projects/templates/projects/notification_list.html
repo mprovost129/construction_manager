@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}Notifications | {{ app_name }}{% endblock %}
+{% block content %}
+<section class="page-heading">
+    <div><p class="eyebrow">Updates</p><h1>Notifications</h1><p class="text-secondary mb-0">Project activity delivered inside {{ app_name }}.</p></div>
+    <form method="post" action="{% url 'projects:notification_mark_all_read' %}">{% csrf_token %}<button class="btn btn-outline-secondary" type="submit">Mark all read</button></form>
+</section>
+<section class="admin-panel">
+    <div class="version-list">
+        {% for notification in notifications %}
+        <article class="version-row{% if not notification.is_read %} notification-row--unread{% endif %}">
+            <div><p class="eyebrow">{{ notification.project.name }} · {{ notification.get_event_type_display }}</p><h3>{{ notification.title }}</h3><p>{{ notification.message }}</p><small>{{ notification.created_at|date:"M j, Y g:i A" }}</small></div>
+            <form method="post" action="{% url 'projects:notification_mark_read' notification.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" type="submit">{% if notification.is_read %}Open{% else %}Read and open{% endif %}</button></form>
+        </article>
+        {% empty %}<p class="empty-copy">No notifications yet.</p>{% endfor %}
+    </div>
+</section>
+{% if projects %}<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Delivery</p><h2>Notification settings</h2></div></div><div class="button-row">{% for project in projects %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:notification_settings' project.pk %}">{{ project.name }}</a>{% endfor %}</div></section>{% endif %}
+{% endblock %}

@@ -5,6 +5,27 @@ from . import views
 app_name = 'projects'
 
 urlpatterns = [
+    path('notifications/', views.NotificationListView.as_view(), name='notification_list'),
+    path(
+        'notifications/read-all/',
+        views.NotificationMarkAllReadView.as_view(),
+        name='notification_mark_all_read',
+    ),
+    path(
+        'notifications/<int:notification_pk>/read/',
+        views.NotificationMarkReadView.as_view(),
+        name='notification_mark_read',
+    ),
+    path(
+        'public/documents/<uuid:token>/',
+        views.PublicDocumentView.as_view(),
+        name='public_document',
+    ),
+    path(
+        'public/documents/<uuid:token>/download/',
+        views.PublicDocumentDownloadView.as_view(),
+        name='public_document_download',
+    ),
     path('projects/new/', views.ProjectCreateView.as_view(), name='create'),
     path('projects/<int:pk>/', views.ProjectDetailView.as_view(), name='detail'),
     path(
@@ -21,6 +42,11 @@ urlpatterns = [
         'projects/<int:pk>/people/',
         views.ProjectPeopleView.as_view(),
         name='people',
+    ),
+    path(
+        'projects/<int:pk>/notification-settings/',
+        views.ProjectNotificationSettingsView.as_view(),
+        name='notification_settings',
     ),
     path(
         'projects/<int:pk>/people/internal-access/',
@@ -81,6 +107,11 @@ urlpatterns = [
         'projects/<int:pk>/documents/<int:document_pk>/versions/<int:version_pk>/download/',
         views.ProjectDocumentDownloadView.as_view(),
         name='document_download',
+    ),
+    path(
+        'projects/<int:pk>/documents/<int:document_pk>/versions/<int:version_pk>/public-share/',
+        views.ProjectDocumentPublicShareView.as_view(),
+        name='document_public_share',
     ),
     path(
         'projects/<int:pk>/documents/<int:document_pk>/decision/',
@@ -427,6 +458,16 @@ urlpatterns = [
         'companies/<slug:slug>/cost-codes/',
         views.CostCodeListView.as_view(),
         name='cost_code_list',
+    ),
+    path(
+        'companies/<slug:slug>/disclosures/',
+        views.OrganizationDisclosureListView.as_view(),
+        name='disclosure_list',
+    ),
+    path(
+        'companies/<slug:slug>/disclosures/<int:disclosure_pk>/edit/',
+        views.OrganizationDisclosureUpdateView.as_view(),
+        name='disclosure_edit',
     ),
     path(
         'companies/<slug:slug>/cost-codes/new/',

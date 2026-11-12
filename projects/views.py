@@ -1,9 +1,13 @@
+import base64
 import mimetypes
+import uuid
 from io import BytesIO
 from pathlib import Path
 from textwrap import wrap
 from urllib.parse import urlencode
 
+import requests
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -66,12 +70,14 @@ from .forms import (
     EstimateVoidForm,
     FinishSelectionForm,
     InvitationSignupForm,
+    OrganizationDisclosureForm,
     OrganizationTaxSettingsForm,
     ProjectCostEntryForm,
     ProjectDocumentCreateForm,
     ProjectDocumentVersionForm,
     ProjectForm,
     ProjectInternalAccessForm,
+    PublicDocumentVerificationForm,
     ScheduleMilestoneForm,
     SelectionCreditDispositionForm,
     SelectionCustomRequestForm,
@@ -97,7 +103,10 @@ from .models import (
     EstimateDecision,
     EstimateLineItem,
     FinishSelection,
+    InAppNotification,
+    NotificationPreference,
     Organization,
+    OrganizationDisclosure,
     OrganizationInvitation,
     OrganizationMembership,
     Project,
@@ -974,12 +983,35 @@ class ProjectDocumentDetailView(LoginRequiredMixin, TemplateView):
             viewer_signature_request = current_version.signature_requests.filter(
                 signer=self.request.user
             ).first()
+        public_share_url = ''
+        public_qr_data_url = ''
+        if current_version and current_version.public_qr_enabled:
+            public_share_url = self.request.build_absolute_uri(
+                reverse('projects:public_document', args=(current_version.public_share_token,))
+            )
+            import qrcode
+            import qrcode.image.svg
+
+            qr_image = qrcode.make(
+                public_share_url,
+                image_factory=qrcode.image.svg.SvgPathImage,
+                box_size=8,
+                border=2,
+            )
+            qr_buffer = BytesIO()
+            qr_image.save(qr_buffer)
+            public_qr_data_url = (
+                'data:image/svg+xml;base64,'
+                + base64.b64encode(qr_buffer.getvalue()).decode('ascii')
+            )
         context.update(
             {
                 'project': self.project,
                 'document': self.document,
                 'versions': versions,
                 'current_version': current_version,
+                'public_share_url': public_share_url,
+                'public_qr_data_url': public_qr_data_url,
                 'current_version_can_sign': bool(
                     current_version
                     and Path(current_version.original_filename).suffix.lower() == '.pdf'
@@ -1074,6 +1106,97 @@ class ProjectDocumentDownloadView(LoginRequiredMixin, View):
             filename=version.original_filename,
             content_type=content_type or 'application/octet-stream',
         )
+
+
+class ProjectDocumentPublicShareView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, document_pk, version_pk):
+        project = managed_project_or_404(request.user, pk)
+        version = get_object_or_404(
+            ProjectDocumentVersion.objects.select_related('document'),
+            pk=version_pk,
+            document_id=document_pk,
+            document__project=project,
+        )
+        version.public_qr_enabled = not version.public_qr_enabled
+        if not version.public_qr_enabled:
+            version.public_share_token = uuid.uuid4()
+        version.save(update_fields=('public_qr_enabled', 'public_share_token'))
+        state = 'enabled' if version.public_qr_enabled else 'disabled'
+        messages.success(request, f'Public QR access was {state}.')
+        return redirect('projects:document_detail', pk=project.pk, document_pk=document_pk)
+
+
+class PublicDocumentView(View):
+    template_name = 'projects/public_document.html'
+
+    def get_version(self, token):
+        return get_object_or_404(
+            ProjectDocumentVersion.objects.select_related(
+                'document__project__organization'
+            ),
+            public_share_token=token,
+            public_qr_enabled=True,
+        )
+
+    def verified_session_key(self, version):
+        return f'public_document_verified_{version.public_share_token}'
+
+    def get(self, request, token):
+        version = self.get_version(token)
+        return render(
+            request,
+            self.template_name,
+            {
+                'version': version,
+                'verified': request.session.get(self.verified_session_key(version), False),
+                'turnstile_site_key': settings.TURNSTILE_SITE_KEY,
+                'verification_available': bool(settings.TURNSTILE_SITE_KEY and settings.TURNSTILE_SECRET_KEY) or settings.DEBUG,
+                'development_form': PublicDocumentVerificationForm() if settings.DEBUG and not settings.TURNSTILE_SITE_KEY else None,
+            },
+        )
+
+    def post(self, request, token):
+        version = self.get_version(token)
+        verified = False
+        if settings.TURNSTILE_SITE_KEY and settings.TURNSTILE_SECRET_KEY:
+            try:
+                response = requests.post(
+                    'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+                    data={
+                        'secret': settings.TURNSTILE_SECRET_KEY,
+                        'response': request.POST.get('cf-turnstile-response', ''),
+                        'remoteip': request.META.get('REMOTE_ADDR', ''),
+                    },
+                    timeout=5,
+                )
+                verified = bool(response.ok and response.json().get('success'))
+            except (requests.RequestException, ValueError):
+                verified = False
+        elif settings.DEBUG:
+            verified = PublicDocumentVerificationForm(request.POST).is_valid()
+        if not verified:
+            messages.error(request, 'Human verification was not completed. Please try again.')
+            return redirect('projects:public_document', token=token)
+        request.session[self.verified_session_key(version)] = True
+        return redirect('projects:public_document', token=token)
+
+
+class PublicDocumentDownloadView(PublicDocumentView):
+    def get(self, request, token):
+        version = self.get_version(token)
+        if not request.session.get(self.verified_session_key(version), False):
+            return redirect('projects:public_document', token=token)
+        content_type, _ = mimetypes.guess_type(version.original_filename)
+        response = FileResponse(
+            version.file.open('rb'),
+            as_attachment=True,
+            filename=version.original_filename,
+            content_type=content_type or 'application/octet-stream',
+        )
+        response['Cache-Control'] = 'private, no-store'
+        return response
 
 
 class ProjectDocumentDecisionView(LoginRequiredMixin, View):
@@ -1724,6 +1847,9 @@ class ChangeOrderDetailView(LoginRequiredMixin, TemplateView):
                 'project': self.project,
                 'change_order': self.change_order,
                 'can_manage_project': can_manage,
+                'can_manage_disclosures': can_manage_organization(
+                    self.request.user, self.project.organization
+                ),
                 'can_decide': bool(
                     viewer_is_client
                     and self.change_order.status == ChangeOrder.Status.PENDING
@@ -1736,6 +1862,14 @@ class ChangeOrderDetailView(LoginRequiredMixin, TemplateView):
                 'replacement': getattr(self.change_order, 'replaced_by', None),
                 'source_invoice': getattr(self.change_order, 'invoice', None),
                 'credit_memo': getattr(self.change_order, 'credit_memo', None),
+                'active_change_order_disclosures': (
+                    self.project.organization.disclosures.filter(
+                        is_active=True,
+                        include_on_change_orders=True,
+                    )
+                    if can_manage and self.change_order.status == ChangeOrder.Status.DRAFT
+                    else OrganizationDisclosure.objects.none()
+                ),
                 'void_form': (
                     ChangeOrderVoidForm()
                     if can_manage
@@ -1774,12 +1908,20 @@ class ChangeOrderSubmitView(LoginRequiredMixin, View):
             change_order.status = ChangeOrder.Status.PENDING
             change_order.submitted_by = request.user
             change_order.submitted_at = timezone.now()
+            change_order.disclosure_snapshot = '\n\n'.join(
+                f'{disclosure.title}\n{disclosure.body}'
+                for disclosure in project.organization.disclosures.filter(
+                    is_active=True,
+                    include_on_change_orders=True,
+                )
+            )
             change_order.full_clean()
             change_order.save(
                 update_fields=(
                     'status',
                     'submitted_by',
                     'submitted_at',
+                    'disclosure_snapshot',
                     'updated_at',
                 )
             )
@@ -4587,6 +4729,16 @@ class ProjectPeopleView(LoginRequiredMixin, TemplateView):
                 'project_memberships': self.project.project_memberships.select_related(
                     'user'
                 ),
+                'has_designated_client': self.project.project_memberships.filter(
+                    role=OrganizationMembership.Role.CLIENT,
+                    is_active=True,
+                ).exists()
+                or self.project.invitations.filter(
+                    role=OrganizationMembership.Role.CLIENT,
+                    accepted_at__isnull=True,
+                    revoked_at__isnull=True,
+                    expires_at__gt=timezone.now(),
+                ).exists(),
                 'invitations': self.project.invitations.select_related(
                     'invited_by', 'accepted_by'
                 )[:50],
@@ -4737,6 +4889,15 @@ class ProjectInvitationResendView(LoginRequiredMixin, View):
         if old_invitation.accepted_at:
             messages.error(request, 'Accepted invitations cannot be resent.')
             return redirect('projects:people', pk=project.pk)
+        if project.project_memberships.filter(
+            role=OrganizationMembership.Role.CLIENT,
+            is_active=True,
+        ).exists():
+            messages.error(
+                request,
+                'This project already has a designated client account holder.',
+            )
+            return redirect('projects:people', pk=project.pk)
         with transaction.atomic():
             old_invitation.revoked_at = timezone.now()
             old_invitation.save(update_fields=('revoked_at',))
@@ -4810,6 +4971,20 @@ class ProjectMemberAccessView(LoginRequiredMixin, View):
             if membership.is_active == active:
                 messages.info(request, f'Project access is already {state}.')
                 return redirect('projects:people', pk=project.pk)
+            if (
+                active
+                and membership.role == OrganizationMembership.Role.CLIENT
+                and ProjectMembership.objects.select_for_update().filter(
+                    project=project,
+                    role=OrganizationMembership.Role.CLIENT,
+                    is_active=True,
+                ).exclude(pk=membership.pk).exists()
+            ):
+                messages.error(
+                    request,
+                    'Revoke the current designated client before restoring this account.',
+                )
+                return redirect('projects:people', pk=project.pk)
             membership.is_active = active
             membership.save(update_fields=('is_active',))
             event_type = (
@@ -4839,6 +5014,155 @@ class CompanyListView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         context['organizations'] = internal_organizations_for_user(self.request.user)
         return context
+
+
+class NotificationListView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/notification_list.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['notifications'] = self.request.user.in_app_notifications.select_related(
+            'project'
+        )[:100]
+        context['projects'] = projects_for_user(self.request.user).order_by('name')
+        return context
+
+
+class NotificationMarkReadView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, notification_pk):
+        notification = get_object_or_404(
+            InAppNotification,
+            pk=notification_pk,
+            user=request.user,
+        )
+        if notification.read_at is None:
+            notification.read_at = timezone.now()
+            notification.save(update_fields=('read_at',))
+        target = notification.url_path
+        if not target or not target.startswith('/') or target.startswith('//'):
+            target = reverse('projects:notification_list')
+        return redirect(target)
+
+
+class NotificationMarkAllReadView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request):
+        request.user.in_app_notifications.filter(read_at__isnull=True).update(
+            read_at=timezone.now()
+        )
+        return redirect('projects:notification_list')
+
+
+class ProjectNotificationSettingsView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/notification_settings.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_object_or_404(
+            projects_for_user(request.user).select_related('organization'),
+            pk=kwargs['pk'],
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        existing = {
+            preference.event_type: preference
+            for preference in NotificationPreference.objects.filter(
+                user=self.request.user,
+                project=self.project,
+            )
+        }
+        context['project'] = self.project
+        context['preference_rows'] = [
+            {
+                'value': value,
+                'label': label,
+                'email_enabled': existing.get(value).email_enabled if value in existing else True,
+                'in_app_enabled': existing.get(value).in_app_enabled if value in existing else True,
+            }
+            for value, label in NotificationPreference.Event.choices
+        ]
+        return context
+
+    def post(self, request, *args, **kwargs):
+        for value, _label in NotificationPreference.Event.choices:
+            NotificationPreference.objects.update_or_create(
+                user=request.user,
+                project=self.project,
+                event_type=value,
+                defaults={
+                    'email_enabled': request.POST.get(f'{value}_email') == 'on',
+                    'in_app_enabled': request.POST.get(f'{value}_in_app') == 'on',
+                },
+            )
+        messages.success(request, 'Notification preferences were saved.')
+        return redirect('projects:notification_settings', pk=self.project.pk)
+
+
+class OrganizationDisclosureListView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/disclosure_list.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.organization = get_object_or_404(Organization, slug=kwargs['slug'])
+        if not can_manage_organization(request.user, self.organization):
+            raise PermissionDenied('You cannot manage disclosures for this company.')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'organization': self.organization,
+                'disclosures': self.organization.disclosures.all(),
+                'form': kwargs.get('form') or OrganizationDisclosureForm(),
+            }
+        )
+        return context
+
+    def post(self, request, *args, **kwargs):
+        form = OrganizationDisclosureForm(request.POST)
+        if not form.is_valid():
+            return self.render_to_response(self.get_context_data(form=form))
+        disclosure = form.save(commit=False)
+        disclosure.organization = self.organization
+        disclosure.full_clean()
+        disclosure.save()
+        messages.success(request, 'Disclosure added.')
+        return redirect('projects:disclosure_list', slug=self.organization.slug)
+
+
+class OrganizationDisclosureUpdateView(LoginRequiredMixin, FormView):
+    form_class = OrganizationDisclosureForm
+    template_name = 'projects/disclosure_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.organization = get_object_or_404(Organization, slug=kwargs['slug'])
+        if not can_manage_organization(request.user, self.organization):
+            raise PermissionDenied('You cannot manage disclosures for this company.')
+        self.disclosure = get_object_or_404(
+            OrganizationDisclosure,
+            pk=kwargs['disclosure_pk'],
+            organization=self.organization,
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['instance'] = self.disclosure
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({'organization': self.organization, 'disclosure': self.disclosure})
+        return context
+
+    def form_valid(self, form):
+        form.save()
+        messages.success(self.request, 'Disclosure updated.')
+        return redirect('projects:disclosure_list', slug=self.organization.slug)
 
 
 class CompanyTeamView(LoginRequiredMixin, TemplateView):

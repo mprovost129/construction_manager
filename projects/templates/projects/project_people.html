@@ -10,8 +10,8 @@
 </nav>
 
 <section class="page-heading">
-    <div><p class="eyebrow">Project administration</p><h1>People &amp; access</h1><p class="text-secondary mb-0">Assign internal users, notification delivery, and customer access.</p></div>
-    <a class="btn btn-primary" href="{% url 'projects:invite_client' project.pk %}"><i class="bi bi-person-plus"></i> Invite customer</a>
+    <div><p class="eyebrow">Project administration</p><h1>People &amp; access</h1><p class="text-secondary mb-0">Assign internal users and one designated client account holder.</p></div>
+    {% if not has_designated_client %}<a class="btn btn-primary" href="{% url 'projects:invite_client' project.pk %}"><i class="bi bi-person-plus"></i> Invite designated client</a>{% endif %}
 </section>
 
 {% if can_manage_project %}
@@ -48,7 +48,7 @@
 {% endif %}
 
 <section class="admin-panel">
-    <div class="section-heading"><div><p class="eyebrow">Current access</p><h2>Customers</h2></div></div>
+    <div class="section-heading"><div><p class="eyebrow">Current access</p><h2>Designated client account</h2><p>Only one active client account holder may access each project.</p></div></div>
     {% if project_memberships %}
     <div class="table-responsive">
         <table class="admin-table">

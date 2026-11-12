@@ -1,13 +1,13 @@
 {% extends 'base.html' %}
 
-{% block title %}User guide | Construction Manager{% endblock %}
-{% block meta_description %}First-use guide for Construction Manager company users and clients.{% endblock %}
+{% block title %}User guide | {{ app_name }}{% endblock %}
+{% block meta_description %}First-use guide for {{ app_name }} company users and clients.{% endblock %}
 
 {% block content %}
 <section class="help-hero">
     <div>
         <p class="eyebrow">First-use guide</p>
-        <h1>Get started with Construction Manager</h1>
+        <h1>Get started with {{ app_name }}</h1>
         <p>Set up a company workspace, organize a project, invite the right people, and move client decisions from draft to approval.</p>
     </div>
     {% if user.is_authenticated %}
@@ -109,14 +109,14 @@
 <section class="guide-section" id="install-mobile">
     <div class="guide-section__heading">
         <p class="eyebrow">Mobile access</p>
-        <h2>Install Construction Manager on a phone</h2>
+        <h2>Install {{ app_name }} on a phone</h2>
         <p>The installed web app opens from the Home Screen and uses the same secure, synchronized account as the desktop version. An internet connection is required for project data.</p>
     </div>
     <div class="guide-two-column">
         <div>
             <h3>iPhone or iPad</h3>
             <ol>
-                <li>Open Construction Manager in Safari.</li>
+                <li>Open {{ app_name }} in Safari.</li>
                 <li>Tap the <strong>Share</strong> button.</li>
                 <li>Choose <strong>Add to Home Screen</strong>.</li>
                 <li>Confirm the name and tap <strong>Add</strong>.</li>
@@ -125,14 +125,14 @@
         <div>
             <h3>Android</h3>
             <ol>
-                <li>Open Construction Manager in Chrome.</li>
+                <li>Open {{ app_name }} in Chrome.</li>
                 <li>Open Chrome's menu.</li>
                 <li>Choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</li>
                 <li>Confirm the installation.</li>
             </ol>
         </div>
     </div>
-    <button class="btn btn-primary" type="button" data-install-app hidden>Install Construction Manager</button>
+    <button class="btn btn-primary" type="button" data-install-app hidden>Install {{ app_name }}</button>
     <p class="guide-note"><strong>Security note:</strong> Use a screen lock on the device and log out before sharing it. Project pages and confidential files are not stored for offline use.</p>
 </section>
 
@@ -146,7 +146,7 @@
         <li><span>1</span><div><h3>Connect the company</h3><p>Open <strong>QuickBooks</strong>, sign in to Intuit, and select the correct company.</p></div></li>
         <li><span>2</span><div><h3>Map the project customer</h3><p>Match or create the QuickBooks customer that represents the construction project. The app does not depend on QuickBooks Jobs.</p></div></li>
         <li><span>3</span><div><h3>Map cost code items</h3><p>Match each cost code used on invoice lines to a QuickBooks Product or Service item before sending the invoice.</p></div></li>
-        <li><span>4</span><div><h3>Send the invoice</h3><p>Issue the invoice in Construction Manager, then use the invoice detail page to synchronize it to QuickBooks.</p></div></li>
+        <li><span>4</span><div><h3>Send the invoice</h3><p>Issue the invoice in {{ app_name }}, then use the invoice detail page to synchronize it to QuickBooks.</p></div></li>
         <li><span>5</span><div><h3>Bring payments back</h3><p>Use <strong>Sync payments from QuickBooks</strong> on the invoice to update local payment records and balance status.</p></div></li>
         <li><span>6</span><div><h3>Resolve exceptions</h3><p>Review failed or blocked synchronization attempts on the QuickBooks screen. Confirm mappings and accounting data before retrying.</p></div></li>
     </ol>

@@ -9,11 +9,11 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Construction Manager">
+    <meta name="apple-mobile-web-app-title" content="{{ app_name }}">
     <link rel="manifest" href="{% static 'manifest.webmanifest' %}">
     <link rel="icon" href="{% static 'images/app-icon.svg' %}" type="image/svg+xml">
     <link rel="apple-touch-icon" href="{% static 'images/app-icon-180.png' %}">
-    <title>{% block title %}Construction Manager{% endblock %}</title>
+    <title>{% block title %}{{ app_name }}{% endblock %}</title>
     {% include 'partials/_styles.html' %}
     {% block extra_css %}{% endblock %}
 </head>

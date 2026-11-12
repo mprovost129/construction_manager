@@ -1,6 +1,7 @@
 from html import escape
 from io import BytesIO
 
+from django.conf import settings
 from django.utils.formats import date_format
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_RIGHT
@@ -210,7 +211,7 @@ def _page_decor(invoice):
         canvas.line(doc.leftMargin, 0.48 * inch, letter[0] - doc.rightMargin, 0.48 * inch)
         canvas.setFillColor(MUTED)
         canvas.setFont('Helvetica', 7.5)
-        canvas.drawString(doc.leftMargin, 0.29 * inch, 'Construction Manager')
+        canvas.drawString(doc.leftMargin, 0.29 * inch, settings.APP_NAME)
         canvas.drawRightString(
             letter[0] - doc.rightMargin,
             0.29 * inch,
@@ -382,6 +383,36 @@ def build_invoice_pdf(invoice):
                         Paragraph('NOTES', styles['label']),
                         Table(
                             [[notes]],
+                            colWidths=[width],
+                            style=TableStyle(
+                                [
+                                    ('BACKGROUND', (0, 0), (-1, -1), CANVAS),
+                                    ('BOX', (0, 0), (-1, -1), 0.5, BORDER),
+                                    ('LEFTPADDING', (0, 0), (-1, -1), 10),
+                                    ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+                                    ('TOPPADDING', (0, 0), (-1, -1), 9),
+                                    ('BOTTOMPADDING', (0, 0), (-1, -1), 9),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+    if invoice.disclosure_snapshot:
+        disclosure = Paragraph(
+            _safe(invoice.disclosure_snapshot).replace('\n', '<br/>'),
+            styles['body'],
+        )
+        story.extend(
+            [
+                Spacer(1, 0.3 * inch),
+                KeepTogether(
+                    [
+                        Paragraph('TERMS AND DISCLOSURES', styles['label']),
+                        Table(
+                            [[disclosure]],
                             colWidths=[width],
                             style=TableStyle(
                                 [

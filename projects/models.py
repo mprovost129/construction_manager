@@ -73,6 +73,41 @@ class Organization(models.Model):
         return self.name
 
 
+class OrganizationDisclosure(models.Model):
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name='disclosures',
+    )
+    title = models.CharField(max_length=200)
+    body = models.TextField()
+    include_on_change_orders = models.BooleanField(default=False)
+    include_on_invoices = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('sort_order', 'title', 'pk')
+
+    def clean(self):
+        super().clean()
+        self.title = self.title.strip()
+        self.body = self.body.strip()
+        if not self.title:
+            raise ValidationError({'title': 'Enter a disclosure title.'})
+        if not self.body:
+            raise ValidationError({'body': 'Enter disclosure text.'})
+        if not (self.include_on_change_orders or self.include_on_invoices):
+            raise ValidationError(
+                'Choose change orders, invoices, or both for this disclosure.'
+            )
+
+    def __str__(self):
+        return f'{self.organization}: {self.title}'
+
+
 class OrganizationMembership(models.Model):
     class Role(models.TextChoices):
         ADMIN = 'admin', 'Admin'
@@ -361,6 +396,73 @@ class ProjectInvitation(models.Model):
         return f'{self.email} invited to {self.project}'
 
 
+class NotificationPreference(models.Model):
+    class Event(models.TextChoices):
+        MESSAGES = 'messages', 'Messages and comments'
+        DAILY_LOGS = 'daily_logs', 'Daily logs and client updates'
+        DOCUMENTS = 'documents', 'Documents, plans, and signatures'
+        CHANGE_ORDERS = 'change_orders', 'Change orders'
+        SELECTIONS = 'selections', 'Selections'
+        SCHEDULE = 'schedule', 'Schedule changes'
+        INVOICES = 'invoices', 'Invoices and payments'
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='notification_preferences',
+    )
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='notification_preferences',
+    )
+    event_type = models.CharField(max_length=30, choices=Event.choices)
+    email_enabled = models.BooleanField(default=True)
+    in_app_enabled = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('project__name', 'event_type')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('user', 'project', 'event_type'),
+                name='projects_unique_notification_preference',
+            ),
+        ]
+
+
+class InAppNotification(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='in_app_notifications',
+    )
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='in_app_notifications',
+    )
+    event_type = models.CharField(max_length=30, choices=NotificationPreference.Event.choices)
+    title = models.CharField(max_length=200)
+    message = models.TextField(blank=True)
+    url_path = models.CharField(max_length=500, blank=True)
+    read_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at', '-pk')
+        indexes = [
+            models.Index(
+                fields=('user', 'read_at', '-created_at'),
+                name='projects_notif_user_read_idx',
+            ),
+        ]
+
+    @property
+    def is_read(self):
+        return self.read_at is not None
+
+
 class OrganizationInvitation(models.Model):
     token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     organization = models.ForeignKey(
@@ -458,6 +560,9 @@ class ActivityEvent(models.Model):
         CLIENT_JOINED = 'client_joined', 'Client joined'
         CLIENT_ACCESS_REVOKED = 'client_access_revoked', 'Client access revoked'
         CLIENT_ACCESS_RESTORED = 'client_access_restored', 'Client access restored'
+        CLIENT_LOGGED_IN = 'client_logged_in', 'Client logged in'
+        CLIENT_LOGGED_OUT = 'client_logged_out', 'Client logged out'
+        CLIENT_VIEWED = 'client_viewed', 'Client viewed a page'
         TEAM_INVITED = 'team_invited', 'Team member invited'
         TEAM_INVITE_RESENT = 'team_invite_resent', 'Team invitation resent'
         TEAM_INVITE_REVOKED = 'team_invite_revoked', 'Team invitation revoked'
@@ -891,6 +996,8 @@ class ProjectDocumentVersion(models.Model):
         related_name='project_document_versions_uploaded',
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    public_share_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    public_qr_enabled = models.BooleanField(default=False)
 
     class Meta:
         ordering = ('-version_number', '-pk')
@@ -1185,6 +1292,7 @@ class ChangeOrder(models.Model):
         on_delete=models.PROTECT,
         related_name='credit_change_orders',
     )
+    disclosure_snapshot = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1892,10 +2000,10 @@ class SelectionPackage(models.Model):
 
 class FinishSelection(models.Model):
     class Status(models.TextChoices):
-        DRAFT = 'draft', 'Draft'
-        OPEN = 'open', 'Awaiting client'
+        DRAFT = 'draft', 'Unreleased'
+        OPEN = 'open', 'Pending: Available'
         SELECTED = 'selected', 'Selected'
-        VOIDED = 'voided', 'Voided'
+        VOIDED = 'voided', 'Expired'
 
     class CreditDisposition(models.TextChoices):
         UNDETERMINED = 'undetermined', 'Undetermined'
@@ -2061,6 +2169,33 @@ class FinishSelection(models.Model):
     @property
     def display_number(self):
         return f'SEL-{self.number:03d}'
+
+    @property
+    def is_overdue(self):
+        return bool(
+            self.status == self.Status.OPEN
+            and self.due_date
+            and self.due_date < timezone.localdate()
+        )
+
+    @property
+    def buildertrend_status_label(self):
+        if self.status == self.Status.DRAFT:
+            return 'Unreleased'
+        if self.status == self.Status.OPEN:
+            return 'Pending: Overdue' if self.is_overdue else 'Pending: Available'
+        if self.status == self.Status.SELECTED:
+            return 'Selected'
+        return 'Expired'
+
+    @property
+    def buildertrend_status_class(self):
+        return {
+            self.Status.DRAFT: 'unreleased',
+            self.Status.OPEN: 'pending',
+            self.Status.SELECTED: 'selected',
+            self.Status.VOIDED: 'expired',
+        }[self.status]
 
     @property
     def selected_variance(self):

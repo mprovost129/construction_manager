@@ -11,6 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / '.env')
 
 APP_ENVIRONMENT = os.environ.get('APP_ENVIRONMENT', 'development').lower()
+APP_NAME = os.environ.get('APP_NAME', 'Heritage Construction Management')
 
 
 def env_bool(name, default=False):
@@ -56,6 +57,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'projects.middleware.ClientViewAuditMiddleware',
     'axes.middleware.AxesMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -79,6 +81,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'projects.context_processors.workspace_navigation',
+                'projects.context_processors.application_identity',
             ],
         },
     },
@@ -198,11 +201,17 @@ SITE_BASE_URL = os.environ.get('SITE_BASE_URL', 'http://localhost:8000')
 # before requesting production access from third-party platforms.
 LEGAL_BUSINESS_NAME = os.environ.get('LEGAL_BUSINESS_NAME', 'Construction Manager')
 LEGAL_CONTACT_EMAIL = os.environ.get('LEGAL_CONTACT_EMAIL', 'support@localhost')
+SUPPORT_EMAIL = os.environ.get('SUPPORT_EMAIL', LEGAL_CONTACT_EMAIL)
 LEGAL_BUSINESS_ADDRESS = os.environ.get('LEGAL_BUSINESS_ADDRESS', '')
 LEGAL_GOVERNING_LAW = os.environ.get(
     'LEGAL_GOVERNING_LAW', 'applicable laws of the United States'
 )
 LEGAL_EFFECTIVE_DATE = os.environ.get('LEGAL_EFFECTIVE_DATE', 'July 31, 2026')
+
+# Cloudflare Turnstile protects public QR document links. Production public
+# document access remains unavailable until both values are configured.
+TURNSTILE_SITE_KEY = os.environ.get('TURNSTILE_SITE_KEY', '')
+TURNSTILE_SECRET_KEY = os.environ.get('TURNSTILE_SECRET_KEY', '')
 
 # QuickBooks Online. Sandbox credentials are development-only. Realm/company IDs
 # are captured per organization during OAuth rather than configured globally.

@@ -30,6 +30,10 @@
 
 {% if can_manage_project and current_version %}
 <section class="admin-panel">
+    <div class="section-heading"><div><p class="eyebrow">Public field access</p><h2>QR document link</h2><p>Anyone with the QR code can request this exact version after human verification. Disable the link to revoke it and rotate its token.</p></div><form method="post" action="{% url 'projects:document_public_share' project.pk document.pk current_version.pk %}">{% csrf_token %}<button class="btn {% if current_version.public_qr_enabled %}btn-outline-danger{% else %}btn-primary{% endif %}" type="submit">{% if current_version.public_qr_enabled %}Disable public QR{% else %}Enable public QR{% endif %}</button></form></div>
+    {% if current_version.public_qr_enabled %}<div class="public-share-panel"><img src="{{ public_qr_data_url }}" width="180" height="180" alt="QR code for {{ document.title }}"><div><label for="public-share-url"><strong>Public link</strong></label><input id="public-share-url" type="url" value="{{ public_share_url }}" readonly><p class="text-secondary">Cloudflare Turnstile must be configured in production before the link will open.</p></div></div>{% endif %}
+</section>
+<section class="admin-panel">
     <div class="section-heading"><div><p class="eyebrow">Electronic signatures</p><h2>Current version requests</h2></div>{% if current_version_can_sign %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:document_signature_request' project.pk document.pk current_version.pk %}">Request signature</a>{% endif %}</div>
     <div class="version-list">
         {% for signature_request in current_version.signature_requests.all %}

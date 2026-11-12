@@ -6,7 +6,7 @@
 <nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:company_list' %}">Company</a><i class="bi bi-chevron-right"></i><a href="{% url 'projects:company_team' organization.slug %}">{{ organization.name }}</a><i class="bi bi-chevron-right"></i><span>Subscription</span></nav>
 
 <section class="page-heading">
-    <div><p class="eyebrow">Company billing</p><h1>{{ organization.name }}</h1><p class="text-secondary mb-0">Manage this company&rsquo;s Construction Manager subscription. Project invoices and accounting remain in the company&rsquo;s connected QuickBooks account.</p></div>
+    <div><p class="eyebrow">Company billing</p><h1>{{ organization.name }}</h1><p class="text-secondary mb-0">Manage this company&rsquo;s {{ app_name }} subscription. Project invoices and accounting remain in the company&rsquo;s connected QuickBooks account.</p></div>
     {% if subscription %}<span class="status-pill status-pill--{% if subscription.access_allowed %}active{% elif subscription.needs_attention %}declined{% endif %}">{{ subscription.get_status_display }}</span>{% endif %}
 </section>
 
@@ -25,5 +25,5 @@
     {% endif %}
 </section>
 
-<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Separation of responsibilities</p><h2>Stripe and QuickBooks</h2></div></div><p><strong>Stripe</strong> bills {{ organization.name }} for access to Construction Manager. <strong>QuickBooks</strong> remains the company&rsquo;s system for homeowner invoices, payments, and project financial records. No homeowner funds flow through this Stripe subscription.</p></section>
+<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Separation of responsibilities</p><h2>Stripe and QuickBooks</h2></div></div><p><strong>Stripe</strong> bills {{ organization.name }} for access to {{ app_name }}. <strong>QuickBooks</strong> remains the company&rsquo;s system for homeowner invoices, payments, and project financial records. No homeowner funds flow through this Stripe subscription.</p></section>
 {% endblock %}

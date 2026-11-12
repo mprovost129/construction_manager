@@ -1,4 +1,13 @@
+from django.conf import settings
+
 from .access import internal_organizations_for_user
+
+
+def application_identity(request):
+    return {
+        'app_name': settings.APP_NAME,
+        'support_email': settings.SUPPORT_EMAIL,
+    }
 
 
 def workspace_navigation(request):
@@ -8,6 +17,7 @@ def workspace_navigation(request):
             'has_internal_access': False,
             'can_create_projects': False,
             'can_manage_integrations': False,
+            'unread_notification_count': 0,
         }
     has_internal_access = internal_organizations_for_user(user).exists()
     can_create_projects = internal_organizations_for_user(
@@ -23,4 +33,7 @@ def workspace_navigation(request):
                 role='admin',
             ).exists()
         ),
+        'unread_notification_count': user.in_app_notifications.filter(
+            read_at__isnull=True
+        ).count(),
     }

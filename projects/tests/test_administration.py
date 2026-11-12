@@ -217,8 +217,15 @@ class ProjectAdministrationTests(TestCase):
         )
 
     def test_staff_can_resend_and_revoke_customer_invitation(self):
+        project = Project.objects.create(
+            organization=self.organization,
+            name='Unassigned Project',
+            status=Project.Status.ACTIVE,
+            created_by=self.admin_user,
+        )
+        grant_internal_access(self.staff_user, project)
         invitation = ProjectInvitation.objects.create(
-            project=self.project,
+            project=project,
             email='pending@example.com',
             invited_by=self.admin_user,
         )
@@ -227,14 +234,14 @@ class ProjectAdministrationTests(TestCase):
         resend_response = self.client.post(
             reverse(
                 'projects:resend_client_invitation',
-                args=(self.project.pk, invitation.pk),
+                args=(project.pk, invitation.pk),
             )
         )
         self.assertEqual(resend_response.status_code, 302)
         invitation.refresh_from_db()
         self.assertIsNotNone(invitation.revoked_at)
         replacement = ProjectInvitation.objects.get(
-            project=self.project,
+            project=project,
             email='pending@example.com',
             revoked_at__isnull=True,
         )
@@ -243,7 +250,7 @@ class ProjectAdministrationTests(TestCase):
         self.client.post(
             reverse(
                 'projects:revoke_client_invitation',
-                args=(self.project.pk, replacement.pk),
+                args=(project.pk, replacement.pk),
             )
         )
         replacement.refresh_from_db()

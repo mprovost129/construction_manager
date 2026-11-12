@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Shared document | {{ app_name }}{% endblock %}
+{% block content %}
+<section class="page-heading"><div><p class="eyebrow">Shared project document</p><h1>{% if verified %}{{ version.document.title }}{% else %}Verify access{% endif %}</h1>{% if verified %}<p class="text-secondary mb-0">{{ version.document.project.name }} · Version {{ version.version_number }}</p>{% endif %}</div></section>
+<section class="admin-panel">
+{% if verified %}<div class="section-heading"><div><p class="eyebrow">Verification complete</p><h2>Document ready</h2><p>This link provides access only to this specific document version.</p></div><a class="btn btn-primary" href="{% url 'projects:public_document_download' version.public_share_token %}"><i class="bi bi-download"></i> Download document</a></div>
+{% elif verification_available %}<div class="section-heading"><div><p class="eyebrow">Human verification</p><h2>Verify before opening</h2><p>Complete the check below to protect this public QR link from automated access.</p></div></div><form method="post" class="stacked-form">{% csrf_token %}{% if turnstile_site_key %}<div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}"></div><script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{% else %}{{ development_form.as_p }}{% endif %}<button class="btn btn-primary" type="submit">Verify and continue</button></form>
+{% else %}<div class="empty-state"><h2>Public document verification is not configured</h2><p>Contact {{ support_email }} for access.</p></div>{% endif %}
+</section>
+{% endblock %}

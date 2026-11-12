@@ -14,7 +14,10 @@ from .models import (
     Estimate,
     EstimateLineItem,
     FinishSelection,
+    InAppNotification,
+    NotificationPreference,
     Organization,
+    OrganizationDisclosure,
     OrganizationInvitation,
     OrganizationMembership,
     Project,
@@ -40,6 +43,31 @@ class OrganizationAdmin(admin.ModelAdmin):
     search_fields = ('name', 'slug')
     prepopulated_fields = {'slug': ('name',)}
     inlines = (OrganizationMembershipInline,)
+
+
+@admin.register(OrganizationDisclosure)
+class OrganizationDisclosureAdmin(admin.ModelAdmin):
+    list_display = (
+        'title',
+        'organization',
+        'include_on_change_orders',
+        'include_on_invoices',
+        'is_active',
+    )
+    list_filter = ('organization', 'is_active')
+
+
+@admin.register(NotificationPreference)
+class NotificationPreferenceAdmin(admin.ModelAdmin):
+    list_display = ('user', 'project', 'event_type', 'email_enabled', 'in_app_enabled')
+    list_filter = ('event_type', 'email_enabled', 'in_app_enabled')
+
+
+@admin.register(InAppNotification)
+class InAppNotificationAdmin(admin.ModelAdmin):
+    list_display = ('title', 'user', 'project', 'event_type', 'read_at', 'created_at')
+    list_filter = ('event_type', 'read_at')
+    readonly_fields = ('created_at',)
 
 
 class ProjectMembershipInline(admin.TabularInline):

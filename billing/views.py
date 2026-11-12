@@ -12,7 +12,11 @@ from django.views import View
 from django.views.generic import FormView, TemplateView
 
 from integrations.models import QuickBooksConnection, QuickBooksItemMapping
-from projects.access import can_manage_project, is_project_client
+from projects.access import (
+    can_manage_organization,
+    can_manage_project,
+    is_project_client,
+)
 from projects.models import ChangeOrder, FinishSelection
 
 from .access import (
@@ -311,6 +315,9 @@ class InvoiceDetailView(LoginRequiredMixin, TemplateView):
                 'line_items': self.invoice.line_items.all(),
                 'payments': self.invoice.payments.select_related('recorded_by'),
                 'can_manage_invoices': can_manage,
+                'can_manage_disclosures': can_manage_organization(
+                    self.request.user, self.project.organization
+                ),
                 'viewer_is_client': is_project_client(
                     self.request.user,
                     self.project,
@@ -334,6 +341,14 @@ class InvoiceDetailView(LoginRequiredMixin, TemplateView):
                 'quickbooks_mapping': quickbooks_mapping,
                 'quickbooks_connection': quickbooks_connection,
                 'unmapped_line_cost_codes': unmapped_line_cost_codes,
+                'active_invoice_disclosures': (
+                    self.project.organization.disclosures.filter(
+                        is_active=True,
+                        include_on_invoices=True,
+                    )
+                    if can_manage and self.invoice.is_editable
+                    else ()
+                ),
             }
         )
         return context

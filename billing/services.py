@@ -4,12 +4,18 @@ from django.db.models import Max, Sum
 from django.urls import reverse
 from django.utils import timezone
 
-from projects.models import ActivityEvent, ChangeOrder, FinishSelection, Organization
+from projects.models import (
+    ActivityEvent,
+    ChangeOrder,
+    FinishSelection,
+    NotificationPreference,
+    Organization,
+)
 from projects.money import money
 from projects.services import (
+    deliver_project_notification,
     document_client_recipients,
     record_activity,
-    send_notification_email,
 )
 
 from .models import CreditMemo, Invoice, InvoiceLineItem, Payment
@@ -196,6 +202,13 @@ def issue_invoice(*, invoice_id, actor):
     invoice.issue_date = timezone.localdate()
     invoice.issued_by = actor
     invoice.issued_at = now
+    invoice.disclosure_snapshot = '\n\n'.join(
+        f'{disclosure.title}\n{disclosure.body}'
+        for disclosure in invoice.organization.disclosures.filter(
+            is_active=True,
+            include_on_invoices=True,
+        )
+    )
     invoice.full_clean()
     invoice.save()
     record_activity(
@@ -444,11 +457,14 @@ def send_invoice_issued_notification(request, invoice):
     recipients = document_client_recipients(invoice.project)
     if not recipients:
         return 0
-    detail_url = request.build_absolute_uri(
-        reverse('billing:invoice_detail', args=(invoice.project_id, invoice.pk))
+    detail_path = reverse(
+        'billing:invoice_detail', args=(invoice.project_id, invoice.pk)
     )
-    return send_notification_email(
-        subject=(
+    return deliver_project_notification(
+        request=request,
+        project=invoice.project,
+        event_type=NotificationPreference.Event.INVOICES,
+        title=(
             f'Invoice available - {invoice.project.name}: {invoice.display_number}'
         ),
         message=(
@@ -456,8 +472,8 @@ def send_invoice_issued_notification(request, invoice):
             f'{invoice.project.name}.\n\n'
             f'Total: ${invoice.total_amount:,.2f}\n'
             f'Due: {invoice.due_date:%B %d, %Y}\n\n'
-            f'View invoice: {detail_url}\n\n'
-            'Online payment is not available in Construction Manager.'
+            'Online payment is not available.'
         ),
+        url_path=detail_path,
         recipient_list=recipients,
     )

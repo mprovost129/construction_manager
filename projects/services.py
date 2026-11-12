@@ -12,6 +12,8 @@ from django.utils import timezone
 from .models import (
     ActivityEvent,
     DocumentSignatureEvent,
+    InAppNotification,
+    NotificationPreference,
     OrganizationInvitation,
     OrganizationMembership,
     ProjectCostEntry,
@@ -112,6 +114,60 @@ def send_notification_email(*, subject, message, recipient_list):
     return sent_count
 
 
+def deliver_project_notification(
+    *, request, project, event_type, title, message, url_path, recipient_list
+):
+    """Deliver a project event through each recipient's selected channels."""
+    normalized_emails = {email.strip().casefold() for email in recipient_list if email}
+    users = list(
+        get_user_model().objects.filter(
+            email__in=normalized_emails,
+            is_active=True,
+        )
+    )
+    preferences = {
+        preference.user_id: preference
+        for preference in NotificationPreference.objects.filter(
+            project=project,
+            user__in=users,
+            event_type=event_type,
+        )
+    }
+    email_recipients = []
+    in_app_notifications = []
+    for user in users:
+        preference = preferences.get(user.pk)
+        email_enabled = preference.email_enabled if preference else True
+        in_app_enabled = preference.in_app_enabled if preference else True
+        if email_enabled:
+            email_recipients.append(user.email)
+        if in_app_enabled:
+            in_app_notifications.append(
+                InAppNotification(
+                    user=user,
+                    project=project,
+                    event_type=event_type,
+                    title=title[:200],
+                    message=message,
+                    url_path=url_path,
+                )
+            )
+    if in_app_notifications:
+        InAppNotification.objects.bulk_create(in_app_notifications)
+    if not email_recipients:
+        return 0
+    absolute_url = (
+        request.build_absolute_uri(url_path)
+        if request is not None
+        else f'{settings.SITE_BASE_URL.rstrip("/")}{url_path}'
+    )
+    return send_notification_email(
+        subject=title,
+        message=f'{message}\n\nView in {settings.APP_NAME}: {absolute_url}',
+        recipient_list=sorted(set(email_recipients)),
+    )
+
+
 def record_activity(
     *, organization, event_type, summary, actor=None, project=None, metadata=None
 ):
@@ -183,20 +239,21 @@ def send_message_notifications(request, message, *, new_thread=False):
     recipients = message_notification_recipients(thread.project, message.author)
     if not recipients:
         return 0
-    thread_url = request.build_absolute_uri(
-        reverse(
-            'projects:message_thread',
-            args=(thread.project_id, thread.pk),
-        )
+    thread_path = reverse(
+        'projects:message_thread',
+        args=(thread.project_id, thread.pk),
     )
     action = 'New conversation' if new_thread else 'New reply'
-    return send_notification_email(
-        subject=f'{action} - {thread.project.name}: {thread.subject}',
+    return deliver_project_notification(
+        request=request,
+        project=thread.project,
+        event_type=NotificationPreference.Event.MESSAGES,
+        title=f'{action} - {thread.project.name}: {thread.subject}',
         message=(
             f'{message.author.email} posted in "{thread.subject}" for '
-            f'{thread.project.name}.\n\n{message.body}\n\n'
-            f'View and reply: {thread_url}'
+            f'{thread.project.name}.\n\n{message.body}'
         ),
+        url_path=thread_path,
         recipient_list=recipients,
     )
 
@@ -217,20 +274,21 @@ def send_daily_log_published_notification(request, daily_log):
     recipients = document_client_recipients(daily_log.project)
     if not recipients:
         return 0
-    log_url = request.build_absolute_uri(
-        reverse(
-            'projects:daily_log_detail',
-            args=(daily_log.project_id, daily_log.pk),
-        )
+    log_path = reverse(
+        'projects:daily_log_detail',
+        args=(daily_log.project_id, daily_log.pk),
     )
-    return send_notification_email(
-        subject=f'Project update - {daily_log.project.name}: {daily_log.title}',
+    return deliver_project_notification(
+        request=request,
+        project=daily_log.project,
+        event_type=NotificationPreference.Event.DAILY_LOGS,
+        title=f'Project update - {daily_log.project.name}: {daily_log.title}',
         message=(
             f'{daily_log.project.organization.name} posted a new project update '
             f'for {daily_log.project.name}.\n\n'
-            f'{daily_log.title}\n{daily_log.summary}\n\n'
-            f'View the update and photos: {log_url}'
+            f'{daily_log.title}\n{daily_log.summary}'
         ),
+        url_path=log_path,
         recipient_list=recipients,
     )
 
@@ -265,15 +323,19 @@ def send_client_upload_notification(request, version):
     )
     if not recipients:
         return 0
-    document_url = request.build_absolute_uri(
-        reverse('projects:document_detail', args=(document.project_id, document.pk))
+    document_path = reverse(
+        'projects:document_detail', args=(document.project_id, document.pk)
     )
-    return send_notification_email(
-        subject=f'Client upload - {document.project.name}: {document.title}',
+    return deliver_project_notification(
+        request=request,
+        project=document.project,
+        event_type=NotificationPreference.Event.DOCUMENTS,
+        title=f'Client upload - {document.project.name}: {document.title}',
         message=(
             f'{version.uploaded_by.email} uploaded {version.original_filename} for '
-            f'{document.project.name}.\n\nView upload: {document_url}'
+            f'{document.project.name}.'
         ),
+        url_path=document_path,
         recipient_list=recipients,
     )
 
@@ -285,16 +347,20 @@ def send_document_available_notification(request, version):
     recipients = document_client_recipients(document.project)
     if not recipients:
         return 0
-    document_url = request.build_absolute_uri(
-        reverse('projects:document_detail', args=(document.project_id, document.pk))
+    document_path = reverse(
+        'projects:document_detail', args=(document.project_id, document.pk)
     )
     action = 'Review requested' if document.requires_client_approval else 'New document'
-    return send_notification_email(
-        subject=f'{action} - {document.project.name}: {document.title}',
+    return deliver_project_notification(
+        request=request,
+        project=document.project,
+        event_type=NotificationPreference.Event.DOCUMENTS,
+        title=f'{action} - {document.project.name}: {document.title}',
         message=(
             f'{document.title} version {version.version_number} is available for '
-            f'{document.project.name}.\n\nView document: {document_url}'
+            f'{document.project.name}.'
         ),
+        url_path=document_path,
         recipient_list=recipients,
     )
 
@@ -306,31 +372,32 @@ def send_document_decision_notification(request, decision):
     )
     if not recipients:
         return 0
-    document_url = request.build_absolute_uri(
-        reverse('projects:document_detail', args=(document.project_id, document.pk))
+    document_path = reverse(
+        'projects:document_detail', args=(document.project_id, document.pk)
     )
-    return send_notification_email(
-        subject=(
+    return deliver_project_notification(
+        request=request,
+        project=document.project,
+        event_type=NotificationPreference.Event.DOCUMENTS,
+        title=(
             f'Document {decision.get_decision_display().lower()} - '
             f'{document.project.name}: {document.title}'
         ),
         message=(
             f'{decision.decided_by.email} {decision.get_decision_display().lower()} '
             f'{document.title} version {decision.version.version_number}.\n\n'
-            f'Comment: {decision.comment or "No comment provided."}\n\n'
-            f'View document: {document_url}'
+            f'Comment: {decision.comment or "No comment provided."}'
         ),
+        url_path=document_path,
         recipient_list=recipients,
     )
 
 
 def send_document_signature_request_notification(request, signature_request):
     document = signature_request.document
-    review_url = request.build_absolute_uri(
-        reverse(
-            'projects:document_signature_review',
-            args=(document.project_id, document.pk, signature_request.pk),
-        )
+    review_path = reverse(
+        'projects:document_signature_review',
+        args=(document.project_id, document.pk, signature_request.pk),
     )
     due_line = (
         f'Please respond by {signature_request.due_date:%B %d, %Y}.\n\n'
@@ -345,14 +412,17 @@ def send_document_signature_request_notification(request, signature_request):
     )
     if signature_request.message:
         message += f'{signature_request.message}\n\n'
-    return send_notification_email(
-        subject=f'Signature requested - {document.project.name}: {document.title}',
+    return deliver_project_notification(
+        request=request,
+        project=document.project,
+        event_type=NotificationPreference.Event.DOCUMENTS,
+        title=f'Signature requested - {document.project.name}: {document.title}',
         message=(
             message
             + due_line
-            + f'Review and sign securely: {review_url}\n\n'
             + 'You must sign in with the invited client account before responding.'
         ),
+        url_path=review_path,
         recipient_list=[signature_request.signer.email],
     )
 
@@ -364,14 +434,15 @@ def send_document_signature_result_notification(request, signature_request):
         exclude_user=signature_request.signer,
     )
     recipients = sorted(set(recipients) | {signature_request.signer.email})
-    detail_url = request.build_absolute_uri(
-        reverse(
-            'projects:document_detail',
-            args=(document.project_id, document.pk),
-        )
+    detail_path = reverse(
+        'projects:document_detail',
+        args=(document.project_id, document.pk),
     )
-    return send_notification_email(
-        subject=(
+    return deliver_project_notification(
+        request=request,
+        project=document.project,
+        event_type=NotificationPreference.Event.DOCUMENTS,
+        title=(
             f'Document {signature_request.get_status_display().lower()} - '
             f'{document.project.name}: {document.title}'
         ),
@@ -379,9 +450,9 @@ def send_document_signature_result_notification(request, signature_request):
             f'{signature_request.signer.email} '
             f'{signature_request.get_status_display().lower()} '
             f'{document.title} version '
-            f'{signature_request.version.version_number}.\n\n'
-            f'View the permanent record: {detail_url}'
+            f'{signature_request.version.version_number}.'
         ),
+        url_path=detail_path,
         recipient_list=recipients,
     )
 
@@ -390,14 +461,15 @@ def send_change_order_review_notification(request, change_order):
     recipients = document_client_recipients(change_order.project)
     if not recipients:
         return 0
-    detail_url = request.build_absolute_uri(
-        reverse(
-            'projects:change_order_detail',
-            args=(change_order.project_id, change_order.pk),
-        )
+    detail_path = reverse(
+        'projects:change_order_detail',
+        args=(change_order.project_id, change_order.pk),
     )
-    return send_notification_email(
-        subject=(
+    return deliver_project_notification(
+        request=request,
+        project=change_order.project,
+        event_type=NotificationPreference.Event.CHANGE_ORDERS,
+        title=(
             f'Change order review requested - {change_order.project.name}: '
             f'{change_order.display_number}'
         ),
@@ -405,9 +477,9 @@ def send_change_order_review_notification(request, change_order):
             f'{change_order.display_number} - {change_order.title} is ready for '
             f'your review for {change_order.project.name}.\n\n'
             f'Client price change: ${change_order.price_delta:,.2f}\n'
-            f'Schedule change: {change_order.schedule_delta_days} day(s)\n\n'
-            f'Review and decide: {detail_url}'
+            f'Schedule change: {change_order.schedule_delta_days} day(s)'
         ),
+        url_path=detail_path,
         recipient_list=recipients,
     )
 
@@ -418,14 +490,15 @@ def send_change_order_decision_notification(request, change_order):
     )
     if not recipients:
         return 0
-    detail_url = request.build_absolute_uri(
-        reverse(
-            'projects:change_order_detail',
-            args=(change_order.project_id, change_order.pk),
-        )
+    detail_path = reverse(
+        'projects:change_order_detail',
+        args=(change_order.project_id, change_order.pk),
     )
-    return send_notification_email(
-        subject=(
+    return deliver_project_notification(
+        request=request,
+        project=change_order.project,
+        event_type=NotificationPreference.Event.CHANGE_ORDERS,
+        title=(
             f'Change order {change_order.get_status_display().lower()} - '
             f'{change_order.project.name}: {change_order.display_number}'
         ),
@@ -433,9 +506,9 @@ def send_change_order_decision_notification(request, change_order):
             f'{change_order.decided_by.email} '
             f'{change_order.get_status_display().lower()} '
             f'{change_order.display_number} - {change_order.title}.\n\n'
-            f'Comment: {change_order.client_comment or "No comment provided."}\n\n'
-            f'View change order: {detail_url}'
+            f'Comment: {change_order.client_comment or "No comment provided."}'
         ),
+        url_path=detail_path,
         recipient_list=recipients,
     )
 
@@ -444,21 +517,23 @@ def send_change_order_voided_notification(request, change_order):
     recipients = document_client_recipients(change_order.project)
     if not recipients:
         return 0
-    detail_url = request.build_absolute_uri(
-        reverse(
-            'projects:change_order_detail',
-            args=(change_order.project_id, change_order.pk),
-        )
+    detail_path = reverse(
+        'projects:change_order_detail',
+        args=(change_order.project_id, change_order.pk),
     )
-    return send_notification_email(
-        subject=(
+    return deliver_project_notification(
+        request=request,
+        project=change_order.project,
+        event_type=NotificationPreference.Event.CHANGE_ORDERS,
+        title=(
             f'Change order withdrawn - {change_order.project.name}: '
             f'{change_order.display_number}'
         ),
         message=(
             f'{change_order.display_number} - {change_order.title} has been '
-            f'withdrawn and no decision is required.\n\nView: {detail_url}'
+            'withdrawn and no decision is required.'
         ),
+        url_path=detail_path,
         recipient_list=recipients,
     )
 
@@ -552,19 +627,20 @@ def send_selection_review_notification(request, selection):
     recipients = document_client_recipients(selection.project)
     if not recipients:
         return 0
-    detail_url = request.build_absolute_uri(
-        reverse(
-            'projects:selection_detail',
-            args=(selection.project_id, selection.pk),
-        )
+    detail_path = reverse(
+        'projects:selection_detail',
+        args=(selection.project_id, selection.pk),
     )
     due_copy = (
         f'Decision due: {selection.due_date:%B %d, %Y}\n'
         if selection.due_date
         else ''
     )
-    return send_notification_email(
-        subject=(
+    return deliver_project_notification(
+        request=request,
+        project=selection.project,
+        event_type=NotificationPreference.Event.SELECTIONS,
+        title=(
             f'Finish selection requested - {selection.project.name}: '
             f'{selection.display_number}'
         ),
@@ -572,8 +648,9 @@ def send_selection_review_notification(request, selection):
             f'{selection.display_number} - {selection.title} is ready for your '
             f'selection for {selection.project.name}.\n\n'
             f'Allowance: ${selection.allowance_amount:,.2f}\n'
-            f'{due_copy}\nReview options and choose: {detail_url}'
+            f'{due_copy}'
         ),
+        url_path=detail_path,
         recipient_list=recipients,
     )
 
@@ -584,14 +661,15 @@ def send_selection_chosen_notification(request, selection):
     )
     if not recipients:
         return 0
-    detail_url = request.build_absolute_uri(
-        reverse(
-            'projects:selection_detail',
-            args=(selection.project_id, selection.pk),
-        )
+    detail_path = reverse(
+        'projects:selection_detail',
+        args=(selection.project_id, selection.pk),
     )
-    return send_notification_email(
-        subject=(
+    return deliver_project_notification(
+        request=request,
+        project=selection.project,
+        event_type=NotificationPreference.Event.SELECTIONS,
+        title=(
             f'Finish selected - {selection.project.name}: '
             f'{selection.display_number}'
         ),
@@ -601,9 +679,9 @@ def send_selection_chosen_notification(request, selection):
             f'{selection.title}.\n\n'
             f'Price: ${selection.chosen_option.price:,.2f} '
             f'({format_allowance_variance(selection.chosen_option)})\n'
-            f'Comment: {selection.client_comment or "No comment provided."}\n\n'
-            f'View selection: {detail_url}'
+            f'Comment: {selection.client_comment or "No comment provided."}'
         ),
+        url_path=detail_path,
         recipient_list=recipients,
     )
 
@@ -612,21 +690,23 @@ def send_selection_voided_notification(request, selection):
     recipients = document_client_recipients(selection.project)
     if not recipients:
         return 0
-    detail_url = request.build_absolute_uri(
-        reverse(
-            'projects:selection_detail',
-            args=(selection.project_id, selection.pk),
-        )
+    detail_path = reverse(
+        'projects:selection_detail',
+        args=(selection.project_id, selection.pk),
     )
-    return send_notification_email(
-        subject=(
+    return deliver_project_notification(
+        request=request,
+        project=selection.project,
+        event_type=NotificationPreference.Event.SELECTIONS,
+        title=(
             f'Selection withdrawn - {selection.project.name}: '
             f'{selection.display_number}'
         ),
         message=(
             f'{selection.display_number} - {selection.title} has been withdrawn '
-            f'and no selection is required.\n\nView: {detail_url}'
+            'and no selection is required.'
         ),
+        url_path=detail_path,
         recipient_list=recipients,
     )
 
@@ -648,14 +728,19 @@ def send_selection_custom_request_notification(request, custom_request):
     )
     if not recipients:
         return 0
-    detail_url = selection_detail_url(selection, request)
+    detail_path = reverse(
+        'projects:selection_detail', args=(selection.project_id, selection.pk)
+    )
     target_price_copy = (
         f'Target price: ${custom_request.target_price:,.2f}\n'
         if custom_request.target_price is not None
         else ''
     )
-    return send_notification_email(
-        subject=(
+    return deliver_project_notification(
+        request=request,
+        project=selection.project,
+        event_type=NotificationPreference.Event.SELECTIONS,
+        title=(
             f'Custom option requested - {selection.project.name}: '
             f'{selection.display_number}'
         ),
@@ -663,8 +748,9 @@ def send_selection_custom_request_notification(request, custom_request):
             f'{custom_request.requested_by.email} requested a custom option for '
             f'{selection.display_number} - {selection.title}.\n\n'
             f'{custom_request.description}\n\n'
-            f'{target_price_copy}\nReview and respond: {detail_url}'
+            f'{target_price_copy}'
         ),
+        url_path=detail_path,
         recipient_list=recipients,
     )
 
@@ -673,17 +759,23 @@ def send_selection_overdue_reminder(selection, request=None):
     recipients = document_client_recipients(selection.project)
     if not recipients:
         return 0
-    detail_url = selection_detail_url(selection, request)
-    return send_notification_email(
-        subject=(
+    detail_path = reverse(
+        'projects:selection_detail', args=(selection.project_id, selection.pk)
+    )
+    return deliver_project_notification(
+        request=request,
+        project=selection.project,
+        event_type=NotificationPreference.Event.SELECTIONS,
+        title=(
             f'Reminder: finish selection overdue - {selection.project.name}: '
             f'{selection.display_number}'
         ),
         message=(
             f'{selection.display_number} - {selection.title} was due on '
             f'{selection.due_date:%B %d, %Y} and still needs your selection for '
-            f'{selection.project.name}.\n\nReview options and choose: {detail_url}'
+            f'{selection.project.name}.'
         ),
+        url_path=detail_path,
         recipient_list=recipients,
     )
 
@@ -692,15 +784,13 @@ def send_schedule_milestone_notification(request, milestone, *, withdrawn=False)
     recipients = document_client_recipients(milestone.project)
     if not recipients:
         return 0
-    schedule_url = request.build_absolute_uri(
-        reverse('projects:schedule', args=(milestone.project_id,))
-    )
+    schedule_path = reverse('projects:schedule', args=(milestone.project_id,))
     if withdrawn:
         subject = f'Schedule updated - {milestone.project.name}'
         body = (
             f'The previously shared milestone "{milestone.title}" is no longer '
             'shown on the client schedule.\n\n'
-            f'View the current schedule: {schedule_url}'
+            'Open the current schedule for details.'
         )
     else:
         date_copy = f'Starts: {milestone.start_date:%B %d, %Y}'
@@ -711,11 +801,15 @@ def send_schedule_milestone_notification(request, milestone, *, withdrawn=False)
             f'{milestone.title} was added or updated on the client schedule for '
             f'{milestone.project.name}.\n\n'
             f'{date_copy}\nStatus: {milestone.get_status_display()}\n\n'
-            f'View the schedule: {schedule_url}'
+            'Open the schedule for details.'
         )
-    return send_notification_email(
-        subject=subject,
+    return deliver_project_notification(
+        request=request,
+        project=milestone.project,
+        event_type=NotificationPreference.Event.SCHEDULE,
+        title=subject,
         message=body,
+        url_path=schedule_path,
         recipient_list=recipients,
     )
 
@@ -730,6 +824,18 @@ def accept_project_invitation(invitation, user):
         raise ValidationError('This invitation is no longer valid.')
     if invitation.email.casefold() != user.email.casefold():
         raise PermissionDenied('This invitation was sent to another email address.')
+
+    if invitation.role == OrganizationMembership.Role.CLIENT:
+        existing_client = ProjectMembership.objects.select_for_update().filter(
+            project=invitation.project,
+            role=OrganizationMembership.Role.CLIENT,
+            is_active=True,
+        ).exclude(user=user)
+        if existing_client.exists():
+            raise ValidationError(
+                'This project already has a designated client account holder. '
+                'Ask the project administrator to replace that access first.'
+            )
 
     organization = invitation.project.organization
     membership, created = OrganizationMembership.objects.get_or_create(
