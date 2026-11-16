@@ -7,6 +7,7 @@ def grant_internal_access(
     can_manage=True,
     can_invite_clients=True,
     receives_notifications=True,
+    is_project_manager=False,
 ):
     membership = user.organization_memberships.get(
         organization=projects[0].organization
@@ -18,4 +19,5 @@ def grant_internal_access(
             can_manage=can_manage,
             can_invite_clients=can_invite_clients,
             receives_notifications=receives_notifications,
+            is_project_manager=is_project_manager,
         )

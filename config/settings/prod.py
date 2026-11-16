@@ -3,6 +3,7 @@ import os
 from sentry_sdk.integrations.excepthook import ExcepthookIntegration
 
 from config.monitoring import configure_sentry, get_traces_sample_rate
+from config.storage import r2_storage_config
 
 os.environ['APP_ENVIRONMENT'] = 'production'
 
@@ -11,6 +12,8 @@ from .base import *  # noqa: E402,F403
 DEBUG = False
 
 ALLOWED_HOSTS = [host.strip() for host in os.environ['ALLOWED_HOSTS'].split(',') if host.strip()]
+if os.environ.get('RENDER_EXTERNAL_HOSTNAME'):
+    ALLOWED_HOSTS.append(os.environ['RENDER_EXTERNAL_HOSTNAME'])
 
 # Whitenoise — insert after SecurityMiddleware
 MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')  # noqa: F405
@@ -23,6 +26,8 @@ STORAGES = {
         'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
 }
+if PRIVATE_STORAGE_BACKEND == 'r2':  # noqa: F405
+    STORAGES['private_documents'] = r2_storage_config(os.environ)
 
 # Persistent DB connections
 CONN_MAX_AGE = 60

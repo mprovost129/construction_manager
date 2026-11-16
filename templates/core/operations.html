@@ -1,0 +1,98 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Operations | {{ app_name }}{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/operations.css' %}">{% endblock %}
+{% block header %}
+<header class="app-header">
+    <nav class="app-nav ops-navigation" aria-label="Operations navigation">
+        <a class="app-brand" href="{% url 'core:home' %}"><span class="app-brand__mark" aria-hidden="true"><i class="bi bi-buildings"></i></span><span>{{ app_name }}</span></a>
+        <div class="ops-switch" aria-label="Application view">
+            <a href="{% url 'core:home' %}">Open app</a>
+            <a href="{% url 'core:operations' %}" aria-current="page">Operations</a>
+        </div>
+    </nav>
+</header>
+{% endblock %}
+{% block content %}
+<section class="page-heading">
+    <div><p class="eyebrow">Developer workspace</p><h1>Operations</h1><p class="text-secondary mb-0">Health, recent signals, and service setup for {{ app_name }}.</p></div>
+    <a class="btn btn-outline-primary" href="{% url 'core:operations' %}"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Refresh checks</a>
+</section>
+<div class="ops-context">
+    <span>Environment: <strong>{{ environment }}</strong></span>
+    <span>Release: <code>{{ release }}</code></span>
+    <span>Checked <time datetime="{{ checked_at|date:'c' }}">{{ checked_at|date:'M j, Y, g:i:s A T' }}</time></span>
+</div>
+<p class="ops-note">You are using your own account in both views. Opening the app does not impersonate a client or change your permissions. This page is a snapshot, not an external uptime monitor.</p>
+
+<section class="ops-grid" aria-label="Service status">
+    <article class="ops-card">
+        <div class="ops-card-heading"><h2>Database</h2><span class="ops-status {% if database_ok %}ops-status--ok{% else %}ops-status--error{% endif %}">{% if database_ok %}Reachable{% else %}Unavailable{% endif %}</span></div>
+        {% if database_ok %}<p class="ops-value">{{ database_latency }} <small>ms</small></p><p>Time for a database query from this application instance.</p>{% else %}<p>The database check failed. Open Render to investigate. No connection details are exposed here.</p>{% endif %}
+    </article>
+    <article class="ops-card">
+        <div class="ops-card-heading"><h2>Error monitoring</h2><span class="ops-status {% if sentry_active %}ops-status--ok{% else %}ops-status--pending{% endif %}">{% if sentry_active %}Client active{% else %}Not verified{% endif %}</span></div>
+        <p>{% if sentry_active %}The Sentry client has the application's privacy safeguards. Event delivery must still be verified in Sentry.{% else %}No verified application Sentry client is active in this process. Check configuration before relying on error alerts.{% endif %}</p>
+    </article>
+    <article class="ops-card">
+        <div class="ops-card-heading"><h2>Notification email</h2><span class="ops-status ops-status--pending">{% if email_external %}Delivery unverified{% else %}Test backend{% endif %}</span></div>
+        <p>{% if email_external %}An external email backend is selected. Acceptance by that backend is not confirmation of inbox delivery.{% else %}Email is using a development or test backend. This does not confirm delivery to users.{% endif %}</p>
+        <p>Resend bounce and delivery events are not connected yet.</p>
+    </article>
+    <article class="ops-card">
+        <div class="ops-card-heading"><h2>Document storage</h2><span class="ops-status ops-status--pending">{% if r2_selected %}R2 verification pending{% else %}R2 setup pending{% endif %}</span></div>
+        <p>{% if r2_selected %}Cloudflare R2 is selected for private uploads. This page has not verified connectivity, file recovery, or backups.{% else %}The current document backend uses the server filesystem. Persistence and backups have not been verified by this page. Cloudflare R2 is the planned destination.{% endif %}</p>
+    </article>
+    <article class="ops-card">
+        <div class="ops-card-heading"><h2>Backups &amp; recovery</h2><span class="ops-status ops-status--pending">Unknown</span></div>
+        <p>No backup or restore-test evidence is connected. Database backups and uploaded-file backups must be verified separately.</p>
+    </article>
+    <article class="ops-card">
+        <div class="ops-card-heading"><h2>External monitoring</h2><span class="ops-status ops-status--pending">Not connected</span></div>
+        <p>Configure Better Stack to check <code>{% url 'core:health' %}</code> and alert you independently. This endpoint tests the app and database, not every user workflow.</p>
+    </article>
+    <article class="ops-card">
+        <div class="ops-card-heading"><h2>Public document verification</h2><span class="ops-status ops-status--pending">{% if turnstile_configured %}Keys present{% else %}Setup pending{% endif %}</span></div>
+        <p>{% if turnstile_configured %}Turnstile keys are supplied. Complete a real verification test before sharing QR document links.{% else %}Cloudflare Turnstile keys are required before production QR document access is available.{% endif %}</p>
+    </article>
+    <article class="ops-card">
+        <div class="ops-card-heading"><h2>Imports &amp; background jobs</h2><span class="ops-status ops-status--pending">Not instrumented</span></div>
+        <p>No job heartbeat or import reconciliation feed is connected. Buildertrend record counts and missing-file checks will be added with the importer.</p>
+    </article>
+</section>
+
+<section class="ops-section" aria-labelledby="signals-heading">
+    <div class="section-heading"><div><p class="eyebrow">Last 24 hours</p><h2 id="signals-heading">Recorded signals</h2></div></div>
+    {% if metrics != None %}
+    <div class="ops-metrics">
+        <article><strong>{{ metrics.request_failures }}</strong><span>Server failures</span></article>
+        <article><strong>{{ metrics.email_failures }}</strong><span>Notification send failures</span></article>
+        <article><strong>{{ metrics.email_accepted }}</strong><span>Backend-accepted sends</span></article>
+        <article><strong>{{ metrics.email_test }}</strong><span>Test-backend sends</span></article>
+    </div>
+    <p class="ops-note">Counts start with this monitoring release. Email counts cover the project/team notification helper, not password resets or provider delivery events. Missing telemetry and outages can leave gaps; zero does not prove no failures occurred.</p>
+    <p class="text-secondary">Workspace totals: {{ metrics.projects }} projects · {{ metrics.active_users }} active accounts · {{ metrics.document_versions }} document versions. File count does not verify that stored files are recoverable.</p>
+    {% else %}<div class="alert alert-warning" role="status">Operational records are unavailable. Check database access and apply migrations. Counts are unknown.</div>{% endif %}
+</section>
+
+<div class="ops-grid ops-grid--two">
+    <section class="ops-card" aria-labelledby="events-heading">
+        <h2 id="events-heading">Recent operational events</h2>
+        <ul class="ops-events">
+            {% for event in events %}<li><span>{{ event.get_kind_display }}</span><time datetime="{{ event.created_at|date:'c' }}">{{ event.created_at|date:'M j, g:i A T' }}</time></li>{% empty %}<li>{% if metrics != None %}No events recorded yet.{% else %}Event history unavailable.{% endif %}</li>{% endfor %}
+        </ul>
+    </section>
+    <section class="ops-card" aria-labelledby="audit-heading">
+        <h2 id="audit-heading">Recent application activity</h2>
+        <p>Event types only. Client text, names, and document contents are omitted.</p>
+        <ul class="ops-events">
+            {% for event in activity %}<li><span>{{ event.get_event_type_display }}</span><time datetime="{{ event.created_at|date:'c' }}">{{ event.created_at|date:'M j, g:i A T' }}</time></li>{% empty %}<li>{% if metrics != None %}No activity recorded yet.{% else %}Activity unavailable.{% endif %}</li>{% endfor %}
+        </ul>
+    </section>
+</div>
+<section class="ops-section" aria-labelledby="providers-heading">
+    <h2 id="providers-heading">Service dashboards</h2>
+    <p class="text-secondary">Open the provider for detailed logs, billing, backups, and configuration. Links do not indicate that a service is connected.</p>
+    <div class="ops-provider-links">{% for provider in providers %}<a class="btn btn-outline-primary" href="{{ provider.url }}" target="_blank" rel="noopener noreferrer">{{ provider.name }} <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i><span class="visually-hidden"> (opens in a new tab)</span></a>{% endfor %}</div>
+</section>
+{% endblock %}

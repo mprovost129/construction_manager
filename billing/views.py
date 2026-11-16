@@ -1,5 +1,6 @@
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
@@ -280,15 +281,16 @@ class InvoiceDetailView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         can_manage = can_manage_project(self.request.user, self.project)
         question_subject = f'Question about {self.invoice.display_number}'
+        quickbooks_enabled = settings.QUICKBOOKS_INTEGRATION_ENABLED
         quickbooks_mapping = (
             getattr(self.invoice, 'quickbooks_mapping', None) if can_manage else None
-        )
+        ) if quickbooks_enabled else None
         quickbooks_connections = (
             QuickBooksConnection.objects.filter(
                 organization=self.project.organization,
                 status=QuickBooksConnection.Status.CONNECTED,
             )
-            if can_manage
+            if can_manage and quickbooks_enabled
             else QuickBooksConnection.objects.none()
         )
         quickbooks_connection = quickbooks_connections.first()

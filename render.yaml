@@ -1,0 +1,117 @@
+# Initial Heritage production deployment. Secrets are entered in Render only.
+services:
+  - type: web
+    name: heritage360
+    runtime: docker
+    repo: https://github.com/mprovost129/construction_manager
+    branch: feature/heritage-mvp-launch
+    region: ohio
+    plan: 0.5c-512mb
+    autoDeployTrigger: "off"
+    healthCheckPath: /health/
+    domains:
+      - www.heritage360cm.com
+      - heritage360cm.com
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - key: APP_ENVIRONMENT
+        value: production
+      - key: APP_NAME
+        value: Heritage 360
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_HOSTS
+        value: www.heritage360cm.com,heritage360cm.com
+      - key: CSRF_TRUSTED_ORIGINS
+        value: https://www.heritage360cm.com,https://heritage360cm.com
+      - key: SITE_BASE_URL
+        value: https://www.heritage360cm.com
+      - key: TRUST_PROXY_SSL_HEADER
+        value: "true"
+      - key: DB_NAME
+        fromDatabase:
+          name: heritage360-db
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: heritage360-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: heritage360-db
+          property: password
+      - key: DB_HOST
+        fromDatabase:
+          name: heritage360-db
+          property: host
+      - key: DB_PORT
+        value: "5432"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: heritage360-cache
+          property: connectionString
+      - key: PRIVATE_STORAGE_BACKEND
+        value: r2
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: EMAIL_BACKEND
+        value: core.mail_backend.EmailBackend
+      - key: EMAIL_HOST
+        value: smtp.resend.com
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_USE_TLS
+        value: "true"
+      - key: EMAIL_HOST_USER
+        value: resend
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        value: Heritage 360 <notifications@heritage360cm.com>
+      - key: DEFAULT_REPLY_TO_EMAIL
+        value: slaterwoodsdesign@gmail.com
+      - key: SUPPORT_EMAIL
+        value: slaterwoodsdesign@gmail.com
+      - key: LEGAL_CONTACT_EMAIL
+        value: slaterwoodsdesign@gmail.com
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "0"
+      - key: STRIPE_ENFORCE_SUBSCRIPTIONS
+        value: "false"
+      - key: OPERATIONS_RENDER_URL
+        value: https://dashboard.render.com/
+      - key: OPERATIONS_CLOUDFLARE_URL
+        value: https://dash.cloudflare.com/
+      - key: OPERATIONS_RESEND_URL
+        value: https://resend.com/emails
+      - key: OPERATIONS_SENTRY_URL
+        value: https://slater-woods-design-co-vh.sentry.io/issues/
+      - key: OPERATIONS_UPTIME_URL
+        value: https://incidents.betterstack.com/team/t636247/monitors
+      - key: OPERATIONS_GITHUB_URL
+        value: https://github.com/mprovost129/construction_manager
+  - type: keyvalue
+    name: heritage360-cache
+    region: ohio
+    plan: free
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru
+
+databases:
+  - name: heritage360-db
+    databaseName: heritage360
+    user: heritage360
+    region: ohio
+    plan: 0.1c-256mb
+    diskSizeGB: 1
+    ipAllowList: []

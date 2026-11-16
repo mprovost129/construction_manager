@@ -7,6 +7,7 @@
     <section class="auth-card auth-card--wide">
         <p class="eyebrow">{{ invitation.project.organization.name }}</p>
         <h1>Join {{ invitation.project.name }}</h1>
+        <p class="text-secondary">Access: {{ invitation.get_client_access_type_display }}</p>
         {% if authenticated_match %}
         <p>You are logged in as <strong>{{ user.email }}</strong>. Confirm to add this project to your account.</p>
         <form method="post">

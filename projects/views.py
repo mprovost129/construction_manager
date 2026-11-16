@@ -28,6 +28,7 @@ from reportlab.pdfgen import canvas
 from billing.access import can_use_invoices
 
 from .access import (
+    can_approve_for_project,
     can_invite_clients,
     can_manage_daily_logs,
     can_manage_organization,
@@ -150,6 +151,7 @@ from .services import (
     send_estimate_review_notification,
     send_estimate_voided_notification,
     send_message_notifications,
+    send_project_assignment_notification,
     send_project_invitation,
     send_selection_chosen_notification,
     send_selection_custom_request_notification,
@@ -202,7 +204,7 @@ def documents_project_or_404(user, pk):
 
 def visible_document_or_404(user, project, document_pk):
     queryset = ProjectDocument.objects.filter(project=project)
-    if is_project_client(user, project):
+    if can_approve_for_project(user, project):
         queryset = queryset.filter(client_visible=True)
     return get_object_or_404(queryset, pk=document_pk)
 
@@ -219,7 +221,7 @@ def change_orders_project_or_404(user, pk):
 
 def visible_change_order_or_404(user, project, change_order_pk):
     queryset = ChangeOrder.objects.filter(project=project)
-    if is_project_client(user, project):
+    if can_approve_for_project(user, project):
         queryset = queryset.exclude(status=ChangeOrder.Status.DRAFT)
     return get_object_or_404(queryset, pk=change_order_pk)
 
@@ -236,7 +238,7 @@ def estimates_project_or_404(user, pk):
 
 def visible_estimate_or_404(user, project, estimate_pk):
     queryset = Estimate.objects.filter(project=project)
-    if is_project_client(user, project):
+    if can_approve_for_project(user, project):
         queryset = queryset.exclude(status=Estimate.Status.DRAFT)
     return get_object_or_404(queryset, pk=estimate_pk)
 
@@ -246,7 +248,9 @@ def financials_project_or_404(user, pk):
         projects_for_user(user).select_related('organization'),
         pk=pk,
     )
-    if not can_use_estimates(user, project):
+    if not can_use_estimates(user, project) or (
+        can_approve_for_project(user, project) and not is_project_client(user, project)
+    ):
         raise PermissionDenied('You cannot access project financials.')
     return project
 
@@ -748,7 +752,7 @@ class ProjectDocumentListView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        viewer_is_client = is_project_client(self.request.user, self.project)
+        viewer_is_client = can_approve_for_project(self.request.user, self.project)
         can_manage = can_manage_project(self.request.user, self.project)
         document_search = self.request.GET.get('q', '').strip()[:100]
         requested_category = self.request.GET.get('category', '').strip()
@@ -832,7 +836,10 @@ class ProjectDocumentListView(LoginRequiredMixin, TemplateView):
                 ),
                 'document_querystring': urlencode(query_params),
                 'can_manage_project': can_manage,
-                'can_upload_files': viewer_is_client,
+                'can_upload_files': is_project_client(
+                    self.request.user,
+                    self.project,
+                ),
             }
         )
         return context
@@ -973,7 +980,7 @@ class ProjectDocumentDetailView(LoginRequiredMixin, TemplateView):
             'signature_requests__events__actor',
         ).select_related('uploaded_by')
         current_version = versions.first()
-        viewer_is_client = is_project_client(self.request.user, self.project)
+        viewer_is_client = can_approve_for_project(self.request.user, self.project)
         viewer_decision = None
         viewer_signature_request = None
         if current_version:
@@ -1367,7 +1374,7 @@ class ProjectDocumentSignatureReviewView(LoginRequiredMixin, FormView):
             version__document_id=kwargs['document_pk'],
             version__document__project=self.project,
         )
-        if request.user != self.signature_request.signer or not is_project_client(
+        if request.user != self.signature_request.signer or not can_approve_for_project(
             request.user, self.project
         ):
             raise PermissionDenied(
@@ -1831,7 +1838,7 @@ class ChangeOrderDetailView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        viewer_is_client = is_project_client(self.request.user, self.project)
+        viewer_is_client = can_approve_for_project(self.request.user, self.project)
         can_manage = can_manage_project(self.request.user, self.project)
         decisions = list(
             self.change_order.decisions.select_related('decided_by')
@@ -1957,7 +1964,7 @@ class ChangeOrderDecisionView(LoginRequiredMixin, View):
 
     def post(self, request, pk, change_order_pk):
         project = change_orders_project_or_404(request.user, pk)
-        if not is_project_client(request.user, project):
+        if not can_approve_for_project(request.user, project):
             raise PermissionDenied('Only assigned clients can record a decision.')
         form = ChangeOrderDecisionForm(request.POST)
         if not form.is_valid():
@@ -2638,7 +2645,7 @@ class EstimateDetailView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        viewer_is_client = is_project_client(self.request.user, self.project)
+        viewer_is_client = can_approve_for_project(self.request.user, self.project)
         can_manage = can_manage_project(self.request.user, self.project)
         decisions = list(self.estimate.decisions.select_related('decided_by'))
         progress = evaluate_approval_progress(
@@ -2727,7 +2734,7 @@ class EstimateDecisionView(LoginRequiredMixin, View):
 
     def post(self, request, pk, estimate_pk):
         project = estimates_project_or_404(request.user, pk)
-        if not is_project_client(request.user, project):
+        if not can_approve_for_project(request.user, project):
             raise PermissionDenied('Only assigned clients can record a decision.')
         form = EstimateDecisionForm(request.POST)
         if not form.is_valid():
@@ -4731,10 +4738,12 @@ class ProjectPeopleView(LoginRequiredMixin, TemplateView):
                 ),
                 'has_designated_client': self.project.project_memberships.filter(
                     role=OrganizationMembership.Role.CLIENT,
+                    client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
                     is_active=True,
                 ).exists()
                 or self.project.invitations.filter(
                     role=OrganizationMembership.Role.CLIENT,
+                    client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
                     accepted_at__isnull=True,
                     revoked_at__isnull=True,
                     expires_at__gt=timezone.now(),
@@ -4757,10 +4766,22 @@ class ProjectInternalAccessUpdateView(LoginRequiredMixin, View):
             messages.error(request, 'Choose a valid internal user and permissions.')
             return redirect('projects:people', pk=project.pk)
         membership = form.cleaned_data['membership']
+        existing_access = ProjectInternalAccess.objects.filter(
+            project=project,
+            membership=membership,
+        ).first()
+        was_project_manager = bool(
+            existing_access
+            and existing_access.is_active
+            and existing_access.is_project_manager
+        )
         defaults = {
+            'is_project_manager': form.cleaned_data['is_project_manager'],
             'can_manage': form.cleaned_data['can_manage'],
             'can_invite_clients': form.cleaned_data['can_invite_clients'],
-            'receives_notifications': form.cleaned_data['receives_notifications'],
+            'receives_notifications': (
+                existing_access.receives_notifications if existing_access else True
+            ),
             'is_active': True,
             'assigned_by': request.user,
         }
@@ -4787,11 +4808,15 @@ class ProjectInternalAccessUpdateView(LoginRequiredMixin, View):
                 ),
                 metadata={
                     'membership_id': membership.pk,
+                    'is_project_manager': access.is_project_manager,
                     'can_manage': access.can_manage,
                     'can_invite_clients': access.can_invite_clients,
                     'receives_notifications': access.receives_notifications,
                 },
             )
+        if access.is_project_manager and not was_project_manager:
+            delivery_result = send_project_assignment_notification(request, access)
+            warn_if_notification_failed(request, delivery_result)
         messages.success(request, f'Project access updated for {membership.user.email}.')
         return redirect('projects:people', pk=project.pk)
 
@@ -4850,6 +4875,12 @@ class ClientInviteView(LoginRequiredMixin, FormView):
         context['project'] = self.project
         return context
 
+    def get_initial(self):
+        initial = super().get_initial()
+        if self.request.GET.get('access') == ProjectMembership.ClientAccessType.SIGNER:
+            initial['client_access_type'] = ProjectMembership.ClientAccessType.SIGNER
+        return initial
+
     def form_valid(self, form):
         with transaction.atomic():
             if form.expired_invitation:
@@ -4889,10 +4920,15 @@ class ProjectInvitationResendView(LoginRequiredMixin, View):
         if old_invitation.accepted_at:
             messages.error(request, 'Accepted invitations cannot be resent.')
             return redirect('projects:people', pk=project.pk)
-        if project.project_memberships.filter(
+        if (
+            old_invitation.client_access_type
+            == ProjectMembership.ClientAccessType.PRIMARY
+            and project.project_memberships.filter(
             role=OrganizationMembership.Role.CLIENT,
+            client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
             is_active=True,
-        ).exists():
+            ).exists()
+        ):
             messages.error(
                 request,
                 'This project already has a designated client account holder.',
@@ -4905,6 +4941,7 @@ class ProjectInvitationResendView(LoginRequiredMixin, View):
                 project=project,
                 email=old_invitation.email,
                 role=old_invitation.role,
+                client_access_type=old_invitation.client_access_type,
                 invited_by=request.user,
             )
             record_activity(
@@ -4974,9 +5011,12 @@ class ProjectMemberAccessView(LoginRequiredMixin, View):
             if (
                 active
                 and membership.role == OrganizationMembership.Role.CLIENT
+                and membership.client_access_type
+                == ProjectMembership.ClientAccessType.PRIMARY
                 and ProjectMembership.objects.select_for_update().filter(
                     project=project,
                     role=OrganizationMembership.Role.CLIENT,
+                    client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
                     is_active=True,
                 ).exclude(pk=membership.pk).exists()
             ):

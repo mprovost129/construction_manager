@@ -13,10 +13,13 @@
             {% if has_internal_access %}
                 <a class="app-nav__link" href="{% url 'projects:company_list' %}">Company</a>
             {% endif %}
-            {% if can_manage_integrations %}
+            {% if can_manage_integrations and quickbooks_integration_enabled %}
                 <a class="app-nav__link" href="{% url 'integrations:quickbooks_connect' %}">QuickBooks</a>
             {% endif %}
             <a class="app-nav__link" href="{% url 'core:help' %}">Help</a>
+            {% if can_view_operations %}
+                <a class="app-nav__link" href="{% url 'core:operations' %}"><i class="bi bi-activity" aria-hidden="true"></i> Operations</a>
+            {% endif %}
             {% if user.is_authenticated %}
                 <a class="app-nav__link" href="{% url 'projects:notification_list' %}" aria-label="Notifications{% if unread_notification_count %}, {{ unread_notification_count }} unread{% endif %}"><i class="bi bi-bell"></i>{% if unread_notification_count %} <span class="notification-count">{{ unread_notification_count }}</span>{% endif %}</a>
                 <span class="app-nav__identity">{{ user.email }}</span>

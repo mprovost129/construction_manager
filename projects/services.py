@@ -9,6 +9,9 @@ from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
 
+from core.models import OperationalEvent
+from core.operations import record_operational_event
+
 from .models import (
     ActivityEvent,
     DocumentSignatureEvent,
@@ -106,11 +109,23 @@ def send_notification_email(*, subject, message, recipient_list):
             recipient_list=recipient_list,
         )
     except Exception:
+        record_operational_event(OperationalEvent.Kind.EMAIL_FAILED)
         logger.exception('Notification email delivery failed.')
         return None
     if not sent_count:
+        record_operational_event(OperationalEvent.Kind.EMAIL_FAILED)
         logger.error('Notification email backend reported no delivered messages.')
         return None
+    test_backend = settings.EMAIL_BACKEND in {
+        'django.core.mail.backends.console.EmailBackend',
+        'django.core.mail.backends.locmem.EmailBackend',
+        'django.core.mail.backends.filebased.EmailBackend',
+        'django.core.mail.backends.dummy.EmailBackend',
+    }
+    record_operational_event(
+        OperationalEvent.Kind.EMAIL_TEST if test_backend
+        else OperationalEvent.Kind.EMAIL_ACCEPTED
+    )
     return sent_count
 
 
@@ -216,16 +231,27 @@ def send_team_invitation(request, invitation):
 def message_notification_recipients(project, author):
     client_user_ids = project.project_memberships.filter(
         role=OrganizationMembership.Role.CLIENT,
+        client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
         is_active=True,
         user__is_active=True,
     ).values_list('user_id', flat=True)
     author_is_client = project.project_memberships.filter(
         role=OrganizationMembership.Role.CLIENT,
+        client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
         is_active=True,
         user=author,
     ).exists()
     if author_is_client:
-        emails = document_internal_recipients(project, exclude_user=author)
+        emails = assigned_project_manager_recipients(
+            project,
+            exclude_user=author,
+        )
+        if not emails:
+            emails = project.organization.memberships.filter(
+                role=OrganizationMembership.Role.ADMIN,
+                is_active=True,
+                user__is_active=True,
+            ).exclude(user=author).values_list('user__email', flat=True)
     else:
         emails = get_user_model().objects.filter(
             pk__in=client_user_ids,
@@ -262,6 +288,21 @@ def document_client_recipients(project):
     emails = get_user_model().objects.filter(
         project_memberships__project=project,
         project_memberships__role=OrganizationMembership.Role.CLIENT,
+        project_memberships__client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
+        project_memberships__is_active=True,
+        is_active=True,
+    ).values_list('email', flat=True)
+    return sorted(set(emails))
+
+
+def project_approval_recipients(project):
+    emails = get_user_model().objects.filter(
+        project_memberships__project=project,
+        project_memberships__role=OrganizationMembership.Role.CLIENT,
+        project_memberships__client_access_type__in=(
+            ProjectMembership.ClientAccessType.PRIMARY,
+            ProjectMembership.ClientAccessType.SIGNER,
+        ),
         project_memberships__is_active=True,
         is_active=True,
     ).values_list('email', flat=True)
@@ -302,7 +343,6 @@ def document_internal_recipients(project, *, exclude_user=None):
     assigned_memberships = project.organization.memberships.filter(
         project_access__project=project,
         project_access__is_active=True,
-        project_access__receives_notifications=True,
         is_active=True,
         user__is_active=True,
     ).exclude(role=OrganizationMembership.Role.ACCOUNTANT)
@@ -312,6 +352,36 @@ def document_internal_recipients(project, *, exclude_user=None):
     return sorted(
         set(admin_memberships.values_list('user__email', flat=True))
         | set(assigned_memberships.values_list('user__email', flat=True))
+    )
+
+
+def assigned_project_manager_recipients(project, *, exclude_user=None):
+    memberships = project.organization.memberships.filter(
+        project_access__project=project,
+        project_access__is_active=True,
+        project_access__is_project_manager=True,
+        is_active=True,
+        user__is_active=True,
+    )
+    if exclude_user:
+        memberships = memberships.exclude(user=exclude_user)
+    return sorted(set(memberships.values_list('user__email', flat=True)))
+
+
+def send_project_assignment_notification(request, access):
+    project_path = reverse('projects:detail', args=(access.project_id,))
+    return deliver_project_notification(
+        request=request,
+        project=access.project,
+        event_type=NotificationPreference.Event.PROJECT_ASSIGNMENTS,
+        title=f'Project assignment - {access.project.name}',
+        message=(
+            f'You were assigned as a project manager for {access.project.name}. '
+            'Client messages for this project will be routed to the assigned '
+            'project managers.'
+        ),
+        url_path=project_path,
+        recipient_list=[access.membership.user.email],
     )
 
 
@@ -458,7 +528,7 @@ def send_document_signature_result_notification(request, signature_request):
 
 
 def send_change_order_review_notification(request, change_order):
-    recipients = document_client_recipients(change_order.project)
+    recipients = project_approval_recipients(change_order.project)
     if not recipients:
         return 0
     detail_path = reverse(
@@ -514,7 +584,7 @@ def send_change_order_decision_notification(request, change_order):
 
 
 def send_change_order_voided_notification(request, change_order):
-    recipients = document_client_recipients(change_order.project)
+    recipients = project_approval_recipients(change_order.project)
     if not recipients:
         return 0
     detail_path = reverse(
@@ -539,26 +609,27 @@ def send_change_order_voided_notification(request, change_order):
 
 
 def send_estimate_review_notification(request, estimate):
-    recipients = document_client_recipients(estimate.project)
+    recipients = project_approval_recipients(estimate.project)
     if not recipients:
         return 0
-    detail_url = request.build_absolute_uri(
-        reverse(
-            'projects:estimate_detail',
-            args=(estimate.project_id, estimate.pk),
-        )
+    detail_path = reverse(
+        'projects:estimate_detail',
+        args=(estimate.project_id, estimate.pk),
     )
-    return send_notification_email(
-        subject=(
+    return deliver_project_notification(
+        request=request,
+        project=estimate.project,
+        event_type=NotificationPreference.Event.ESTIMATES,
+        title=(
             f'Estimate review requested - {estimate.project.name}: '
             f'{estimate.display_number}'
         ),
         message=(
             f'{estimate.display_number} - {estimate.title} is ready for '
             f'your review for {estimate.project.name}.\n\n'
-            f'Total: ${estimate.price_total:,.2f}\n\n'
-            f'Review and decide: {detail_url}'
+            f'Total: ${estimate.price_total:,.2f}'
         ),
+        url_path=detail_path,
         recipient_list=recipients,
     )
 
@@ -592,7 +663,7 @@ def send_estimate_decision_notification(request, estimate):
 
 
 def send_estimate_voided_notification(request, estimate):
-    recipients = document_client_recipients(estimate.project)
+    recipients = project_approval_recipients(estimate.project)
     if not recipients:
         return 0
     detail_url = request.build_absolute_uri(
@@ -825,10 +896,14 @@ def accept_project_invitation(invitation, user):
     if invitation.email.casefold() != user.email.casefold():
         raise PermissionDenied('This invitation was sent to another email address.')
 
-    if invitation.role == OrganizationMembership.Role.CLIENT:
+    if (
+        invitation.role == OrganizationMembership.Role.CLIENT
+        and invitation.client_access_type == ProjectMembership.ClientAccessType.PRIMARY
+    ):
         existing_client = ProjectMembership.objects.select_for_update().filter(
             project=invitation.project,
             role=OrganizationMembership.Role.CLIENT,
+            client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
             is_active=True,
         ).exclude(user=user)
         if existing_client.exists():
@@ -854,6 +929,7 @@ def accept_project_invitation(invitation, user):
         user=user,
         defaults={
             'role': invitation.role,
+            'client_access_type': invitation.client_access_type,
             'is_active': True,
             'invited_by': invitation.invited_by,
         },
@@ -866,8 +942,14 @@ def accept_project_invitation(invitation, user):
         project=invitation.project,
         actor=user,
         event_type=ActivityEvent.Type.CLIENT_JOINED,
-        summary=f'{user.email} joined the project as a client.',
-        metadata={'email': user.email},
+        summary=(
+            f'{user.email} joined the project as '
+            f'{invitation.get_client_access_type_display().lower()}.'
+        ),
+        metadata={
+            'email': user.email,
+            'client_access_type': invitation.client_access_type,
+        },
     )
     return invitation.project
 

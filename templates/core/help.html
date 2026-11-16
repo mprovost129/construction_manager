@@ -23,7 +23,7 @@
     <a href="#daily-workflow">Daily workflow</a>
     <a href="#client-portal">Client portal</a>
     <a href="#install-mobile">Install on a phone</a>
-    <a href="#quickbooks">QuickBooks</a>
+    {% if quickbooks_integration_enabled %}<a href="#quickbooks">QuickBooks</a>{% endif %}
     <a href="#roles-and-access">Roles and access</a>
 </nav>
 
@@ -38,7 +38,7 @@
         <li><span>2</span><div><h3>Set the tax rate</h3><p>Open <strong>Tax settings</strong> and enter the default rate used when new estimates and invoices are created.</p></div></li>
         <li><span>3</span><div><h3>Create cost codes</h3><p>Open <strong>Cost codes</strong> and add the product, material, labor, subcontractor, and other codes used for project pricing.</p></div></li>
         <li><span>4</span><div><h3>Invite the team</h3><p>Use <strong>Invite team member</strong> to assign each person an internal role. Project access is assigned separately after a project is created.</p></div></li>
-        <li><span>5</span><div><h3>Connect QuickBooks when ready</h3><p>A company administrator can connect the correct QuickBooks company and complete customer and item mappings before invoice synchronization.</p></div></li>
+        {% if quickbooks_integration_enabled %}<li><span>5</span><div><h3>Connect QuickBooks when ready</h3><p>A company administrator can connect the correct QuickBooks company and complete customer and item mappings before invoice synchronization.</p></div></li>{% endif %}
     </ol>
 </section>
 
@@ -136,7 +136,7 @@
     <p class="guide-note"><strong>Security note:</strong> Use a screen lock on the device and log out before sharing it. Project pages and confidential files are not stored for offline use.</p>
 </section>
 
-<section class="guide-section" id="quickbooks">
+{% if quickbooks_integration_enabled %}<section class="guide-section" id="quickbooks">
     <div class="guide-section__heading">
         <p class="eyebrow">Company administrators</p>
         <h2>Connect and synchronize QuickBooks</h2>
@@ -151,7 +151,7 @@
         <li><span>6</span><div><h3>Resolve exceptions</h3><p>Review failed or blocked synchronization attempts on the QuickBooks screen. Confirm mappings and accounting data before retrying.</p></div></li>
     </ol>
     <p class="guide-note"><strong>Current payment workflow:</strong> Clients can view invoices and payment status, but they cannot pay online through this app.</p>
-</section>
+</section>{% endif %}
 
 <section class="guide-section" id="roles-and-access">
     <div class="guide-section__heading">
@@ -182,7 +182,7 @@
         <li><i class="bi bi-check-circle"></i><span>Confirm the client-visible setting before uploading a file.</span></li>
         <li><i class="bi bi-check-circle"></i><span>Submit or publish drafts when they are ready; clients cannot see unfinished drafts.</span></li>
         <li><i class="bi bi-check-circle"></i><span>Use the exact invitation email the client or team member will use to sign in.</span></li>
-        <li><i class="bi bi-check-circle"></i><span>Map every invoice cost code to a QuickBooks item before synchronization.</span></li>
+        {% if quickbooks_integration_enabled %}<li><i class="bi bi-check-circle"></i><span>Map every invoice cost code to a QuickBooks item before synchronization.</span></li>{% endif %}
         <li><i class="bi bi-check-circle"></i><span>Keep files at or below 25 MB and use a supported document or image format.</span></li>
         <li><i class="bi bi-check-circle"></i><span>Review the Action center before each client update so pending decisions and drafts are not missed.</span></li>
     </ul>

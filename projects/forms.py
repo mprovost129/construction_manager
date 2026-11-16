@@ -27,6 +27,7 @@ from .models import (
     ProjectDocument,
     ProjectInternalAccess,
     ProjectInvitation,
+    ProjectMembership,
     ScheduleMilestone,
     SelectionCustomRequest,
     SelectionOption,
@@ -835,15 +836,15 @@ class ProjectInternalAccessForm(forms.ModelForm):
         model = ProjectInternalAccess
         fields = (
             'membership',
+            'is_project_manager',
             'can_manage',
             'can_invite_clients',
-            'receives_notifications',
         )
         labels = {
             'membership': 'Internal user',
+            'is_project_manager': 'Assign as a project manager',
             'can_manage': 'Manage project workflows',
             'can_invite_clients': 'Invite and manage clients',
-            'receives_notifications': 'Receive project email notifications',
         }
 
     def __init__(self, *args, project, **kwargs):
@@ -871,7 +872,7 @@ class ProjectInternalAccessForm(forms.ModelForm):
 class ClientInvitationForm(forms.ModelForm):
     class Meta:
         model = ProjectInvitation
-        fields = ('email',)
+        fields = ('client_access_type', 'email')
         widgets = {
             'email': forms.EmailInput(
                 attrs={'autocomplete': 'email', 'placeholder': 'customer@example.com'}
@@ -883,19 +884,32 @@ class ClientInvitationForm(forms.ModelForm):
         self.project = project
         self.expired_invitation = None
         self.fields['email'].label = 'Customer email'
+        self.fields['client_access_type'].required = False
+
+    def clean_client_access_type(self):
+        return (
+            self.cleaned_data.get('client_access_type')
+            or ProjectMembership.ClientAccessType.PRIMARY
+        )
 
     def clean_email(self):
         email = self.cleaned_data['email'].strip().lower()
-        if self.project.project_memberships.filter(
+        access_type = self.cleaned_data.get(
+            'client_access_type',
+            ProjectMembership.ClientAccessType.PRIMARY,
+        )
+        if access_type == ProjectMembership.ClientAccessType.PRIMARY and self.project.project_memberships.filter(
             role=OrganizationMembership.Role.CLIENT,
+            client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
             is_active=True,
         ).exists():
             raise forms.ValidationError(
                 'This project already has a designated client account holder. '
                 'Revoke that access before inviting a replacement.'
             )
-        if self.project.invitations.filter(
+        if access_type == ProjectMembership.ClientAccessType.PRIMARY and self.project.invitations.filter(
             role=OrganizationMembership.Role.CLIENT,
+            client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
             accepted_at__isnull=True,
             revoked_at__isnull=True,
             expires_at__gt=timezone.now(),

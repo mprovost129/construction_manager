@@ -46,13 +46,13 @@ class PublicHelpPageTests(TestCase):
         response = self.client.get(reverse('core:help'))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Get started with Heritage Construction Management')
+        self.assertContains(response, 'Get started with Heritage 360')
         self.assertContains(response, 'Set up the company workspace')
         self.assertContains(response, 'Use the client portal')
-        self.assertContains(response, 'Connect and synchronize QuickBooks')
+        self.assertNotContains(response, 'Connect and synchronize QuickBooks')
         self.assertContains(response, 'Clients do not have access to the project schedule')
         self.assertContains(
-            response, 'Install Heritage Construction Management on a phone'
+            response, 'Install Heritage 360 on a phone'
         )
         self.assertContains(response, 'Add to Home Screen')
 

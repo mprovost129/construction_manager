@@ -1,8 +1,8 @@
-# Construction Manager First Time User Guide
+# Heritage 360 First Time User Guide
 
 Version 1.0 · September 2026
 
-Construction Manager gives a construction company and its clients one project workspace for approvals, finish selections, documents, messages, estimates, change orders, invoices, and financial status. This guide covers the first setup steps for company users and the normal portal experience for clients.
+Heritage 360 gives Heritage and its clients one project workspace for approvals, finish selections, documents, messages, estimates, change orders, invoices, and financial status. This guide covers the first setup steps for company users and the normal portal experience for clients.
 
 The recommended starting sequence is simple. A company administrator completes company settings and team roles. A project manager creates a project, assigns staff, and invites the client. Staff then prepare and publish the information the client should see. Both sides use the Action center to find work that needs attention.
 
@@ -28,7 +28,7 @@ The recommended starting sequence is simple. A company administrator completes c
 
 ## Signing In
 
-Open Construction Manager and select **Log in**. Use the email address connected to your account. Select **Forgot your password** if you need a reset link.
+Open Heritage 360 and select **Log in**. Use the email address connected to your account. Select **Forgot your password** if you need a reset link.
 
 New team members and clients normally join through an email invitation. The invitation must be opened by the person who owns the invited email address. Invitations expire after seven days. A company user with permission can resend an expired invitation.
 
@@ -153,7 +153,7 @@ If more than one client approval is required, set the required approval count be
 
 ### Replace a document with a new version
 
-Open the document and upload a new version instead of creating a separate document. Construction Manager retains the version history and records client decisions against the version that was reviewed.
+Open the document and upload a new version instead of creating a separate document. Heritage 360 retains the version history and records client decisions against the version that was reviewed.
 
 ### Request an electronic signature
 
@@ -201,7 +201,7 @@ Use Selections for finishes, materials, allowances, and client choices.
 
 ### After the client chooses
 
-Construction Manager compares the selected price with the allowance.
+Heritage 360 compares the selected price with the allowance.
 
 - An overage is flagged for staff and includes a shortcut to prepare a change order.
 - An unused credit is flagged for staff. The company can apply it elsewhere, return it at closing, or retain it as margin according to the project decision.
@@ -265,13 +265,13 @@ QuickBooks is the accounting source of truth. Company administrators control the
 
 ### Map the project and cost codes
 
-Each Construction Manager project maps to a QuickBooks Customer. The integration does not depend on QuickBooks Jobs. Match an existing customer when appropriate or create one through the supported sync action.
+Each Heritage 360 project maps to a QuickBooks Customer. The integration does not depend on QuickBooks Jobs. Match an existing customer when appropriate or create one through the supported sync action.
 
 Each cost code used on an invoice line must map to a QuickBooks Product or Service item. Matching an existing QuickBooks item is the most reliable setup path.
 
 ### Synchronize invoices and payments
 
-Issue the invoice in Construction Manager first. On the invoice detail page, use **Sync to QuickBooks**. The app blocks the sync if a required project customer or cost-code item mapping is missing.
+Issue the invoice in Heritage 360 first. On the invoice detail page, use **Sync to QuickBooks**. The app blocks the sync if a required project customer or cost-code item mapping is missing.
 
 Use **Sync payments from QuickBooks** on the invoice detail page to import and recheck payments and supported QuickBooks credit memos linked to that invoice. Review possible duplicates instead of recording the same payment twice.
 

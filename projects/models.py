@@ -236,6 +236,7 @@ class ProjectInternalAccess(models.Model):
     )
     can_manage = models.BooleanField(default=False)
     can_invite_clients = models.BooleanField(default=False)
+    is_project_manager = models.BooleanField(default=False)
     receives_notifications = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
     assigned_by = models.ForeignKey(
@@ -277,6 +278,10 @@ class ProjectInternalAccess(models.Model):
 
 
 class ProjectMembership(models.Model):
+    class ClientAccessType(models.TextChoices):
+        PRIMARY = 'primary', 'Primary client'
+        SIGNER = 'signer', 'Authorized signer'
+
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
@@ -299,6 +304,11 @@ class ProjectMembership(models.Model):
                 OrganizationMembership.Role.SUBCONTRACTOR.label,
             ),
         ),
+    )
+    client_access_type = models.CharField(
+        max_length=20,
+        choices=ClientAccessType.choices,
+        default=ClientAccessType.PRIMARY,
     )
     is_active = models.BooleanField(default=True)
     invited_by = models.ForeignKey(
@@ -349,6 +359,11 @@ class ProjectInvitation(models.Model):
             ),
         ),
         default=OrganizationMembership.Role.CLIENT,
+    )
+    client_access_type = models.CharField(
+        max_length=20,
+        choices=ProjectMembership.ClientAccessType.choices,
+        default=ProjectMembership.ClientAccessType.PRIMARY,
     )
     invited_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -401,10 +416,12 @@ class NotificationPreference(models.Model):
         MESSAGES = 'messages', 'Messages and comments'
         DAILY_LOGS = 'daily_logs', 'Daily logs and client updates'
         DOCUMENTS = 'documents', 'Documents, plans, and signatures'
+        ESTIMATES = 'estimates', 'Estimates and proposals'
         CHANGE_ORDERS = 'change_orders', 'Change orders'
         SELECTIONS = 'selections', 'Selections'
         SCHEDULE = 'schedule', 'Schedule changes'
         INVOICES = 'invoices', 'Invoices and payments'
+        PROJECT_ASSIGNMENTS = 'project_assignments', 'Project assignments'
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

@@ -34,6 +34,7 @@
     <i class="bi bi-shield-check" aria-hidden="true"></i>
     <span>
         {% if user.is_superuser %}Superuser access
+        {% elif project_membership and project_membership.role == 'client' %}{{ project_membership.get_client_access_type_display }} access
         {% elif project_membership %}{{ project_membership.get_role_display }} portal access
         {% elif internal_access %}{{ organization_membership.get_role_display }} assigned project access
         {% elif organization_membership %}{{ organization_membership.get_role_display }} access

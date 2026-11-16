@@ -4,9 +4,13 @@ from .access import internal_organizations_for_user
 
 
 def application_identity(request):
+    from core.operations import can_view_operations
+
     return {
+        'can_view_operations': can_view_operations(request.user),
         'app_name': settings.APP_NAME,
         'support_email': settings.SUPPORT_EMAIL,
+        'quickbooks_integration_enabled': settings.QUICKBOOKS_INTEGRATION_ENABLED,
     }
 
 

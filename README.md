@@ -1,6 +1,8 @@
-# Construction Manager
+# Heritage 360
 
-Construction Manager is a Django application for residential builders and their clients. It concentrates the project workflows the initial pilot company uses instead of reproducing every Buildertrend module.
+Developer monitoring and infrastructure roadmap: [Operations guide](docs/operations.md).
+
+Heritage 360 is a Django construction-management application for Heritage and its clients. The underlying application remains configurable so the reusable contractor features can support future branded deployments.
 
 ## Current capabilities
 
@@ -18,7 +20,8 @@ Construction Manager is a Django application for residential builders and their 
 - Project financial summaries and internal job costing
 - Internal milestone schedule
 - Installable mobile web app with Home Screen icons and responsive navigation
-- QuickBooks OAuth, customer and item mappings, invoice sync, and payment import
+- Dormant QuickBooks Online integration foundation. Heritage's future QuickBooks
+  Desktop adapter is limited to invoices and credits and is not part of launch
 - Dormant Stripe subscription infrastructure, excluded from the Heritage MVP
 
 See [the Heritage controlled-launch checklist](docs/heritage_launch_checklist.md)
@@ -54,7 +57,7 @@ Open `http://localhost:8000` after the services start.
 
 ## Local setup without Docker
 
-Construction Manager requires Python 3.13 or newer, PostgreSQL, and Redis for the normal development configuration.
+Heritage 360 requires Python 3.13 or newer, PostgreSQL, and Redis for the normal development configuration.
 
 ```bash
 python -m venv .venv

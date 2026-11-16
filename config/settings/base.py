@@ -11,7 +11,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / '.env')
 
 APP_ENVIRONMENT = os.environ.get('APP_ENVIRONMENT', 'development').lower()
-APP_NAME = os.environ.get('APP_NAME', 'Heritage Construction Management')
+APP_NAME = os.environ.get('APP_NAME', 'Heritage 360')
+APP_RELEASE = os.environ.get('RENDER_GIT_COMMIT', '')
+OPERATIONS_DASHBOARD_URLS = {
+    name: os.environ.get(f'OPERATIONS_{key}_URL', '')
+    for name, key in (
+        ('Render', 'RENDER'), ('Cloudflare', 'CLOUDFLARE'),
+        ('Resend', 'RESEND'), ('Sentry', 'SENTRY'),
+        ('Better Stack', 'UPTIME'), ('GitHub', 'GITHUB'),
+    )
+}
 
 
 def env_bool(name, default=False):
@@ -53,6 +62,7 @@ AUTHENTICATION_BACKENDS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'core.operations.OperationalFailureMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -114,6 +124,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 PRIVATE_MEDIA_ROOT = Path(
     os.environ.get('PRIVATE_MEDIA_ROOT', BASE_DIR / 'private_media')
 )
+PRIVATE_STORAGE_BACKEND = os.environ.get('PRIVATE_STORAGE_BACKEND', 'local')
 DOCUMENT_MAX_UPLOAD_SIZE = (
     int(os.environ.get('DOCUMENT_MAX_UPLOAD_SIZE_MB', '25')) * 1024 * 1024
 )
@@ -192,6 +203,8 @@ EMAIL_USE_SSL = env_bool('EMAIL_USE_SSL', False)
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'webmaster@localhost')
+DEFAULT_REPLY_TO_EMAIL = os.environ.get('DEFAULT_REPLY_TO_EMAIL', '')
+EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '15'))
 
 # Base URL used to build absolute links in emails sent outside of a request
 # context (e.g. management commands run by an external scheduler).
@@ -213,7 +226,11 @@ LEGAL_EFFECTIVE_DATE = os.environ.get('LEGAL_EFFECTIVE_DATE', 'July 31, 2026')
 TURNSTILE_SITE_KEY = os.environ.get('TURNSTILE_SITE_KEY', '')
 TURNSTILE_SECRET_KEY = os.environ.get('TURNSTILE_SECRET_KEY', '')
 
-# QuickBooks Online. Sandbox credentials are development-only. Realm/company IDs
+# QuickBooks integration is hidden for the Heritage launch. Heritage uses
+# QuickBooks Desktop, which requires a separate Web Connector/qbXML adapter.
+QUICKBOOKS_INTEGRATION_ENABLED = env_bool('QUICKBOOKS_INTEGRATION_ENABLED', False)
+
+# Dormant QuickBooks Online foundation. Sandbox credentials are development-only. Realm/company IDs
 # are captured per organization during OAuth rather than configured globally.
 QUICKBOOKS_ENVIRONMENT = os.environ.get('QUICKBOOKS_ENVIRONMENT', 'sandbox').lower()
 QUICKBOOKS_CLIENT_ID = os.environ.get('QUICKBOOKS_CLIENT_ID', '')

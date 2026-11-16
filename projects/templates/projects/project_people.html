@@ -10,8 +10,8 @@
 </nav>
 
 <section class="page-heading">
-    <div><p class="eyebrow">Project administration</p><h1>People &amp; access</h1><p class="text-secondary mb-0">Assign internal users and one designated client account holder.</p></div>
-    {% if not has_designated_client %}<a class="btn btn-primary" href="{% url 'projects:invite_client' project.pk %}"><i class="bi bi-person-plus"></i> Invite designated client</a>{% endif %}
+    <div><p class="eyebrow">Project administration</p><h1>People &amp; access</h1><p class="text-secondary mb-0">Assign one primary client, additional authorized signers, and one or more project managers.</p></div>
+    <div class="button-row">{% if not has_designated_client %}<a class="btn btn-primary" href="{% url 'projects:invite_client' project.pk %}"><i class="bi bi-person-plus"></i> Invite primary client</a>{% endif %}<a class="btn btn-outline-secondary" href="{% url 'projects:invite_client' project.pk %}?access=signer"><i class="bi bi-pen"></i> Add authorized signer</a></div>
 </section>
 
 {% if can_manage_project %}
@@ -20,14 +20,13 @@
     {% if internal_access_entries %}
     <div class="table-responsive">
         <table class="admin-table">
-            <thead><tr><th>User</th><th>Role</th><th>Permissions</th><th>Notifications</th><th>Status</th><th class="text-end">Action</th></tr></thead>
+            <thead><tr><th>User</th><th>Role</th><th>Permissions</th><th>Status</th><th class="text-end">Action</th></tr></thead>
             <tbody>
             {% for access in internal_access_entries %}
             <tr>
                 <td>{{ access.membership.user.email }}</td>
                 <td>{{ access.membership.get_role_display }}</td>
-                <td>{% if access.can_manage %}<span class="status-pill status-pill--active">Manage</span>{% endif %} {% if access.can_invite_clients %}<span class="status-pill status-pill--on_hold">Client access</span>{% endif %}{% if not access.can_manage and not access.can_invite_clients %}<span class="text-secondary">View and participate</span>{% endif %}</td>
-                <td>{% if access.receives_notifications %}<i class="bi bi-check-circle-fill text-success" aria-label="Enabled"></i> Enabled{% else %}<span class="text-secondary">Off</span>{% endif %}</td>
+                <td>{% if access.is_project_manager %}<span class="status-pill status-pill--active">Project manager</span>{% endif %} {% if access.can_manage %}<span class="status-pill status-pill--active">Manage</span>{% endif %} {% if access.can_invite_clients %}<span class="status-pill status-pill--on_hold">Client access</span>{% endif %}{% if not access.is_project_manager and not access.can_manage and not access.can_invite_clients %}<span class="text-secondary">View and participate</span>{% endif %}</td>
                 <td><span class="status-pill {% if access.is_active %}status-pill--active{% endif %}">{% if access.is_active %}Active{% else %}Revoked{% endif %}</span></td>
                 <td class="text-end">{% if access.is_active %}<form method="post" action="{% url 'projects:internal_access_revoke' project.pk access.pk %}" class="inline-form">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit">Revoke</button></form>{% endif %}</td>
             </tr>
@@ -48,16 +47,16 @@
 {% endif %}
 
 <section class="admin-panel">
-    <div class="section-heading"><div><p class="eyebrow">Current access</p><h2>Designated client account</h2><p>Only one active client account holder may access each project.</p></div></div>
+    <div class="section-heading"><div><p class="eyebrow">Current access</p><h2>Client and signer accounts</h2><p>Each project has one primary client account and may have additional authorized signers. Every signer uses a separate login so approvals remain attributable.</p></div></div>
     {% if project_memberships %}
     <div class="table-responsive">
         <table class="admin-table">
-            <thead><tr><th>Email</th><th>Role</th><th>Status</th><th class="text-end">Action</th></tr></thead>
+            <thead><tr><th>Email</th><th>Access</th><th>Status</th><th class="text-end">Action</th></tr></thead>
             <tbody>
             {% for membership in project_memberships %}
             <tr>
                 <td>{{ membership.user.email }}</td>
-                <td>{{ membership.get_role_display }}</td>
+                <td>{% if membership.role == 'client' %}{{ membership.get_client_access_type_display }}{% else %}{{ membership.get_role_display }}{% endif %}</td>
                 <td><span class="status-pill {% if membership.is_active %}status-pill--active{% endif %}">{% if membership.is_active %}Active{% else %}Revoked{% endif %}</span></td>
                 <td class="text-end">
                     <form method="post" action="{% url 'projects:project_member_access' project.pk membership.pk membership.is_active|yesno:'revoke,restore' %}" class="inline-form">
@@ -77,11 +76,11 @@
     {% if invitations %}
     <div class="table-responsive">
         <table class="admin-table">
-            <thead><tr><th>Email</th><th>Sent</th><th>Status</th><th class="text-end">Actions</th></tr></thead>
+            <thead><tr><th>Email</th><th>Access</th><th>Sent</th><th>Status</th><th class="text-end">Actions</th></tr></thead>
             <tbody>
             {% for invitation in invitations %}
             <tr>
-                <td>{{ invitation.email }}</td><td>{{ invitation.created_at|date:"M j, Y" }}</td>
+                <td>{{ invitation.email }}</td><td>{{ invitation.get_client_access_type_display }}</td><td>{{ invitation.created_at|date:"M j, Y" }}</td>
                 <td>{% if invitation.accepted_at %}<span class="status-pill status-pill--active">Accepted</span>{% elif invitation.revoked_at %}<span class="status-pill">Revoked</span>{% elif invitation.is_valid %}<span class="status-pill status-pill--active">Pending</span>{% else %}<span class="status-pill status-pill--on_hold">Expired</span>{% endif %}</td>
                 <td class="text-end">
                     {% if not invitation.accepted_at %}

@@ -5,7 +5,8 @@ onboarding, and subscription billing are intentionally outside this launch.
 
 ## Required before inviting Heritage users
 
-- [ ] Set `APP_NAME=Heritage Construction Management` in Render.
+- [x] Final product name confirmed as **Heritage 360**. Set
+  `APP_NAME=Heritage 360` in Render before launch.
 - [ ] Confirm the final `SUPPORT_EMAIL` and set it in Render. Do not launch with
   the example address.
 - [ ] Confirm the legal business name, contact email, mailing address,
@@ -19,6 +20,11 @@ onboarding, and subscription billing are intentionally outside this launch.
 - [ ] Confirm Sentry receives a production test event and that the event does
   not contain client data.
 - [ ] Run migrations and static collection as part of the release.
+- [ ] Verify `/operations/` access with Mike's developer account and confirm
+  ordinary company users cannot open it. Test the **Open app** switch on desktop
+  and mobile; see [Operations guide](operations.md).
+- [ ] Configure external `/health/` monitoring and operational event retention
+  after the Render and Better Stack accounts are ready.
 - [ ] Create the Heritage company administrator and verify company and project
   permissions with a non-superuser account.
 - [ ] Load one pilot project and complete the staff/client smoke test below.

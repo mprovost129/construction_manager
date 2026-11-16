@@ -313,6 +313,7 @@ class QuickBooksInvoiceMappingTests(TestCase):
         with self.assertRaisesMessage(ValidationError, 'identity is immutable'):
             mapping.save()
 
+    @override_settings(QUICKBOOKS_INTEGRATION_ENABLED=True)
     def test_staff_invoice_page_shows_mapping_but_client_page_does_not(self):
         invoice = self.create_issued()
         save_invoice_mapping(

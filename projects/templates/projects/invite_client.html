@@ -14,11 +14,11 @@
 <div class="form-shell">
     <section class="form-card">
         <p class="eyebrow">Customer portal</p>
-        <h1>Invite a customer</h1>
-        <p class="text-secondary">The customer will receive a secure, project-specific invitation at the email address below.</p>
+        <h1>Invite a client or signer</h1>
+        <p class="text-secondary">The recipient will receive a secure, project-specific invitation. Authorized signers use their own login so every approval is attributable.</p>
         <form method="post" class="stacked-form">
             {% csrf_token %}
-            <div class="form-field">
+            <div class="form-field"><label for="{{ form.client_access_type.id_for_label }}">{{ form.client_access_type.label }}</label>{{ form.client_access_type }}{{ form.client_access_type.errors }}</div><div class="form-field">
                 <label for="{{ form.email.id_for_label }}">{{ form.email.label }}</label>
                 {{ form.email }}
                 {% if form.email.help_text %}<p class="help-text">{{ form.email.help_text }}</p>{% endif %}

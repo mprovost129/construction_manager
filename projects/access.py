@@ -5,6 +5,7 @@ from .models import (
     OrganizationMembership,
     Project,
     ProjectInternalAccess,
+    ProjectMembership,
 )
 
 MANAGEMENT_ROLES = (
@@ -121,6 +122,7 @@ def can_use_project_messaging(user, project):
         user=user,
         is_active=True,
         role=OrganizationMembership.Role.CLIENT,
+        client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
     ).exists()
 
 
@@ -131,15 +133,31 @@ def is_project_client(user, project):
         user=user,
         is_active=True,
         role=OrganizationMembership.Role.CLIENT,
+        client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
     ).exists()
 
 
+def is_project_signer(user, project):
+    if not user.is_authenticated:
+        return False
+    return project.project_memberships.filter(
+        user=user,
+        is_active=True,
+        role=OrganizationMembership.Role.CLIENT,
+        client_access_type=ProjectMembership.ClientAccessType.SIGNER,
+    ).exists()
+
+
+def can_approve_for_project(user, project):
+    return is_project_client(user, project) or is_project_signer(user, project)
+
+
 def can_use_project_documents(user, project):
-    return can_use_project_messaging(user, project)
+    return can_use_project_messaging(user, project) or is_project_signer(user, project)
 
 
 def can_use_change_orders(user, project):
-    return can_use_project_messaging(user, project)
+    return can_use_project_messaging(user, project) or is_project_signer(user, project)
 
 
 def can_use_selections(user, project):
@@ -149,7 +167,7 @@ def can_use_selections(user, project):
 def can_use_estimates(user, project):
     if not user.is_authenticated:
         return False
-    if user.is_superuser or is_project_client(user, project):
+    if user.is_superuser or can_approve_for_project(user, project):
         return True
     membership = organization_membership_for(user, project.organization)
     return bool(

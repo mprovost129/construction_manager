@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from billing.models import Invoice, InvoiceLineItem
 from billing.services import issue_invoice
+from projects.access import can_approve_for_project, is_project_client
 from projects.forms import ClientInvitationForm
 from projects.models import (
     ActivityEvent,
@@ -20,9 +21,13 @@ from projects.models import (
     Project,
     ProjectDocument,
     ProjectDocumentVersion,
+    ProjectInternalAccess,
     ProjectMembership,
 )
-from projects.services import deliver_project_notification
+from projects.services import (
+    deliver_project_notification,
+    message_notification_recipients,
+)
 
 
 class HeritageLaunchFeatureTests(TestCase):
@@ -68,6 +73,155 @@ class HeritageLaunchFeatureTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn('designated client', form.errors['email'][0].lower())
+
+    def test_additional_authorized_signer_is_allowed(self):
+        form = ClientInvitationForm(
+            {
+                'client_access_type': ProjectMembership.ClientAccessType.SIGNER,
+                'email': 'signer@example.com',
+            },
+            project=self.project,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_authorized_signer_can_approve_without_primary_client_access(self):
+        signer = get_user_model().objects.create_user(
+            email='signer@example.com', password='password'
+        )
+        ProjectMembership.objects.create(
+            project=self.project,
+            user=signer,
+            role=OrganizationMembership.Role.CLIENT,
+            client_access_type=ProjectMembership.ClientAccessType.SIGNER,
+            invited_by=self.admin,
+        )
+
+        self.assertTrue(can_approve_for_project(signer, self.project))
+        self.assertFalse(is_project_client(signer, self.project))
+
+    def test_authorized_signer_access_is_limited_to_approval_workflows(self):
+        signer = get_user_model().objects.create_user(
+            email='limited-signer@example.com', password='password'
+        )
+        ProjectMembership.objects.create(
+            project=self.project,
+            user=signer,
+            role=OrganizationMembership.Role.CLIENT,
+            client_access_type=ProjectMembership.ClientAccessType.SIGNER,
+            invited_by=self.admin,
+        )
+        ProjectDocument.objects.create(
+            project=self.project,
+            title='Shared contract',
+            client_visible=True,
+            created_by=self.admin,
+        )
+        ProjectDocument.objects.create(
+            project=self.project,
+            title='Internal estimate notes',
+            client_visible=False,
+            created_by=self.admin,
+        )
+        self.client.force_login(signer)
+
+        documents = self.client.get(
+            reverse('projects:document_list', args=(self.project.pk,))
+        )
+
+        self.assertEqual(documents.status_code, 200)
+        self.assertContains(documents, 'Shared contract')
+        self.assertNotContains(documents, 'Internal estimate notes')
+        self.assertEqual(
+            self.client.get(
+                reverse('projects:message_list', args=(self.project.pk,))
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.get(
+                reverse('projects:financial_summary', args=(self.project.pk,))
+            ).status_code,
+            403,
+        )
+
+    def test_client_message_routes_only_to_assigned_project_managers(self):
+        manager = get_user_model().objects.create_user(
+            email='manager@example.com', password='password'
+        )
+        observer = get_user_model().objects.create_user(
+            email='observer@example.com', password='password'
+        )
+        manager_membership = OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=manager,
+            role=OrganizationMembership.Role.PROJECT_MANAGER,
+        )
+        observer_membership = OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=observer,
+            role=OrganizationMembership.Role.STAFF,
+        )
+        ProjectInternalAccess.objects.create(
+            project=self.project,
+            membership=manager_membership,
+            is_project_manager=True,
+        )
+        ProjectInternalAccess.objects.create(
+            project=self.project,
+            membership=observer_membership,
+            is_project_manager=False,
+        )
+
+        recipients = message_notification_recipients(
+            self.project,
+            self.client_user,
+        )
+
+        self.assertEqual(recipients, ['manager@example.com'])
+
+    def test_multiple_project_managers_are_assigned_and_notified(self):
+        memberships = []
+        for number in (1, 2):
+            manager = get_user_model().objects.create_user(
+                email=f'pm{number}@example.com', password='password'
+            )
+            memberships.append(
+                OrganizationMembership.objects.create(
+                    organization=self.organization,
+                    user=manager,
+                    role=OrganizationMembership.Role.PROJECT_MANAGER,
+                )
+            )
+        self.client.force_login(self.admin)
+
+        for membership in memberships:
+            response = self.client.post(
+                reverse('projects:internal_access_update', args=(self.project.pk,)),
+                {
+                    'membership': membership.pk,
+                    'is_project_manager': 'on',
+                    'can_manage': 'on',
+                    'receives_notifications': 'on',
+                },
+            )
+            self.assertEqual(response.status_code, 302)
+
+        self.assertEqual(
+            ProjectInternalAccess.objects.filter(
+                project=self.project,
+                is_project_manager=True,
+                is_active=True,
+            ).count(),
+            2,
+        )
+        self.assertEqual(
+            InAppNotification.objects.filter(
+                event_type=NotificationPreference.Event.PROJECT_ASSIGNMENTS,
+            ).count(),
+            2,
+        )
+        self.assertEqual(len(mail.outbox), 2)
 
     def test_notification_preferences_control_both_channels(self):
         NotificationPreference.objects.create(
