@@ -40,7 +40,7 @@ Company administrators should complete these steps before a client begins using 
 
 ### Confirm the company workspace
 
-Open **Company** from the main navigation and select the company. This screen contains team roles, invitations, company settings, subscription access, and links to cost codes and tax settings.
+Open **Company** from the main navigation and select the company. This screen contains team roles, invitations, company settings, links to cost codes and tax settings.
 
 ### Set the default tax rate
 
@@ -107,7 +107,7 @@ Review the client-visible setting on each document. Draft estimates, draft chang
 
 | Role | Typical access |
 | --- | --- |
-| Admin | All company projects, company and team settings, QuickBooks, cost codes, tax settings, and subscription controls |
+| Admin | All company projects, company and team settings, QuickBooks, cost codes, tax settings |
 | Manager | Assigned projects and management workflows; can create projects |
 | Project manager | Assigned projects and day-to-day project workflows; can create projects |
 | Staff | Assigned projects; available actions depend on project permissions |
@@ -230,7 +230,7 @@ Invoices can begin as manual drafts or can be created from approved project work
 2. Add or review the client, due date, notes, tax rate, and line items.
 3. Issue the invoice when the totals are correct. Issuing assigns the permanent invoice number and makes the invoice visible to the client.
 4. Download the invoice PDF when a printable copy is needed.
-5. Record a manual payment or import payments from QuickBooks.
+5. Record payments manually while the Desktop integration is being prepared.
 
 Issued invoice totals and line items are intentionally locked. Correct an issued invoice through the supported void and reissue process rather than changing its history.
 
@@ -254,28 +254,19 @@ Each milestone can include a start date, end date, status, description, internal
 
 ## QuickBooks
 
-QuickBooks is the accounting source of truth. Company administrators control the connection and synchronization actions.
+Heritage uses QuickBooks Desktop. Administrators can open **QuickBooks** in the
+navigation or **QuickBooks setup** from Company to save onboarding details.
+Save partial information now and complete it as details are confirmed.
 
-### Connect the company
+Collect the edition and year, Windows computer or hosting provider, number of
+company files, setup contact, customer/job structure, invoice items, tax handling,
+invoice numbering, and credit workflow. Do not enter passwords or company-file paths.
 
-1. Open **QuickBooks** from the main navigation.
-2. Select the connection action and sign in to Intuit.
-3. Choose the correct QuickBooks company.
-4. Confirm the company name, environment, connection status, and available capabilities shown after connection.
-
-### Map the project and cost codes
-
-Each Heritage 360 project maps to a QuickBooks Customer. The integration does not depend on QuickBooks Jobs. Match an existing customer when appropriate or create one through the supported sync action.
-
-Each cost code used on an invoice line must map to a QuickBooks Product or Service item. Matching an existing QuickBooks item is the most reliable setup path.
-
-### Synchronize invoices and payments
-
-Issue the invoice in Heritage 360 first. On the invoice detail page, use **Sync to QuickBooks**. The app blocks the sync if a required project customer or cost-code item mapping is missing.
-
-Use **Sync payments from QuickBooks** on the invoice detail page to import and recheck payments and supported QuickBooks credit memos linked to that invoice. Review possible duplicates instead of recording the same payment twice.
-
-Use the QuickBooks screen to review failed attempts. Correct the mapping or accounting issue before retrying or marking an exception resolved.
+The setup screen does not connect to QuickBooks or transfer accounting records.
+The Desktop adapter still requires development and validation with a test company
+file before an accounting administrator approves the first live transfer. Intuit
+Web Connector is the planned Windows connection method. QuickBooks Online
+connection controls remain unavailable in Heritage.
 
 ## Client Portal Walkthrough
 
@@ -309,7 +300,7 @@ The invitation may be expired, revoked, already accepted, or opened while signed
 
 ### Why will an invoice not synchronize
 
-Confirm the QuickBooks company is connected, the project has a customer mapping, every invoice cost code has an active item mapping, and the QuickBooks company allows the requested action. Review the synchronization error before retrying.
+Heritage’s Desktop connection is not active yet. Open QuickBooks setup to review the details still needed. Do not use the separate QuickBooks Online connection flow for a Desktop company file.
 
 ### Why can the invoice no longer be edited
 
@@ -321,6 +312,6 @@ Start on Projects. Open the project with the highest attention count, then use A
 
 ## Pilot Feature Notes
 
-The current pilot includes the core client portal, project access, messaging, documents and uploads, approvals, estimates, finish selections, change orders, invoices, financial summaries, internal schedule milestones, audit history, and administrator-controlled QuickBooks integration.
+The current pilot includes the core client portal, project access, messaging, documents and uploads, approvals, estimates, finish selections, change orders, invoices, financial summaries, internal schedule milestones, audit history, and administrator-only QuickBooks Desktop setup preparation.
 
-The current release does not include online invoice payment, tasks and punch lists, two-factor authentication, schedule dependencies, recurring schedule items, or external calendar synchronization. Production use also requires verified persistent file storage, database backups, email delivery, monitoring, legal details, and live QuickBooks and subscription configuration.
+The current release does not include online invoice payment, tasks and punch lists, two-factor authentication, schedule dependencies, recurring schedule items, or external calendar synchronization. Production use also requires verified persistent file storage, database backups, email delivery, monitoring, legal details, and verified accounting setup.

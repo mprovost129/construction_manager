@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import admin
 
 from .models import (
@@ -8,6 +9,12 @@ from .models import (
 
 
 class ReadOnlySubscriptionAdmin(admin.ModelAdmin):
+    def has_module_permission(self, request):
+        return settings.SUBSCRIPTION_BILLING_ENABLED and super().has_module_permission(request)
+
+    def has_view_permission(self, request, obj=None):
+        return settings.SUBSCRIPTION_BILLING_ENABLED and super().has_view_permission(request, obj)
+
     def has_add_permission(self, request):
         return False
 

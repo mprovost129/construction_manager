@@ -2,8 +2,31 @@ from django import forms
 
 from projects.models import CostCode, Project
 
-from .models import QuickBooksConnection
+from .models import QuickBooksConnection, QuickBooksDesktopOnboarding
 
+
+class QuickBooksDesktopOnboardingForm(forms.ModelForm):
+    class Meta:
+        model = QuickBooksDesktopOnboarding
+        fields = ('edition_year', 'hosting', 'workstation', 'company_file_count',
+                  'setup_contact', 'customer_structure', 'item_tax_notes', 'numbering_credits')
+        widgets = {name: forms.Textarea(attrs={'rows': 3}) for name in (
+            'customer_structure', 'item_tax_notes', 'numbering_credits'
+        )}
+        help_texts = {
+            'edition_year': 'For example: QuickBooks Enterprise 2024. Leave blank until confirmed.',
+            'workstation': 'Use a computer name or provider name, without passwords or company-file paths.',
+            'setup_contact': 'Work email of the person coordinating setup.',
+            'customer_structure': 'Describe how an existing construction project is represented in QuickBooks.',
+            'item_tax_notes': 'Identify the items and accounts used for invoice lines and how sales tax is handled.',
+            'numbering_credits': 'Who assigns invoice numbers? Where are credits created, and who reviews them?',
+        }
+
+    def clean_company_file_count(self):
+        count = self.cleaned_data['company_file_count']
+        if count is not None and count < 1:
+            raise forms.ValidationError('Enter at least one company file, or leave this blank.')
+        return count
 
 class QuickBooksProjectCustomerMappingForm(forms.Form):
     project = forms.ModelChoiceField(queryset=Project.objects.none())

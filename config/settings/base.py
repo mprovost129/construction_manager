@@ -270,9 +270,9 @@ QUICKBOOKS_CONFIGURED = all(
     )
 )
 
-# Stripe Billing charges construction companies for access to this SaaS. Each
-# company's connected QuickBooks account remains separate and continues to own
-# that company's homeowner invoices and accounting data.
+# Dedicated deployments do not use application access billing. This separate
+# feature must be explicitly enabled by deployments that offer paid access.
+SUBSCRIPTION_BILLING_ENABLED = env_bool('SUBSCRIPTION_BILLING_ENABLED', False)
 STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
 STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
 STRIPE_MONTHLY_SUBSCRIPTION_PRICE_ID = os.environ.get(

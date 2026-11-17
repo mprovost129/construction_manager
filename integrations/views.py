@@ -9,7 +9,7 @@ from django.core.exceptions import PermissionDenied
 from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from billing.models import Invoice
 from projects.access import can_manage_organization
@@ -22,7 +22,11 @@ from .customer_sync import (
     start_project_customer_sync,
     start_project_customer_update,
 )
-from .forms import QuickBooksItemMappingForm, QuickBooksProjectCustomerMappingForm
+from .forms import (
+    QuickBooksDesktopOnboardingForm,
+    QuickBooksItemMappingForm,
+    QuickBooksProjectCustomerMappingForm,
+)
 from .invoice_sync import (
     resolve_invoice_sync_attempt,
     retry_invoice_sync_attempt,
@@ -36,6 +40,7 @@ from .item_sync import (
 )
 from .models import (
     QuickBooksConnection,
+    QuickBooksDesktopOnboarding,
     QuickBooksInvoiceMapping,
     QuickBooksItemMapping,
     QuickBooksProjectCustomerMapping,
@@ -91,6 +96,8 @@ def _connect_redirect(organization=None):
 @login_required
 @require_GET
 def quickbooks_connect(request):
+    if not settings.QUICKBOOKS_INTEGRATION_ENABLED:
+        return redirect('integrations:quickbooks_setup')
     organizations = _manageable_organizations(request.user)
     organization_slug = request.GET.get('organization', '')
     selected_organization = None
@@ -147,6 +154,36 @@ def quickbooks_connect(request):
             'quickbooks_environment': settings.QUICKBOOKS_ENVIRONMENT,
         },
     )
+
+
+@login_required
+@require_http_methods(['GET', 'POST'])
+def quickbooks_setup(request):
+    organizations = _manageable_organizations(request.user)
+    if not organizations.exists():
+        raise PermissionDenied('Only company administrators can prepare accounting setup.')
+    slug = request.POST.get('organization', '') if request.method == 'POST' else request.GET.get('organization', '')
+    organization = get_object_or_404(organizations, slug=slug) if slug else (
+        organizations.first() if organizations.count() == 1 else None
+    )
+    onboarding = None
+    form = None
+    if organization:
+        onboarding = QuickBooksDesktopOnboarding.objects.filter(organization=organization).first()
+        onboarding = onboarding or QuickBooksDesktopOnboarding(organization=organization)
+        form = QuickBooksDesktopOnboardingForm(
+            request.POST if request.method == 'POST' else None, instance=onboarding
+        )
+        if request.method == 'POST' and form.is_valid():
+            onboarding = form.save(commit=False)
+            onboarding.updated_by = request.user
+            onboarding.save()
+            messages.success(request, 'Setup details saved. QuickBooks has not been connected or changed.')
+            return redirect(reverse('integrations:quickbooks_setup') + '?' + urlencode({'organization': organization.slug}))
+    return render(request, 'integrations/quickbooks_setup.html', {
+        'organizations': organizations, 'selected_organization': organization,
+        'onboarding': onboarding, 'form': form,
+    })
 
 
 @login_required

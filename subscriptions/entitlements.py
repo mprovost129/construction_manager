@@ -8,7 +8,7 @@ from .models import OrganizationSubscription
 
 
 def subscription_enforcement_enabled():
-    return bool(getattr(settings, 'STRIPE_ENFORCE_SUBSCRIPTIONS', False))
+    return bool(settings.SUBSCRIPTION_BILLING_ENABLED and settings.STRIPE_ENFORCE_SUBSCRIPTIONS)
 
 
 def entitled_organization_ids():

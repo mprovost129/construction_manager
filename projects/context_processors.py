@@ -11,6 +11,7 @@ def application_identity(request):
         'app_name': settings.APP_NAME,
         'support_email': settings.SUPPORT_EMAIL,
         'quickbooks_integration_enabled': settings.QUICKBOOKS_INTEGRATION_ENABLED,
+        'subscription_billing_enabled': settings.SUBSCRIPTION_BILLING_ENABLED,
     }
 
 

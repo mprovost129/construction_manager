@@ -13,8 +13,8 @@
             {% if has_internal_access %}
                 <a class="app-nav__link" href="{% url 'projects:company_list' %}">Company</a>
             {% endif %}
-            {% if can_manage_integrations and quickbooks_integration_enabled %}
-                <a class="app-nav__link" href="{% url 'integrations:quickbooks_connect' %}">QuickBooks</a>
+            {% if can_manage_integrations %}
+                <a class="app-nav__link" href="{% if quickbooks_integration_enabled %}{% url 'integrations:quickbooks_connect' %}{% else %}{% url 'integrations:quickbooks_setup' %}{% endif %}">QuickBooks</a>
             {% endif %}
             <a class="app-nav__link" href="{% url 'core:help' %}">Help</a>
             {% if can_view_operations %}

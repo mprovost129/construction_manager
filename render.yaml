@@ -86,7 +86,7 @@ services:
         sync: false
       - key: SENTRY_TRACES_SAMPLE_RATE
         value: "0"
-      - key: STRIPE_ENFORCE_SUBSCRIPTIONS
+      - key: SUBSCRIPTION_BILLING_ENABLED
         value: "false"
       - key: OPERATIONS_RENDER_URL
         value: https://dashboard.render.com/

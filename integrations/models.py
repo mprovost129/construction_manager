@@ -11,6 +11,34 @@ from projects.models import CostCode, Organization, Project
 from .crypto import decrypt_token, encrypt_token
 
 
+class QuickBooksDesktopOnboarding(models.Model):
+    """Setup intake only; saving this record never authorizes accounting access."""
+
+    class Hosting(models.TextChoices):
+        OFFICE = 'office', 'Office Windows computer or server'
+        HOSTED = 'hosted', 'Hosted by a provider'
+
+    organization = models.OneToOneField(
+        Organization, on_delete=models.CASCADE, related_name='desktop_onboarding'
+    )
+    edition_year = models.CharField('QuickBooks edition and year', max_length=150, blank=True)
+    hosting = models.CharField('Where the company file is hosted', max_length=20, choices=Hosting.choices, blank=True)
+    workstation = models.CharField('Windows computer or hosting provider', max_length=200, blank=True)
+    company_file_count = models.PositiveSmallIntegerField('Number of company files', null=True, blank=True)
+    setup_contact = models.EmailField('Accounting or IT setup contact', blank=True)
+    customer_structure = models.TextField('How customers and jobs are organized', max_length=2000, blank=True)
+    item_tax_notes = models.TextField('Invoice items, accounts, and sales tax', max_length=2000, blank=True)
+    numbering_credits = models.TextField('Invoice numbering and credit handling', max_length=2000, blank=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def missing_details(self):
+        fields = ('edition_year', 'hosting', 'workstation', 'company_file_count',
+                  'setup_contact', 'customer_structure', 'item_tax_notes', 'numbering_credits')
+        return [self._meta.get_field(name).verbose_name for name in fields if not getattr(self, name)]
+
+
 class QuickBooksConnection(models.Model):
     class Environment(models.TextChoices):
         SANDBOX = 'sandbox', 'Sandbox'

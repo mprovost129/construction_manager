@@ -32,6 +32,7 @@ from projects.models import CostCode, Organization, OrganizationMembership
 
 TEST_KEY = Fernet.generate_key().decode()
 SYNC_SETTINGS = {
+    'QUICKBOOKS_INTEGRATION_ENABLED': True,
     'QUICKBOOKS_CONFIGURED': True,
     'QUICKBOOKS_ENVIRONMENT': 'sandbox',
     'QUICKBOOKS_CLIENT_ID': 'client-id',

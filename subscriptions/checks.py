@@ -4,6 +4,8 @@ from django.core.checks import Error, Warning, register
 
 @register()
 def stripe_subscription_configuration_check(app_configs, **kwargs):
+    if not settings.SUBSCRIPTION_BILLING_ENABLED:
+        return []
     issues = []
     configured_values = (
         settings.STRIPE_SECRET_KEY,

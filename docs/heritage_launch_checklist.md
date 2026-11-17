@@ -1,7 +1,7 @@
 # Heritage controlled-launch checklist
 
-This checklist covers the first Heritage rollout. QuickBooks linking, guided
-onboarding, and subscription billing are intentionally outside this launch.
+This checklist covers the first Heritage rollout. QuickBooks linking remains separate from the core launch. Desktop onboarding
+details can now be collected from the administrator setup page.
 
 ## Required before inviting Heritage users
 
@@ -71,8 +71,8 @@ staff enables it in production:
 - Guided onboarding remains deferred. Initial Heritage setup can be completed
   by an administrator using the existing company, project, people, and
   disclosure screens.
-- Stripe subscriptions remain disabled for Heritage. Keep
-  `STRIPE_ENFORCE_SUBSCRIPTIONS=false`.
+- Heritage is a dedicated company deployment. Application access billing stays
+  disabled with `SUBSCRIPTION_BILLING_ENABLED=false`.
 
 ## First-week operating plan
 
