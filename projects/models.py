@@ -190,6 +190,7 @@ class Project(models.Model):
         on_delete=models.CASCADE,
         related_name='projects',
     )
+    import_source = models.JSONField(default=dict, blank=True, editable=False)
     name = models.CharField(max_length=200)
     code = models.CharField(max_length=50, blank=True)
     description = models.TextField(blank=True)
@@ -580,6 +581,7 @@ class ActivityEvent(models.Model):
         CLIENT_LOGGED_IN = 'client_logged_in', 'Client logged in'
         CLIENT_LOGGED_OUT = 'client_logged_out', 'Client logged out'
         CLIENT_VIEWED = 'client_viewed', 'Client viewed a page'
+        HISTORY_IMPORTED = 'history_imported', 'Buildertrend history imported'
         TEAM_INVITED = 'team_invited', 'Team member invited'
         TEAM_INVITE_RESENT = 'team_invite_resent', 'Team invitation resent'
         TEAM_INVITE_REVOKED = 'team_invite_revoked', 'Team invitation revoked'
@@ -1239,11 +1241,14 @@ class CostCode(models.Model):
 
 class ChangeOrder(models.Model):
     class Status(models.TextChoices):
+        IMPORTED = 'imported', 'Approved (Buildertrend)'
         DRAFT = 'draft', 'Draft'
         PENDING = 'pending', 'Awaiting client'
         APPROVED = 'approved', 'Approved'
         DECLINED = 'declined', 'Declined'
         VOIDED = 'voided', 'Voided'
+
+    import_source = models.JSONField(default=dict, blank=True, editable=False)
 
     project = models.ForeignKey(
         Project,
@@ -1316,6 +1321,11 @@ class ChangeOrder(models.Model):
     class Meta:
         ordering = ('-number', '-pk')
         constraints = [
+            models.CheckConstraint(
+                condition=(models.Q(status='imported') & ~models.Q(import_source={}))
+                | (~models.Q(status='imported') & models.Q(import_source={})),
+                name='projects_co_history_provenance',
+            ),
             models.UniqueConstraint(
                 fields=('project', 'number'),
                 name='projects_unique_change_order_number_per_project',
@@ -1323,7 +1333,7 @@ class ChangeOrder(models.Model):
             models.CheckConstraint(
                 condition=(
                     models.Q(
-                        status='draft',
+                        status__in=('draft', 'imported'),
                         submitted_by__isnull=True,
                         submitted_at__isnull=True,
                     )
@@ -1343,7 +1353,7 @@ class ChangeOrder(models.Model):
                         decided_at__isnull=False,
                     )
                     | models.Q(
-                        status__in=('draft', 'pending', 'voided'),
+                        status__in=('draft', 'pending', 'voided', 'imported'),
                         decided_by__isnull=True,
                         decided_at__isnull=True,
                     )
@@ -1358,7 +1368,7 @@ class ChangeOrder(models.Model):
                         voided_at__isnull=False,
                     )
                     | models.Q(
-                        status__in=('draft', 'pending', 'approved', 'declined'),
+                        status__in=('draft', 'pending', 'approved', 'declined', 'imported'),
                         voided_by__isnull=True,
                         voided_at__isnull=True,
                     )
@@ -1384,6 +1394,8 @@ class ChangeOrder(models.Model):
 
     @property
     def quickbooks_handoff_label(self):
+        if self.status == self.Status.IMPORTED:
+            return 'Imported history: invoicing status not supplied'
         if self.status == self.Status.APPROVED:
             return 'Send to QuickBooks when invoiced'
         return 'Not ready for QuickBooks'
@@ -1422,7 +1434,7 @@ class ChangeOrder(models.Model):
                 errors['status'] = 'A completed decision requires an authenticated client.'
         elif self.decided_by_id or self.decided_at:
             errors['status'] = 'Only approved or declined orders can have a decision.'
-        if self.status == self.Status.DRAFT:
+        if self.status in (self.Status.DRAFT, self.Status.IMPORTED):
             if self.submitted_by_id or self.submitted_at:
                 errors['status'] = 'Draft change orders cannot have submission details.'
         elif not self.submitted_by_id or not self.submitted_at:
@@ -1466,6 +1478,10 @@ class ChangeOrder(models.Model):
                     errors['source_selection'] = (
                         'This selection already has an active credit change order.'
                     )
+        if self.status == self.Status.IMPORTED and not self.import_source.get('source_key'):
+            errors['import_source'] = 'Historical orders require source provenance.'
+        if self.import_source and self.status != self.Status.IMPORTED:
+            errors['status'] = 'Imported history cannot become a new client decision.'
         if errors:
             raise ValidationError(errors)
 
@@ -2017,6 +2033,7 @@ class SelectionPackage(models.Model):
 
 class FinishSelection(models.Model):
     class Status(models.TextChoices):
+        IMPORTED = 'imported', 'Selected (Buildertrend)'
         DRAFT = 'draft', 'Unreleased'
         OPEN = 'open', 'Pending: Available'
         SELECTED = 'selected', 'Selected'
@@ -2027,6 +2044,9 @@ class FinishSelection(models.Model):
         APPLY_ELSEWHERE = 'apply_elsewhere', 'Apply to another selection'
         RETURN_AT_CLOSING = 'return_at_closing', 'Return at closing'
         RETAIN_AS_MARGIN = 'retain_as_margin', 'Retain as project margin'
+
+    import_source = models.JSONField(default=dict, blank=True, editable=False)
+    imported_total = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, editable=False)
 
     project = models.ForeignKey(
         Project,
@@ -2111,6 +2131,11 @@ class FinishSelection(models.Model):
     class Meta:
         ordering = ('-number', '-pk')
         constraints = [
+            models.CheckConstraint(
+                condition=(models.Q(status='imported', imported_total__isnull=False) & ~models.Q(import_source={}))
+                | (~models.Q(status='imported') & models.Q(import_source={}, imported_total__isnull=True)),
+                name='projects_selection_history_provenance',
+            ),
             models.UniqueConstraint(
                 fields=('project', 'number'),
                 name='projects_unique_selection_number_per_project',
@@ -2137,7 +2162,7 @@ class FinishSelection(models.Model):
             models.CheckConstraint(
                 condition=(
                     models.Q(
-                        status='draft',
+                        status__in=('draft', 'imported'),
                         opened_by__isnull=True,
                         opened_at__isnull=True,
                     )
@@ -2158,7 +2183,7 @@ class FinishSelection(models.Model):
                         selected_at__isnull=False,
                     )
                     | models.Q(
-                        status__in=('draft', 'open', 'voided'),
+                        status__in=('draft', 'open', 'voided', 'imported'),
                         chosen_option__isnull=True,
                         selected_by__isnull=True,
                         selected_at__isnull=True,
@@ -2174,7 +2199,7 @@ class FinishSelection(models.Model):
                         voided_at__isnull=False,
                     )
                     | models.Q(
-                        status__in=('draft', 'open', 'selected'),
+                        status__in=('draft', 'open', 'selected', 'imported'),
                         voided_by__isnull=True,
                         voided_at__isnull=True,
                     )
@@ -2197,6 +2222,8 @@ class FinishSelection(models.Model):
 
     @property
     def buildertrend_status_label(self):
+        if self.status == self.Status.IMPORTED:
+            return 'Selected (Buildertrend)'
         if self.status == self.Status.DRAFT:
             return 'Unreleased'
         if self.status == self.Status.OPEN:
@@ -2211,6 +2238,7 @@ class FinishSelection(models.Model):
             self.Status.DRAFT: 'unreleased',
             self.Status.OPEN: 'pending',
             self.Status.SELECTED: 'selected',
+            self.Status.IMPORTED: 'selected',
             self.Status.VOIDED: 'expired',
         }[self.status]
 
@@ -2239,7 +2267,7 @@ class FinishSelection(models.Model):
             errors['title'] = 'Title cannot be blank.'
         if self.allowance_amount < 0:
             errors['allowance_amount'] = 'Allowance cannot be negative.'
-        if self.status == self.Status.DRAFT:
+        if self.status in (self.Status.DRAFT, self.Status.IMPORTED):
             if self.opened_by_id or self.opened_at:
                 errors['status'] = 'Draft selections cannot have publication details.'
         elif not self.opened_by_id or not self.opened_at:
@@ -2260,6 +2288,11 @@ class FinishSelection(models.Model):
             errors['credit_disposition'] = (
                 'A disposition can only be set when the selection has a credit.'
             )
+        if self.status == self.Status.IMPORTED:
+            if not self.import_source.get('source_key') or self.imported_total is None:
+                errors['import_source'] = 'Historical selections require provenance and a signed total.'
+        elif self.import_source or self.imported_total is not None:
+            errors['status'] = 'Imported history cannot become a new client choice.'
         if errors:
             raise ValidationError(errors)
 

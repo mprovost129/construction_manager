@@ -3850,7 +3850,7 @@ class SelectionPackageDetailView(LoginRequiredMixin, TemplateView):
                 'choices': choices,
                 'chosen_count': sum(
                     1 for choice in choices
-                    if choice.status == FinishSelection.Status.SELECTED
+                    if choice.status in (FinishSelection.Status.SELECTED, FinishSelection.Status.IMPORTED)
                 ),
                 'can_manage_project': can_manage_project(
                     self.request.user, self.project
