@@ -8,7 +8,7 @@ covers the entire bucket, and prevents overwrites/deletes indefinitely until an
 account administrator changes that rule. Public access remains disabled.
 
 The Render cron service `crn-dbu96pe8bjmc73av3140` is active in the Heritage 360
-workspace, running code commit `dcdc92b43acc19ee93ef249214c773e938535d1c`.
+workspace, running code commit `adf49125861193febf799a41b1cf940ade00ddf2`.
 Two account tokens are restricted to the source and backup buckets respectively
 and stored only in the cron service. They have no expiry and can be revoked.
 The first manual run finished successfully at 12:49 PM EST on November 17.
@@ -37,18 +37,26 @@ the equivalent native Python cron job in the Heritage 360 workspace:
 - The service inherits the workspace's **Only failure notifications** setting,
   verified in Render on activation. No deliberate failure email was sent, so
   inbox delivery of backup failure alerts has not been tested.
-- An external missed-run heartbeat is not yet configured. Until it is, check
-  Render's run history daily; failure notifications alone do not detect a job
-  that never starts. The intended alert recipient is `slaterwoodsdesign@gmail.com`.
+- Better Stack missed-run monitoring is active, expecting a completion every
+  day with one hour of grace. Email alerts target the primary responder;
+  the team has one member, Michael Provost (`slaterwoodsdesign@gmail.com`).
+  No test alert was sent, so inbox delivery remains unverified.
 
-### Completion monitoring setup (prepared, not activated)
+### Completion monitoring (activated and verified)
 
-Create a Better Stack heartbeat named `Heritage 360 document backup`, expecting
-a signal every 24 hours with a one-hour grace period. Route email alerts to
-`slaterwoodsdesign@gmail.com`. Store its secret completion URL as
-`BACKUP_HEARTBEAT_URL` in this Render cron service and manually deploy the updated
-backup code. Run it once and verify that Better Stack records a received heartbeat.
-Do not call the heartbeat URL separately just to make its status appear healthy.
+Better Stack heartbeat `534645` in team `t636247`, named
+`Heritage 360 document backup`, was created on the existing free plan on
+November 17, 2026. Its secret completion URL is stored as `BACKUP_HEARTBEAT_URL`
+in the Render cron service, not in this repository.
+
+Deployment `dep-dbu9e9gu01pc73deqfdg` completed at 1:04:39 PM EST. The manual
+verification run completed at 1:05:39 PM EST, verifying all three source objects
+with zero new content copies and creating snapshot
+`snapshots/20261117T180536Z-efadec772375417bac451be2a0849e7a.json`.
+The run logged `Backup completion heartbeat accepted.` at 1:05:36 PM EST.
+Better Stack then showed **Up**, a received heartbeat, and zero incidents for
+this heartbeat. The endpoint was called only by the completed backup job.
+The first scheduled run and actual alert email delivery remain unverified.
 
 The code sends an empty HTTPS GET only after every object and the snapshot
 inventory pass readback verification. No file contents, file names, snapshot
