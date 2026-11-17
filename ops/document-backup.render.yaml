@@ -1,0 +1,31 @@
+# Separate Blueprint, intentionally not included in the live web-service Blueprint.
+# Activate only after scoped credentials and backup bucket protection are reviewed.
+services:
+  - type: cron
+    name: heritage360-document-backup
+    runtime: python
+    repo: https://github.com/mprovost129/construction_manager
+    branch: feature/heritage-backup-readiness
+    region: ohio
+    plan: starter
+    schedule: "0 9 * * *" # 4 AM EST / 5 AM EDT
+    autoDeployTrigger: "off"
+    buildCommand: pip install -r ops/backup-requirements.txt
+    startCommand: python ops/backup_documents.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: SOURCE_BUCKET
+        value: heritage360-private
+      - key: BACKUP_BUCKET
+        value: heritage360-backups
+      - key: SOURCE_ACCESS_KEY_ID
+        sync: false
+      - key: SOURCE_SECRET_ACCESS_KEY
+        sync: false
+      - key: BACKUP_ACCESS_KEY_ID
+        sync: false
+      - key: BACKUP_SECRET_ACCESS_KEY
+        sync: false
