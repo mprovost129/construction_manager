@@ -2,14 +2,26 @@
 
 ## Deployment status
 
-Prepared on November 17, 2026. The private `heritage360-backups` bucket exists
+Activated on November 17, 2026. The private `heritage360-backups` bucket exists
 in Heritage's Cloudflare account. Its `protect-backup-history` rule is enabled,
 covers the entire bucket, and prevents overwrites/deletes indefinitely until an
 account administrator changes that rule. Public access remains disabled.
 
-The job is NOT active until scoped credentials are entered into Render and a
-live backup and recovery test succeeds. Local tests are not live delivery proof.
-The existing web application is unaffected by this separate deployment.
+The Render cron service `crn-dbu96pe8bjmc73av3140` is active in the Heritage 360
+workspace, running code commit `dcdc92b43acc19ee93ef249214c773e938535d1c`.
+Two account tokens are restricted to the source and backup buckets respectively
+and stored only in the cron service. They have no expiry and can be revoked.
+The first manual run finished successfully at 12:49 PM EST on November 17.
+It verified all three source objects, storing two unique content copies and a
+snapshot inventory. An independent recovery into a temporary ZIP then verified
+all three recovered files byte-for-byte against live source objects, including
+the known synthetic upload document. The temporary ZIP was removed and the
+recovery shell was closed. No production files or database records were replaced.
+
+Snapshot: `snapshots/20261117T174915Z-8b09c29f6166461eae5c3ee386f760f8.json`.
+The next scheduled run is November 18 at 4 AM EST. A manual success does not
+prove that a scheduled run has occurred. The existing web application was
+unaffected by this separate deployment.
 
 ## Access and schedule
 
@@ -22,9 +34,12 @@ the equivalent native Python cron job in the Heritage 360 workspace:
 - Run: `python ops/backup_documents.py`.
 - Schedule: `0 9 * * *` UTC, daily at 4 AM EST / 5 AM EDT.
 - Render cron minimum: $1/month, plus runtime above that minimum and R2 usage.
-- Enable job failure notifications to `slaterwoodsdesign@gmail.com` and verify
-  the actual notification configuration. Add an external missed-run heartbeat
-  before relying on the schedule without manual daily review.
+- The service inherits the workspace's **Only failure notifications** setting,
+  verified in Render on activation. No deliberate failure email was sent, so
+  inbox delivery of backup failure alerts has not been tested.
+- An external missed-run heartbeat is not yet configured. Until it is, check
+  Render's run history daily; failure notifications alone do not detect a job
+  that never starts. The intended alert recipient is `slaterwoodsdesign@gmail.com`.
 
 Create TWO bucket-restricted R2 credentials, with no account administration:
 
