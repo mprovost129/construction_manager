@@ -17,7 +17,7 @@ def project_financial_summary(project, *, include_costs=False):
     change_orders = list(project.change_orders.exclude(status=ChangeOrder.Status.VOIDED))
     approved_change_order_total = money(
         sum(
-            (co.price_delta for co in change_orders if co.status == ChangeOrder.Status.APPROVED),
+            (co.price_delta for co in change_orders if co.status in (ChangeOrder.Status.APPROVED, ChangeOrder.Status.IMPORTED)),
             Decimal('0'),
         )
     )
@@ -81,7 +81,7 @@ def project_financial_summary(project, *, include_costs=False):
     if include_costs:
         approved_change_order_cost_total = money(
             sum(
-                (co.cost_delta for co in change_orders if co.status == ChangeOrder.Status.APPROVED),
+                (co.cost_delta for co in change_orders if co.status in (ChangeOrder.Status.APPROVED, ChangeOrder.Status.IMPORTED)),
                 Decimal('0'),
             )
         )
