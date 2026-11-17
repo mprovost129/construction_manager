@@ -41,6 +41,30 @@ the equivalent native Python cron job in the Heritage 360 workspace:
   Render's run history daily; failure notifications alone do not detect a job
   that never starts. The intended alert recipient is `slaterwoodsdesign@gmail.com`.
 
+### Completion monitoring setup (prepared, not activated)
+
+Create a Better Stack heartbeat named `Heritage 360 document backup`, expecting
+a signal every 24 hours with a one-hour grace period. Route email alerts to
+`slaterwoodsdesign@gmail.com`. Store its secret completion URL as
+`BACKUP_HEARTBEAT_URL` in this Render cron service and manually deploy the updated
+backup code. Run it once and verify that Better Stack records a received heartbeat.
+Do not call the heartbeat URL separately just to make its status appear healthy.
+
+The code sends an empty HTTPS GET only after every object and the snapshot
+inventory pass readback verification. No file contents, file names, snapshot
+identifier, error details, or database data are sent to Better Stack. Only the
+documented Better Stack heartbeat endpoints are accepted; redirects are rejected.
+Network/server failures receive at most three attempts with ten-second socket
+timeouts. If notification fails, the verified backup remains intact but the job
+exits nonzero with a generic warning, allowing Render failure notifications.
+
+Monitoring starts with the first received signal. Missing completion is detected
+25 hours after the last accepted signal, rather than at a fixed wall-clock time.
+Manual runs also move that deadline. Do not disable the heartbeat or send success
+signals from an unrelated process. An empty environment setting disables heartbeat
+delivery for backward compatibility, so absence of that signal must still alert
+externally once the monitor is activated.
+
 Create TWO bucket-restricted R2 credentials, with no account administration:
 
 1. Object Read only for `heritage360-private`. Store as `SOURCE_ACCESS_KEY_ID`

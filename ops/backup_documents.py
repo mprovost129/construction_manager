@@ -1,6 +1,7 @@
 """Independent, append-only R2 backups. Never imports Django or writes to source."""
 
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -9,6 +10,7 @@ import tempfile
 import uuid
 from contextlib import closing
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 
 import boto3
 from botocore.config import Config
@@ -17,6 +19,30 @@ from botocore.exceptions import ClientError
 CHUNK_SIZE = 1024 * 1024
 MAX_FILE_BYTES = 250 * CHUNK_SIZE
 MAX_OBJECTS = 100_000
+
+
+def send_heartbeat(url):
+    """Report completion only, without file names, contents, or provider errors."""
+    if not re.fullmatch(
+        r'https://(?:incidents|uptime)\.betterstack\.com/api/v1/heartbeat/[A-Za-z0-9_-]{1,200}', url,
+    ):
+        raise ValueError('Invalid backup heartbeat endpoint.')
+    endpoint = urlsplit(url)
+    for attempt in range(3):
+        connection = http.client.HTTPSConnection(endpoint.hostname, timeout=10)
+        try:
+            connection.request('GET', endpoint.path)
+            response = connection.getresponse()
+            if 200 <= response.status < 300:
+                return
+            # Do not follow redirects or expose the credential-bearing URL.
+            if response.status < 500 and response.status != 429:
+                break
+        except (OSError, http.client.HTTPException):
+            pass
+        finally:
+            connection.close()
+    raise RuntimeError('Backup completion notification failed.')
 
 
 def fingerprint(body, output=None, limit=MAX_FILE_BYTES):
@@ -125,6 +151,14 @@ def main():
         print('Document backup failed; no successful run confirmed. Check credentials, limits, and storage.', file=sys.stderr)
         return 1
     print(json.dumps(result))
+    heartbeat_url = os.environ.get('BACKUP_HEARTBEAT_URL', '').strip()
+    if heartbeat_url:
+        try:
+            send_heartbeat(heartbeat_url)
+        except Exception:
+            print('Backup verified, but completion monitoring failed. Check the heartbeat configuration and service.', file=sys.stderr)
+            return 1
+        print('Backup completion heartbeat accepted.')
     return 0
 
 

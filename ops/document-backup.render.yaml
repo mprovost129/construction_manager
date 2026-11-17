@@ -29,3 +29,5 @@ services:
         sync: false
       - key: BACKUP_SECRET_ACCESS_KEY
         sync: false
+      - key: BACKUP_HEARTBEAT_URL
+        sync: false
