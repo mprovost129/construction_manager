@@ -22,6 +22,7 @@ from projects.models import (
     Organization,
     OrganizationMembership,
     Project,
+    ProjectMembership,
 )
 
 
@@ -185,3 +186,27 @@ class BuildertrendHistoryTests(TestCase):
             ChangeOrder.objects.update(import_source={})
         with self.assertRaises(IntegrityError), transaction.atomic():
             FinishSelection.objects.update(imported_total=None)
+
+    def test_client_history_excludes_raw_exports_and_builder_cost(self):
+        self.run_import()
+        project = Project.objects.get()
+        customer = get_user_model().objects.create_user('customer@example.com', 'password')
+        ProjectMembership.objects.create(project=project, user=customer, role='client')
+        self.client.force_login(customer)
+        for name, record in [('change_order_detail', ChangeOrder.objects.get()),
+                             ('selection_detail', FinishSelection.objects.get())]:
+            with self.subTest(record=name):
+                record.description = 'INTERNAL raw export text with supplier pricing'
+                record.import_source['source_document_id'] = 999
+                record.save(update_fields=['description', 'import_source'])
+                response = self.client.get(reverse(f'projects:{name}', args=[project.pk, record.pk]))
+                self.assertContains(response, record.title)
+                self.assertContains(response, 'Imported history')
+                self.assertNotContains(response, 'INTERNAL raw export')
+                self.assertNotContains(response, 'Open original export')
+                self.assertNotContains(response, 'Exported builder cost')
+                self.assertNotContains(response, '$80.00')
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse('projects:change_order_detail', args=[project.pk, ChangeOrder.objects.get().pk]))
+        self.assertContains(response, 'INTERNAL raw export')
+        self.assertContains(response, '$80.00')

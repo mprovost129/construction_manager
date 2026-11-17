@@ -8,6 +8,7 @@
 </section>
 
 <section class="conversation" aria-label="Conversation messages">
+<p class="text-secondary">Shared with the client and assigned project team. Keep internal company notes in Internal project notes.</p>
 {% for message in thread_messages %}
 <article class="message-bubble{% if message.author == user %} message-bubble--own{% endif %}">
     <header><strong>{% if message.author == user %}You{% else %}{{ message.author.get_full_name|default:message.author.email }}{% endif %}</strong><span>{{ message.author.email }}</span><time>{{ message.created_at|date:"M j, Y g:i A" }}</time></header>

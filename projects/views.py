@@ -248,9 +248,10 @@ def financials_project_or_404(user, pk):
         projects_for_user(user).select_related('organization'),
         pk=pk,
     )
-    if not can_use_estimates(user, project) or (
-        can_approve_for_project(user, project) and not is_project_client(user, project)
-    ):
+    membership = organization_membership_for(user, project.organization)
+    if not (user.is_superuser or (
+        membership and membership.is_internal and membership.can_view_project_financials
+    )):
         raise PermissionDenied('You cannot access project financials.')
     return project
 
@@ -402,6 +403,7 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
                 'organization_membership': organization_membership,
                 'project_membership': project_membership,
                 'internal_access': internal_access,
+                'viewer_is_internal': is_internal,
                 'can_manage_project': can_manage_project(
                     self.request.user, self.object
                 ),
@@ -1628,7 +1630,7 @@ class ChangeOrderListView(LoginRequiredMixin, TemplateView):
         change_orders = self.project.change_orders.select_related(
             'created_by', 'decided_by'
         )
-        if is_project_client(self.request.user, self.project):
+        if can_approve_for_project(self.request.user, self.project):
             change_orders = change_orders.exclude(status=ChangeOrder.Status.DRAFT)
         context.update(
             {
@@ -2510,7 +2512,7 @@ class EstimateListView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         estimates = self.project.estimates.select_related('created_by', 'decided_by')
-        if is_project_client(self.request.user, self.project):
+        if can_approve_for_project(self.request.user, self.project):
             estimates = estimates.exclude(status=Estimate.Status.DRAFT)
         context.update(
             {
@@ -5099,6 +5101,23 @@ class NotificationMarkAllReadView(LoginRequiredMixin, View):
 class ProjectNotificationSettingsView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/notification_settings.html'
 
+    def event_choices(self):
+        user, project = self.request.user, self.project
+        allowed = {
+            NotificationPreference.Event.MESSAGES: can_use_project_messaging(user, project),
+            NotificationPreference.Event.DAILY_LOGS: can_use_daily_logs(user, project),
+            NotificationPreference.Event.DOCUMENTS: can_use_project_documents(user, project),
+            NotificationPreference.Event.ESTIMATES: can_use_estimates(user, project),
+            NotificationPreference.Event.CHANGE_ORDERS: can_use_change_orders(user, project),
+            NotificationPreference.Event.SELECTIONS: can_use_selections(user, project),
+            NotificationPreference.Event.SCHEDULE: can_use_schedule(user, project),
+            NotificationPreference.Event.INVOICES: can_use_invoices(user, project),
+            NotificationPreference.Event.PROJECT_ASSIGNMENTS: bool(
+                user.is_superuser or internal_organizations_for_user(user).filter(pk=project.organization_id).exists()
+            ),
+        }
+        return [(value, label) for value, label in NotificationPreference.Event.choices if allowed[value]]
+
     def dispatch(self, request, *args, **kwargs):
         self.project = get_object_or_404(
             projects_for_user(request.user).select_related('organization'),
@@ -5123,12 +5142,12 @@ class ProjectNotificationSettingsView(LoginRequiredMixin, TemplateView):
                 'email_enabled': existing.get(value).email_enabled if value in existing else True,
                 'in_app_enabled': existing.get(value).in_app_enabled if value in existing else True,
             }
-            for value, label in NotificationPreference.Event.choices
+            for value, label in self.event_choices()
         ]
         return context
 
     def post(self, request, *args, **kwargs):
-        for value, _label in NotificationPreference.Event.choices:
+        for value, _label in self.event_choices():
             NotificationPreference.objects.update_or_create(
                 user=request.user,
                 project=self.project,

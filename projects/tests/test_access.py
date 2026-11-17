@@ -92,3 +92,19 @@ class ProjectAccessTests(TestCase):
         response = self.client.get(f'/projects/{self.project.pk}/')
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Project financials')
+
+    def test_internal_project_notes_are_hidden_from_clients_and_signers(self):
+        self.project.description = 'PRIVATE setup notes and source contact details'
+        self.project.save(update_fields=['description'])
+        for access_type in ProjectMembership.ClientAccessType.values:
+            with self.subTest(access_type=access_type):
+                ProjectMembership.objects.filter(user=self.client_user).update(
+                    client_access_type=access_type
+                )
+                self.client.force_login(self.client_user)
+                response = self.client.get(f'/projects/{self.project.pk}/')
+                self.assertNotContains(response, self.project.description)
+                self.assertNotContains(response, 'Propose the project price')
+        self.client.force_login(self.staff)
+        response = self.client.get(f'/projects/{self.project.pk}/')
+        self.assertContains(response, self.project.description)

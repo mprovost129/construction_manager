@@ -253,14 +253,26 @@ class ProjectFinancialSummaryTests(TestCase):
         self.assertContains(response, 'Budget, cost, and margin')
         self.assertContains(response, 'Actual cost entries')
 
-    def test_client_does_not_see_budget_and_margin_on_financial_summary_page(self):
+    def test_client_cannot_open_internal_financial_summary_by_direct_url(self):
+        Invoice.objects.create(
+            organization=self.organization, project=self.project,
+            title='Unissued internal pricing', total_amount=Decimal('98765.43'),
+            created_by=self.admin_user,
+        )
         self.client.force_login(self.client_user)
         response = self.client.get(
             reverse('projects:financial_summary', args=(self.project.pk,))
         )
-        self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, 'Budget, cost, and margin')
-        self.assertContains(response, 'Contract amount')
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn(b'98765.43', response.content)
+
+    def test_signer_cannot_open_internal_financial_summary(self):
+        ProjectMembership.objects.filter(user=self.client_user).update(
+            client_access_type=ProjectMembership.ClientAccessType.SIGNER
+        )
+        self.client.force_login(self.client_user)
+        response = self.client.get(reverse('projects:financial_summary', args=(self.project.pk,)))
+        self.assertEqual(response.status_code, 403)
 
     def test_office_manager_sees_base_rollup_but_not_budget_section(self):
         """Internal roles outside management/accounting see the base rollup, not budget data."""

@@ -16,7 +16,7 @@
             <span class="status-pill status-pill--{{ project.status }}">{{ project.get_status_display }}</span>
         </div>
         <h1>{{ project.name }}</h1>
-        {% if project.description %}<p>{{ project.description }}</p>{% endif %}
+        {% if viewer_is_internal and project.description %}<p>{{ project.description }}</p>{% endif %}
     </div>
     {% if can_manage_project or can_invite_clients %}
     <div class="button-row">
@@ -45,7 +45,7 @@
 <section class="module-grid" aria-label="Project modules">
     {% if can_use_action_center %}<a class="module-card module-card--ready module-card--link module-card--featured" href="{% url 'projects:action_center' project.pk %}">
         <i class="bi bi-inbox"></i>
-        <div><h2>Action center</h2><p>Decisions, drafts, delays, and active conversations.</p></div>
+        <div><h2>Action center</h2><p>{% if viewer_is_internal %}Decisions, drafts, delays, and active conversations.{% else %}Your pending decisions and project conversations.{% endif %}</p></div>
         <span>{% if action_count %}{{ action_count }} item{{ action_count|pluralize }} need{% if action_count == 1 %}s{% endif %} attention{% else %}No urgent items{% endif %} <i class="bi bi-arrow-right"></i></span>
     </a>{% endif %}
     {% if can_use_project_messaging %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:message_list' project.pk %}">
@@ -60,22 +60,22 @@
     </a>{% endif %}
     {% if can_use_daily_logs %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:daily_log_list' project.pk %}">
         <i class="bi bi-journal-text"></i>
-        <div><h2>Project updates</h2><p>Progress notes and job-site photos shared with the client.</p></div>
+        <div><h2>Project updates</h2><p>{% if viewer_is_internal %}Progress notes and job-site photos shared with the client.{% else %}Progress notes and job-site photos shared with you.{% endif %}</p></div>
         <span>Open updates <i class="bi bi-arrow-right"></i></span>
     </a>{% endif %}
     {% if can_use_estimates %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:estimate_list' project.pk %}">
         <i class="bi bi-file-earmark-text"></i>
-        <div><h2>Estimates</h2><p>Propose the project price and set the contract amount.</p></div>
+        <div><h2>Estimates</h2><p>{% if viewer_is_internal %}Propose the project price and set the contract amount.{% else %}Review proposed pricing and your approved estimate.{% endif %}</p></div>
         <span>Open estimates <i class="bi bi-arrow-right"></i></span>
     </a>{% endif %}
     {% if can_use_change_orders %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:change_order_list' project.pk %}">
         <i class="bi bi-arrow-left-right"></i>
-        <div><h2>Change orders</h2><p>Pricing, customer decisions, and approval history.</p></div>
+        <div><h2>Change orders</h2><p>{% if viewer_is_internal %}Pricing, customer decisions, and approval history.{% else %}Review scope changes, pricing, and your decisions.{% endif %}</p></div>
         <span>Open change orders <i class="bi bi-arrow-right"></i></span>
     </a>{% endif %}
     {% if can_use_selections %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:selection_list' project.pk %}">
         <i class="bi bi-palette"></i>
-        <div><h2>Selections</h2><p>Finish options, allowances, and customer choices.</p></div>
+        <div><h2>Selections</h2><p>{% if viewer_is_internal %}Finish options, allowances, and customer choices.{% else %}Choose finishes and review your allowances and selections.{% endif %}</p></div>
         <span>Open selections <i class="bi bi-arrow-right"></i></span>
     </a>{% endif %}
     {% if can_use_invoices %}<a class="module-card module-card--ready module-card--link" href="{% url 'billing:invoice_list' project.pk %}">

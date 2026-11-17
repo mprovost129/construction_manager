@@ -733,6 +733,8 @@ class ConversationReplyForm(forms.ModelForm):
 class ProjectForm(forms.ModelForm):
     class Meta:
         model = Project
+        labels = {'description': 'Internal project notes'}
+        help_texts = {'description': 'Visible to company staff only. Share client updates through Project updates.'}
         fields = (
             'organization',
             'name',
