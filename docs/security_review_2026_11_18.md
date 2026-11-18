@@ -18,7 +18,7 @@ Automated tests exercise authentication, client and signer privacy, unassigned/r
 ## Outstanding security work
 
 - Administrator MFA is implemented in the follow-up release; each account owner must enroll and retain recovery codes. See [administrator MFA](administrator_mfa.md). Enrolled users require MFA; production administrators cannot access business pages before enrollment.
-- Finish provider-account MFA enrollment, GitHub access/MFA review, backup restore drills, and dependency vulnerability review. Source configuration and unit tests do not attest to all live provider settings.
+- Finish provider-account MFA enrollment, GitHub access/MFA review, and backup restore drills. Continue periodic dependency vulnerability checks. Source configuration and unit tests do not attest to all live provider settings.
 - Arrange an independent penetration test before broad financial-data rollout.
 - Keep QuickBooks disconnected until edition/year, the Windows connector computer, company-file identity, and account mappings are validated. The user reports the company file is on the network. Use an authorized Windows host with access to that file; do not expose SMB or the company file to the public internet.
 
@@ -47,3 +47,28 @@ Observed November 18, 2026 in the authenticated provider dashboards:
 
 These checks verify settings and backup-job evidence, not a full restore. A safe
 isolated restore drill and provider recovery-code custody remain outstanding.
+
+## Dependency security follow-up
+
+The November 18 pip-audit check identified advisories in eight pinned libraries.
+Its raw count included duplicate advisory records and aliases; it is not a count
+of independently exploitable application vulnerabilities. Updated Django to
+6.0.10, Pillow to 13.0.0, filelock to 4.2.12, pytest to 9.0.3, sqlparse to 0.6.0,
+urllib3 to 2.8.0, virtualenv to 21.14.10, and Werkzeug to 3.1.9. The virtualenv
+update also required compatible distlib, packaging, and python-discovery versions.
+
+Pinned the remaining six resolved supporting libraries to the versions tested.
+All 56 resolved packages matched the test environment. Both the patched declared
+requirements and the complete resolved package list reported no known advisories
+through pip-audit/PyPI on November 18, 2026. The full suite passed: 524 tests and
+67 subtests, with dependency consistency, lint, and migration checks passing.
+HTTPS verification remained enabled; the advisory client used Windows' trusted
+certificate store because its isolated certificate bundle did not recognize the
+local issuer. No application or financial data was sent to the advisory service.
+
+The scan covers Python package advisories, not the operating-system image,
+unpublished vulnerabilities, exploitability analysis, or an independent pentest.
+GitHub security settings required a fresh login and were not verified.
+
+Primary release references: [Django November security release](https://www.djangoproject.com/weblog/2026/nov/03/security-releases/),
+[Pillow 13.0 release notes](https://pillow.readthedocs.io/en/stable/releasenotes/13.0.0.html).
