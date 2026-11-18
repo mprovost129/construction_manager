@@ -1,0 +1,7 @@
+{% extends 'users/mfa_base.html' %}
+{% block content %}
+<h1>Verify your sign-in</h1>
+<p>Enter the current six-digit code from your authenticator app. If your phone is unavailable, use one of your saved recovery codes and select the recovery-code option.</p>
+<form method="post">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}">{{ form.as_p }}<button class="btn btn-primary" type="submit">Verify and continue</button></form>
+<p class="mt-3">If you have lost both your phone and recovery codes, contact your administrator. A password reset does not remove this protection.</p>
+{% endblock %}

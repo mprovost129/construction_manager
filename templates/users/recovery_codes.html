@@ -1,0 +1,8 @@
+{% extends 'users/mfa_base.html' %}
+{% block content %}
+<h1>Save your recovery codes</h1>
+<p>Two-step verification is active. Store these codes in a password manager or another safe place separate from your phone. Each code can be used once, together with your password.</p>
+<p><strong>These codes are shown only now.</strong> Previous recovery codes no longer work.</p>
+<ul>{% for code in codes %}<li><code>{{ code }}</code></li>{% endfor %}</ul>
+<a class="btn btn-primary mt-3" href="{% url 'users:security' %}">I have saved my recovery codes</a>
+{% endblock %}

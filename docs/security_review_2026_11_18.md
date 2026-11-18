@@ -17,9 +17,33 @@ Automated tests exercise authentication, client and signer privacy, unassigned/r
 
 ## Outstanding security work
 
-- Add and enroll administrator MFA; the app currently relies on passwords plus login throttling and CAPTCHA.
-- Review production account access, hosting/GitHub/Cloudflare MFA, R2 public-access configuration, database network restrictions, backup restore procedures, and dependency vulnerability reports. Source configuration and unit tests do not attest to all live provider settings.
+- Administrator MFA is implemented in the follow-up release; each account owner must enroll and retain recovery codes. See [administrator MFA](administrator_mfa.md). Enrolled users require MFA; production administrators cannot access business pages before enrollment.
+- Finish provider-account MFA enrollment, GitHub access/MFA review, backup restore drills, and dependency vulnerability review. Source configuration and unit tests do not attest to all live provider settings.
 - Arrange an independent penetration test before broad financial-data rollout.
 - Keep QuickBooks disconnected until edition/year, the Windows connector computer, company-file identity, and account mappings are validated. The user reports the company file is on the network. Use an authorized Windows host with access to that file; do not expose SMB or the company file to the public internet.
 
 References: [Cloudflare server validation](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/), [OWASP authorization](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html), [Intuit Web Connector setup](https://quickbooks.intuit.com/learn-support/en-us/help-article/install-products/set-quickbooks-web-connector/L4Vp7VI44_US_en_US).
+
+## Follow-up live infrastructure review
+
+Observed November 18, 2026 in the authenticated provider dashboards:
+
+- PostgreSQL reports all internet traffic blocked by its database inbound rules.
+  The broader workspace network rule is permissive, but the database-specific
+  effective policy blocks external connections. Do not relax that database rule.
+- Database recovery offers a three-day point-in-time recovery window and two
+  existing export records. The initially loading UI briefly displayed a generic
+  seven-day message; the settled account-specific view showed three days and a
+  paid upgrade for seven. No restore or plan change was performed.
+- Both the primary document bucket and backup bucket report public access disabled.
+  The backup bucket has no public development URL or custom domain and has an
+  enabled indefinite bucket-lock rule protecting backup history.
+- The scheduled document backup at 4:00 AM EST completed successfully, with the
+  job reporting seven verified objects, four new copies, and an accepted completion
+  heartbeat. Documents uploaded later that morning are outside that snapshot.
+- Render account two-factor authentication was Disabled; Cloudflare authentication
+  was Inactive. Owner enrollment was handed off. Do not treat either as enabled
+  without subsequently observing the completed state.
+
+These checks verify settings and backup-job evidence, not a full restore. A safe
+isolated restore drill and provider recovery-code custody remain outstanding.

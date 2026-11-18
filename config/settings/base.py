@@ -44,6 +44,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # Third-party
     'axes',
+    'django_otp',
+    'django_otp.plugins.otp_totp',
     # Local
     'users',
     'core',
@@ -67,6 +69,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'users.mfa.AdministratorMFAMiddleware',
     'core.security.BrowserSecurityMiddleware',
     'projects.middleware.ClientViewAuditMiddleware',
     'axes.middleware.AxesMiddleware',
@@ -137,6 +140,16 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
+
+# Enrolled accounts always require MFA. Administrators must enroll in production.
+MFA_REQUIRED_FOR_ADMINS = env_bool('MFA_REQUIRED_FOR_ADMINS', APP_ENVIRONMENT == 'production')
+MFA_SESSION_SECONDS = 8 * 60 * 60
+MFA_SETUP_SECONDS = 10 * 60
+OTP_TOTP_ISSUER = APP_NAME
+OTP_TOTP_THROTTLE_FACTOR = 2
+# Retain old application keys during a key rotation so encrypted authenticators
+# can still be read. Never rotate SECRET_KEY without following the MFA runbook.
+SECRET_KEY_FALLBACKS = [key.strip() for key in os.environ.get('SECRET_KEY_FALLBACKS', '').split(',') if key.strip()]
 
 # Cache — overridden per environment
 CACHES = {
@@ -223,8 +236,7 @@ LEGAL_GOVERNING_LAW = os.environ.get(
 )
 LEGAL_EFFECTIVE_DATE = os.environ.get('LEGAL_EFFECTIVE_DATE', 'July 31, 2026')
 
-# Cloudflare Turnstile protects public QR document links. Production public
-# document access remains unavailable until both values are configured.
+# Cloudflare Turnstile protects browser form submissions; public QR access is retired.
 TURNSTILE_SITE_KEY = os.environ.get('TURNSTILE_SITE_KEY', '')
 TURNSTILE_SECRET_KEY = os.environ.get('TURNSTILE_SECRET_KEY', '')
 TURNSTILE_FORMS_ENABLED = env_bool('TURNSTILE_FORMS_ENABLED', APP_ENVIRONMENT == 'production')

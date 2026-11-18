@@ -86,8 +86,8 @@ Private document storage can use Cloudflare R2 with `PRIVATE_STORAGE_BACKEND=r2`
 The Render Blueprint requires the account ID, private bucket name, access key,
 and secret key. It fails configuration when these are missing instead of silently
 writing production uploads to the temporary server filesystem. File URLs remain
-unavailable: existing permission checks and QR human verification still gate
-downloads through Django. Keep the bucket private, with no public R2.dev URL or
+unavailable: authenticated project permissions and applicable client visibility gate
+downloads through Django. Public QR document access is retired. Keep the bucket private, with no public R2.dev URL or
 public custom domain. The `local` backend remains available for development.
 
 R2 credentials, live upload verification, backup evidence, restore-test tracking,

@@ -18,6 +18,7 @@
                 <a class="app-nav__link" href="{% url 'core:operations' %}"><i class="bi bi-activity" aria-hidden="true"></i> Operations</a>
             {% endif %}
             {% if user.is_authenticated %}
+                <a class="app-nav__link" href="{% url 'users:security' %}">Account security</a>
                 <a class="app-nav__link" href="{% url 'projects:notification_list' %}" aria-label="Notifications{% if unread_notification_count %}, {{ unread_notification_count }} unread{% endif %}"><i class="bi bi-bell"></i>{% if unread_notification_count %} <span class="notification-count">{{ unread_notification_count }}</span>{% endif %}</a>
                 <span class="app-nav__identity">{{ user.email }}</span>
                 <form method="post" action="{% url 'logout' %}" class="app-nav__logout">

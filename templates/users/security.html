@@ -1,0 +1,15 @@
+{% extends 'users/mfa_base.html' %}
+{% block content %}
+<h1>Account security</h1>
+{% if enabled %}
+<p>Two-step verification is on. Your authenticator app protects this account in addition to your password.</p>
+<p>You have {{ remaining_codes }} unused recovery codes.</p>
+<a class="btn btn-outline-primary" href="{% url 'users:mfa_recovery_codes' %}">Replace recovery codes</a>
+{% else %}
+<p>Add a second step to protect your account with codes from an authenticator app.</p>
+{% if required %}<p>Administrators must complete setup before accessing company information.</p>{% endif %}
+<a class="btn btn-primary" href="{% url 'users:mfa_setup' %}">Set up two-step verification</a>
+{% endif %}
+<p class="mt-4">Keep your recovery codes somewhere safe and separate from your phone. If you lose both your phone and recovery codes, contact your administrator for identity-verified recovery.</p>
+<a href="{% url 'core:home' %}">Return to projects</a>
+{% endblock %}
