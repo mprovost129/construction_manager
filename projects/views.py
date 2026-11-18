@@ -5364,6 +5364,8 @@ class TeamInvitationResendView(LoginRequiredMixin, View):
                 role=old_invitation.role,
                 accounting_view=old_invitation.accounting_view,
                 accounting_edit=old_invitation.accounting_edit,
+                desktop_manage=old_invitation.desktop_manage,
+                desktop_check=old_invitation.desktop_check,
                 project_budget_view=old_invitation.project_budget_view,
                 invited_by=request.user,
             )
@@ -5434,7 +5436,7 @@ class TeamMembershipUpdateView(LoginRequiredMixin, View):
         old_role = membership.role
         old_active = membership.is_active
         old_features = {name: membership.feature_allowed(name) for name in
-                        ('accounting_view', 'accounting_edit', 'project_budget_view')}
+                        ('accounting_view', 'accounting_edit', 'project_budget_view', 'desktop_manage', 'desktop_check')}
         form = TeamMembershipForm(request.POST, instance=membership)
         if not form.is_valid():
             messages.error(request, 'Changes were not saved. ' + ' '.join(

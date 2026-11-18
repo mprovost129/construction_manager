@@ -21,7 +21,7 @@ class DesktopOnboardingTests(TestCase):
         self.client.force_login(self.admin)
 
     def test_admin_can_save_partial_details_without_connecting(self):
-        self.assertContains(self.client.get(self.url), 'Not connected')
+        self.assertContains(self.client.get(self.url), 'Open connection setup')
         self.assertFalse(QuickBooksDesktopOnboarding.objects.exists())
         response = self.client.post(self.url, {'organization': 'heritage', 'hosting': 'office'})
         self.assertEqual(response.status_code, 302)
@@ -65,5 +65,5 @@ class DesktopOnboardingTests(TestCase):
         self.client.post(self.url, data)
         self.assertEqual(QuickBooksDesktopOnboarding.objects.get().missing_details, [])
         response = self.client.get(self.url)
-        self.assertContains(response, 'Not connected')
-        self.assertContains(response, 'Connection development and accounting validation are still required.')
+        self.assertContains(response, 'Completing this checklist does not activate a connection.')
+        self.assertContains(response, 'Accounting validation is still required before financial transfers can be implemented.')

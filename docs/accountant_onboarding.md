@@ -5,6 +5,10 @@
 Open Company > Team & roles > QuickBooks setup. Choose **Invite accountant or
 setup person**, which presets the Accountant role, View QuickBooks setup and
 Update QuickBooks setup. Review the email and permissions, then send the invite.
+For the Windows installer, also select **Manage QuickBooks connection** and, if needed,
+**Request QuickBooks connection checks**. These are separate from checklist editing
+and are not automatically granted by the accountant invitation preset. Admins
+have these permissions by default unless explicitly revoked.
 Use a separate account for every person. Multiple people can access the shared
 setup checklist. Do not give the Admin role merely to let someone prepare QuickBooks.
 
@@ -43,16 +47,49 @@ The supplied Product Information photo identifies QuickBooks Desktop Pro Plus
 2024 R22P (64-bit) and host QB_TEENA_34. Confirm these on the installation computer.
 The photo's OneDrive folder name does not establish whether synchronization is active.
 
-## Connection status
+## Install and verify the shared connection
 
-This release supports preparation only. It does not generate a connection package,
-provision connector credentials, enable the SOAP service, or transfer transactions.
-Checklist ticks are operator attestations, not verified connection tests.
+1. In Heritage, open **QuickBooks > Open connection setup** on the computer that
+   can open the intended company file. The installer needs View QuickBooks setup
+   and Manage QuickBooks connection. A person who only requests checks needs
+   View QuickBooks setup and Request QuickBooks connection checks.
+2. Open the intended file in QuickBooks as its administrator. Press F2 and copy
+   the exact company name and full .QBW location into the setup form. The website
+   stores a path fingerprint, not the path or company file. This registration is
+   bound to that location; a later file move or switch from a test copy requires
+   site-owner review. Do not silently replace or move the registered file.
+3. Choose a unique 16–64 character Web Connector password, save it privately,
+   confirm it, and enter your own current Heritage password. Confirm the backup
+   and storage preparation and choose **Prepare connection setup**. The connector
+   password is stored as a one-way hash and is never displayed again.
+4. Download the .qwc file. In Intuit Web Connector on that same computer, choose
+   **Add an Application** and select it. Review and approve the Heritage app in
+   QuickBooks, with no personal-data access. Web Connector records application
+   registration metadata; Heritage only requests company verification.
+5. Enter the dedicated password in the Heritage row in Web Connector, select
+   that row, and choose **Update Selected**. Keep **Auto-Run** off. Leave the
+   intended company open during this initial verification.
+6. Back in Heritage, **Refresh status**. **Company verified** means the latest
+   check matched the location fingerprint, name and registered FileID. It does
+   not mean a continuous connection or that accounting transfers are enabled.
+   A failure clears verification; correct the issue, request a new check in
+   Heritage, and run Update Selected again.
 
-After the connection package and installation contract are implemented, verify the
-intended test company without writing transactions. Implement and validate invoice
-and credit transfers with that test company; accountant review is required before
-live use. See [the integration plan](quickbooks_desktop_plan.md) for remaining work.
+One Windows computer runs the shared connection. Authorized staff use their own
+Heritage accounts to see status or queue a check; the website cannot remotely
+start Web Connector. They do not each install another connector. Revoking a
+person's website access does not revoke the shared computer credential. If that
+person knew the connector password, an authorized manager should disconnect and
+reset it. Disconnect invalidates the shared password and all current tickets.
+Reset for the same file preserves registration IDs and reuses the existing Web
+Connector row with the new password.
+
+This release verifies the company only. Invoice, credit, customer and payment
+transfers are unavailable. Automated tests use synthetic data; installation and
+approval in the accountant's actual QuickBooks/Web Connector remain to be tested.
+A copied or restored company can retain its registration ID, so this check alone
+must not authorize future financial writes. Transfers require mapping,
+reconciliation, test-company validation and accountant review first.
 
 Official references:
 - [Intuit installation instructions](https://quickbooks.intuit.com/learn-support/en-us/help-article/install-products/set-quickbooks-web-connector/L4Vp7VI44_US_en_US)
@@ -68,9 +105,12 @@ one editor's old form overwriting a newer save. Organization row locks serialize
 saves on PostgreSQL; local SQLite tests cover stale revision behavior, not actual
 production lock contention. Browser forms retain global CSRF and Turnstile protection.
 
-Validation on November 18, 2026: 585 automated tests passed; migration drift check
-passed. Coverage includes delegated read-only/edit access, immediate revocation,
-client/inactive/cross-company denial, administrator overrides, invite acceptance and
-resend permission preservation, MFA and CAPTCHA enforcement, assigned-project budget
-checks, and stale form rejection. Synthetic browser previews verified the onboarding
-page and expanded per-person checkbox controls.
+Validation on November 18, 2026: 602 automated tests passed. Coverage includes
+configuration, reauthentication, separate view/manage/check permissions, client
+and cross-company denial, CSRF/Turnstile/MFA, credential/session revocation,
+revisions, duplicate-check suppression, private QWC downloads, file identity,
+SOAP sequencing and existing application behavior. The connection form was
+reviewed in a synthetic local browser preview. An independent Zeep SOAP client
+parsed the WSDL and completed a synthetic version/authentication/company-check/
+close/no-work exchange successfully. Migration drift check passed. Actual Windows QuickBooks
+interoperability is pending; do not describe this as a completed company sync.

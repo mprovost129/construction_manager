@@ -13,6 +13,7 @@ from xml.etree import ElementTree as ET
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import transaction
 from django.utils import timezone
+from django.views.decorators.debug import sensitive_variables
 
 from .desktop_models import DesktopAuthThrottle, DesktopConnection, DesktopSession
 
@@ -45,6 +46,7 @@ def company_file_digest(path):
     return digest(ntpath.normcase(ntpath.normpath(path.strip())))
 
 
+@sensitive_variables()
 def parse_xml(raw):
     try:
         text = raw.decode('utf-8-sig') if isinstance(raw, bytes) else raw
@@ -58,6 +60,7 @@ def parse_xml(raw):
         raise ProtocolError from exc
 
 
+@sensitive_variables()
 def parse_call(raw, action):
     root = parse_xml(raw)
     if root.tag != f'{{{SOAP}}}Envelope':
@@ -75,6 +78,12 @@ def parse_call(raw, action):
         if child.tag != f'{{{INTUIT}}}{key}' or key not in METHODS[name] or key in params or len(child):
             raise ProtocolError
         params[key] = child.text or ''
+    optional = {'strHCPResponse', 'hresult', 'message'}
+    if name == 'serverVersion':
+        optional.add('ticket')
+    for key in set(METHODS[name]) - set(params):
+        if key in optional:
+            params[key] = ''
     if set(params) != set(METHODS[name]):
         raise ProtocolError
     return name, params
@@ -116,6 +125,7 @@ def allow_authentication(username, remote_address):
     return allowed
 
 
+@sensitive_variables()
 def authenticate(username, password, remote_address):
     # Database-backed limits apply across workers, including successful logins.
     if not allow_authentication(username, remote_address):
@@ -130,6 +140,10 @@ def authenticate(username, password, remote_address):
         valid = check_password(password, connection.password_hash if connection else DUMMY_PASSWORD)
         if not connection or not valid or not connection.expected_company_name.strip() or len(connection.company_file_digest) != 64:
             return ['', 'nvu']
+        connection.last_contact_at = timezone.now()
+        connection.save(update_fields=['last_contact_at'])
+        if not connection.check_requested_at:
+            return ['', 'none']
         connection.verified_at = None
         connection.save(update_fields=['verified_at'])
         ticket = secrets.token_urlsafe(32)
@@ -137,6 +151,7 @@ def authenticate(username, password, remote_address):
             'ticket_digest': digest(ticket), 'expires_at': timezone.now() + timedelta(minutes=15),
             'request_id': uuid.uuid4(), 'state': DesktopSession.State.AUTHENTICATED,
             'error_code': '', 'response_digest': '',
+            'configuration_revision': connection.configuration_revision,
         })
         # The already-open file is checked before any query is returned.
         return [ticket, '']
@@ -147,12 +162,14 @@ def fail(session, code):
     session.error_code = code
     session.save(update_fields=['state', 'error_code'])
     # A failed recheck must revoke any previous verification.
-    DesktopConnection.objects.filter(pk=session.connection_id).update(verified_at=None)
+    DesktopConnection.objects.filter(pk=session.connection_id).update(
+        verified_at=None, last_error_code=code, check_requested_at=None)
 
 
+@sensitive_variables()
 def dispatch(name, params, remote_address=''):
     if name == 'serverVersion':
-        return 'Heritage Desktop preflight 1.0'
+        return 'Heritage Desktop company verification 2.0'
     if name == 'clientVersion':
         return ''
     if name == 'authenticate':
@@ -161,11 +178,21 @@ def dispatch(name, params, remote_address=''):
     if not 32 <= len(ticket) <= 100:
         raise ProtocolError
     with transaction.atomic():
-        session = DesktopSession.objects.select_for_update().select_related('connection').filter(
-            ticket_digest=digest(ticket), expires_at__gt=timezone.now(), connection__active=True,
+        initial = DesktopSession.objects.filter(ticket_digest=digest(ticket)).values('connection_id').first()
+        if not initial:
+            raise ProtocolError
+        connection = DesktopConnection.objects.select_for_update().filter(pk=initial['connection_id'], active=True).first()
+        if not connection:
+            raise ProtocolError
+        session = DesktopSession.objects.select_for_update().filter(
+            ticket_digest=digest(ticket), expires_at__gt=timezone.now(), connection=connection,
+            configuration_revision=connection.configuration_revision,
         ).exclude(state=DesktopSession.State.CLOSED).first()
         if not session:
             raise ProtocolError
+        session.connection = connection
+        connection.last_contact_at = timezone.now()
+        connection.save(update_fields=['last_contact_at'])
         if name == 'getLastError':
             return session.error_code or 'No connector error.'
         if name == 'closeConnection':
@@ -182,7 +209,7 @@ def dispatch(name, params, remote_address=''):
                 fail(session, 'COMPANY_FILE_MISMATCH')
                 return ''
             try:
-                compatible = int(params['qbXMLMajorVers']) >= 1 and int(params['qbXMLMinorVers']) >= 0
+                compatible = int(params['qbXMLMajorVers']) >= 13 and int(params['qbXMLMinorVers']) >= 0
             except ValueError:
                 compatible = False
             if not compatible:
@@ -192,9 +219,12 @@ def dispatch(name, params, remote_address=''):
                 return ''
             session.state = DesktopSession.State.REQUESTED
             session.save(update_fields=['state'])
-            return ('<?xml version="1.0"?><?qbxml version="1.0"?>'
+            return ('<?xml version="1.0"?><?qbxml version="13.0"?>'
                     '<QBXML><QBXMLMsgsRq onError="stopOnError">'
-                    f'<CompanyQueryRq requestID="{session.request_id}"/>'
+                    f'<CompanyQueryRq requestID="{session.request_id}">'
+                    '<IncludeRetElement>CompanyName</IncludeRetElement>'
+                    '<IncludeRetElement>DataExtRet</IncludeRetElement>'
+                    f'<OwnerID>{{{str(connection.owner_id).upper()}}}</OwnerID></CompanyQueryRq>'
                     '</QBXMLMsgsRq></QBXML>')
         if name == 'receiveResponseXML':
             response_digest = digest(params['response'])
@@ -219,12 +249,19 @@ def dispatch(name, params, remote_address=''):
                 names = result.findall('./CompanyRet/CompanyName')
                 if len(names) != 1 or (names[0].text or '').strip().casefold() != session.connection.expected_company_name.strip().casefold():
                     raise ProtocolError
+                identities = [ext for ext in result.findall('./CompanyRet/DataExtRet')
+                              if (ext.findtext('DataExtName') or '').casefold() == 'fileid'
+                              and (ext.findtext('OwnerID') or '').strip('{}').casefold() == str(connection.owner_id).casefold()]
+                if (len(identities) != 1 or
+                        (identities[0].findtext('DataExtValue') or '').strip('{}').casefold() != str(connection.file_id).casefold()):
+                    raise ProtocolError
             except ProtocolError:
                 fail(session, 'COMPANY_RESPONSE_REJECTED')
                 return -1
             session.state = DesktopSession.State.VERIFIED
             session.response_digest = response_digest
             session.save(update_fields=['state', 'response_digest'])
-            DesktopConnection.objects.filter(pk=session.connection_id).update(verified_at=timezone.now())
+            DesktopConnection.objects.filter(pk=session.connection_id).update(
+                verified_at=timezone.now(), last_error_code='', check_requested_at=None)
             return 100
         raise ProtocolError

@@ -1,10 +1,11 @@
 {% extends 'base.html' %}
 {% block title %}QuickBooks onboarding | {{ app_name }}{% endblock %}
 {% block content %}
-<section class="page-heading"><div><p class="eyebrow">Accounting workspace</p><h1>QuickBooks Desktop onboarding</h1><p class="text-secondary">A shared checklist for your accountant and the person setting up the QuickBooks computer.</p></div><span class="status-pill status-pill--on_hold">Not connected</span></section>
-<div class="role-banner"><i class="bi bi-info-circle"></i><span>This page saves preparation details only. QuickBooks is not connected and invoice and credit transfers are not enabled. Completing the checklist does not activate a connection.</span></div>
+<section class="page-heading"><div><p class="eyebrow">Accounting workspace</p><h1>QuickBooks Desktop onboarding</h1><p class="text-secondary">A shared checklist for your accountant and the person setting up the QuickBooks computer.</p></div><span class="status-pill">Preparation checklist</span></section>
+<div class="role-banner"><i class="bi bi-info-circle"></i><span>Completing this checklist does not activate a connection. Open connection setup below to install Web Connector and verify the company file. Invoice and credit transfers are not enabled.</span></div>
 {% if organizations|length > 1 %}<section class="admin-panel"><h2>Choose a company</h2><div class="button-row">{% for organization in organizations %}<a class="btn btn-outline-secondary" href="?organization={{ organization.slug|urlencode }}">{{ organization.name }}</a>{% endfor %}</div></section>{% endif %}
 {% if selected_organization %}
+<section class="admin-panel"><h2>Connect and check status</h2><p>Use the shared connection page to prepare the installation file, follow the Windows setup steps, and see the last company-file check. Your administrator grants connection management and check permissions separately.</p><a class="btn btn-primary" href="{% url 'integrations:desktop_connection' selected_organization.slug %}">Open connection setup</a></section>
 <section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">{{ selected_organization.name }}</p><h2>Start here</h2><p>Each person uses their own invitation and two-step verification. Your administrator chooses who can view this page and who can update it.</p></div></div>
 {% if can_manage_team %}<div class="button-row"><a class="btn btn-primary" href="{% url 'projects:invite_team_member' selected_organization.slug %}?purpose=accounting">Invite accountant or setup person</a><a class="btn btn-outline-secondary" href="{% url 'projects:company_team' selected_organization.slug %}">Manage team permissions</a></div>{% endif %}
 {% if not can_edit_setup %}<p><strong>Your access is read-only.</strong> Ask a company administrator for “Update QuickBooks setup” if you are coordinating the installation.</p>{% endif %}
@@ -14,7 +15,7 @@
 <li><strong>Review existing connections.</strong> Check existing integrated applications with the accountant so a second connection is not created accidentally. Leave other working applications in place.</li>
 <li><strong>Prepare Intuit Web Connector.</strong> Use Intuit’s official instructions and a version compatible with your installed QuickBooks release. The connection computer must be available when synchronization runs. Web Connector contacts Heritage 360 over an outgoing secure connection; do not expose the company file to the internet.</li>
 <li><strong>Agree on the accounting details.</strong> Record how customers/jobs, items, accounts, taxes, invoice numbers, and credits will be matched. Use descriptions here, without passwords, license numbers, recovery codes, or copies of the company file.</li>
-<li><strong>Save and wait for connection testing.</strong> The Heritage 360 connection package is not available yet. After it is prepared, the first check will verify the intended company without creating transactions. Invoice and credit transfers will then be tested in the separate test company and reviewed by the accountant before live use.</li>
+<li><strong>Save and open connection setup.</strong> An authorized installer can prepare the Web Connector file and verify the intended company without creating financial transactions. Invoice and credit transfers require further development, separate test-company validation, and accountant review before live use.</li>
 </ol>
 <p><a href="https://quickbooks.intuit.com/learn-support/en-us/help-article/install-products/set-quickbooks-web-connector/L4Vp7VI44_US_en_US" target="_blank" rel="noopener noreferrer">Intuit’s Web Connector installation instructions</a></p>
 </section>
@@ -27,9 +28,9 @@
 {% if onboarding.updated_at %}<p class="text-secondary">Last saved {{ onboarding.updated_at|date:"M j, Y g:i A" }}{% if onboarding.updated_by %} by {{ onboarding.updated_by.get_full_name|default:onboarding.updated_by.email }}{% endif %}.</p>{% endif %}
 </section>
 <section class="admin-panel"><h2>Preparation status</h2>
-{% if onboarding.missing_details %}<h3>Details still needed</h3><ul>{% for detail in onboarding.missing_details %}<li>{{ detail|capfirst }}</li>{% endfor %}</ul>{% else %}<p>Setup details collected. Connection development and accounting validation are still required.</p>{% endif %}
-{% if onboarding.missing_preparation %}<h3>Computer preparation still needed</h3><ul>{% for detail in onboarding.missing_preparation %}<li>{{ detail }}</li>{% endfor %}</ul>{% else %}<p>Computer preparation checklist completed. Connection testing is still pending.</p>{% endif %}
-<p><strong>Connection testing: pending.</strong> <strong>Live transfers: unavailable.</strong></p>
+{% if onboarding.missing_details %}<h3>Details still needed</h3><ul>{% for detail in onboarding.missing_details %}<li>{{ detail|capfirst }}</li>{% endfor %}</ul>{% else %}<p>Setup details collected. Accounting validation is still required before financial transfers can be implemented.</p>{% endif %}
+{% if onboarding.missing_preparation %}<h3>Computer preparation still needed</h3><ul>{% for detail in onboarding.missing_preparation %}<li>{{ detail }}</li>{% endfor %}</ul>{% else %}<p>Computer preparation checklist completed. Check the connection page for the verification result.</p>{% endif %}
+<p><a href="{% url 'integrations:desktop_connection' selected_organization.slug %}">View connection status</a>. <strong>Live transfers: unavailable.</strong></p>
 </section>
 {% endif %}
 {% endblock %}

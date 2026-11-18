@@ -36,3 +36,4 @@ STRIPE_AUTOMATIC_TAX_ENABLED = False
 # Browser protection is enabled explicitly in its integration tests.
 TURNSTILE_FORMS_ENABLED = False
 MFA_REQUIRED_FOR_ADMINS = False
+QUICKBOOKS_DESKTOP_CONNECTOR_ENABLED = False

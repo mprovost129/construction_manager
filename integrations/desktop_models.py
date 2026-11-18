@@ -5,6 +5,7 @@ from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 
 class DesktopConnection(models.Model):
@@ -15,7 +16,16 @@ class DesktopConnection(models.Model):
     expected_company_name = models.CharField(max_length=255)
     company_file_digest = models.CharField(max_length=64)
     file_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    owner_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    configuration_revision = models.PositiveIntegerField(default=1, editable=False)
+    check_requested_at = models.DateTimeField(null=True, default=timezone.now, editable=False)
+    last_contact_at = models.DateTimeField(null=True, editable=False)
+    last_error_code = models.CharField(max_length=40, blank=True, editable=False)
     verified_at = models.DateTimeField(null=True, editable=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['organization'], condition=Q(active=True),
+                                              name='desktop_one_active_company_connection')]
 
     def set_password(self, password):
         self.password_hash = make_password(password)
@@ -30,6 +40,7 @@ class DesktopSession(models.Model):
         CLOSED = 'closed'
 
     connection = models.OneToOneField(DesktopConnection, on_delete=models.CASCADE)
+    configuration_revision = models.PositiveIntegerField(default=1)
     ticket_digest = models.CharField(max_length=64, unique=True, editable=False)
     expires_at = models.DateTimeField()
     request_id = models.UUIDField(default=uuid.uuid4, editable=False)

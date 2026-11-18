@@ -84,7 +84,7 @@ class AccountingPermissionsTests(TestCase):
     def test_invitation_preserves_grants_and_resend_does_not_expand_them(self):
         invitation = OrganizationInvitation.objects.create(organization=self.org, email=self.person.email,
             role='accountant', invited_by=self.admin, accounting_view=True, accounting_edit=False,
-            project_budget_view=False)
+            project_budget_view=False, desktop_manage=True, desktop_check=False)
         self.client.force_login(self.admin)
         self.client.post(reverse('projects:resend_team_invitation', args=[self.org.slug, invitation.pk]))
         replacement = OrganizationInvitation.objects.get(revoked_at__isnull=True)
@@ -93,6 +93,8 @@ class AccountingPermissionsTests(TestCase):
         self.assertTrue(self.member.can_view_accounting)
         self.assertFalse(self.member.can_edit_accounting)
         self.assertFalse(self.member.can_view_budget)
+        self.assertTrue(self.member.can_manage_desktop)
+        self.assertFalse(self.member.can_check_desktop)
 
     def test_accountant_invite_preset_and_acceptance_landing(self):
         self.client.force_login(self.admin)

@@ -968,6 +968,7 @@ def accept_organization_invitation(invitation, user):
         organization=invitation.organization,
         user=user,
         defaults={'role': invitation.role, 'accounting_view': invitation.accounting_view,
+                  'desktop_manage': invitation.desktop_manage, 'desktop_check': invitation.desktop_check,
                   'accounting_edit': invitation.accounting_edit,
                   'project_budget_view': invitation.project_budget_view},
     )
@@ -980,9 +981,11 @@ def accept_organization_invitation(invitation, user):
         membership.is_active = True
         membership.accounting_view = invitation.accounting_view
         membership.accounting_edit = invitation.accounting_edit
+        membership.desktop_manage = invitation.desktop_manage
+        membership.desktop_check = invitation.desktop_check
         membership.project_budget_view = invitation.project_budget_view
         membership.save(update_fields=('role', 'is_active', 'accounting_view',
-                                       'accounting_edit', 'project_budget_view'))
+                                       'accounting_edit', 'desktop_manage', 'desktop_check', 'project_budget_view'))
 
     invitation.accepted_by = user
     invitation.accepted_at = timezone.now()

@@ -146,6 +146,8 @@ class OrganizationMembership(models.Model):
     # None preserves role defaults for existing memberships; explicit False revokes.
     accounting_view = models.BooleanField(null=True, default=None, blank=True)
     accounting_edit = models.BooleanField(null=True, default=None, blank=True)
+    desktop_manage = models.BooleanField(null=True, default=None, blank=True)
+    desktop_check = models.BooleanField(null=True, default=None, blank=True)
     project_budget_view = models.BooleanField(null=True, default=None, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -168,6 +170,8 @@ class OrganizationMembership(models.Model):
         defaults = {
             'accounting_view': (self.Role.ADMIN,),
             'accounting_edit': (self.Role.ADMIN,),
+            'desktop_manage': (self.Role.ADMIN,),
+            'desktop_check': (self.Role.ADMIN,),
             'project_budget_view': (self.Role.ADMIN, self.Role.MANAGER,
                                     self.Role.PROJECT_MANAGER, self.Role.ACCOUNTANT),
         }
@@ -186,6 +190,14 @@ class OrganizationMembership(models.Model):
     @property
     def can_view_budget(self):
         return self.feature_allowed('project_budget_view')
+
+    @property
+    def can_manage_desktop(self):
+        return self.can_view_accounting and self.feature_allowed('desktop_manage')
+
+    @property
+    def can_check_desktop(self):
+        return self.can_view_accounting and self.feature_allowed('desktop_check')
 
     @property
     def can_view_company_financials(self):
@@ -511,6 +523,8 @@ class InAppNotification(models.Model):
 
 
 class OrganizationInvitation(models.Model):
+    desktop_manage = models.BooleanField(null=True, default=None, blank=True)
+    desktop_check = models.BooleanField(null=True, default=None, blank=True)
     accounting_view = models.BooleanField(null=True, default=None, blank=True)
     accounting_edit = models.BooleanField(null=True, default=None, blank=True)
     project_budget_view = models.BooleanField(null=True, default=None, blank=True)
@@ -621,6 +635,7 @@ class ActivityEvent(models.Model):
         TEAM_ROLE_CHANGED = 'team_role_changed', 'Team role changed'
         TEAM_ACCESS_CHANGED = 'team_access_changed', 'Team access changed'
         ACCOUNTING_SETUP_UPDATED = 'accounting_setup_updated', 'Accounting setup updated'
+        DESKTOP_CONNECTION_CHANGED = 'desktop_connection_changed', 'QuickBooks connection changed'
         INTERNAL_ACCESS_ASSIGNED = (
             'internal_access_assigned',
             'Internal project access assigned',

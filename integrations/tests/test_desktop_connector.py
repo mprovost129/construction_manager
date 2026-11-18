@@ -73,6 +73,9 @@ class DesktopProtocolTests(TestCase):
         params.update(overrides)
         return [item.text or '' for item in self.value(self.call('authenticate', params), 'authenticate')]
 
+    def queue_check(self):
+        DesktopConnection.objects.filter(pk=self.connection.pk).update(check_requested_at=timezone.now())
+
     def send(self, ticket, **overrides):
         params = dict(ticket=ticket, strHCPResponse='', strCompanyFileName=self.path,
                       qbXMLCountry='US', qbXMLMajorVers=16, qbXMLMinorVers=0)
@@ -86,7 +89,13 @@ class DesktopProtocolTests(TestCase):
         root = ET.Element('QBXML')
         result = ET.SubElement(ET.SubElement(root, 'QBXMLMsgsRs'), 'CompanyQueryRs',
                                requestID=values['request_id'], statusCode=values['status'])
-        ET.SubElement(ET.SubElement(result, 'CompanyRet'), 'CompanyName').text = values['name']
+        company = ET.SubElement(result, 'CompanyRet')
+        ET.SubElement(company, 'CompanyName').text = values['name']
+        extension = ET.SubElement(company, 'DataExtRet')
+        ET.SubElement(extension, 'OwnerID').text = '{' + str(self.connection.owner_id) + '}'
+        ET.SubElement(extension, 'DataExtName').text = 'FileID'
+        ET.SubElement(extension, 'DataExtType').text = 'STR255TYPE'
+        ET.SubElement(extension, 'DataExtValue').text = '{' + str(self.connection.file_id) + '}'
         return ET.tostring(root, encoding='unicode')
 
     def receive(self, ticket, response, **overrides):
@@ -102,7 +111,9 @@ class DesktopProtocolTests(TestCase):
         self.assertNotEqual(self.connection.password_hash, 'synthetic-test-password')
         query = self.value(self.send(ticket), 'sendRequestXML').text
         root = ET.fromstring(query)
-        self.assertEqual([node.tag for node in root.iter()], ['QBXML', 'QBXMLMsgsRq', 'CompanyQueryRq'])
+        self.assertEqual([node.tag for node in root.iter()],
+                         ['QBXML', 'QBXMLMsgsRq', 'CompanyQueryRq', 'IncludeRetElement', 'IncludeRetElement', 'OwnerID'])
+        self.assertEqual(root.findtext('.//OwnerID'), '{' + str(self.connection.owner_id).upper() + '}')
         self.assertEqual(self.value(self.send(ticket), 'sendRequestXML').text, query)
         response = self.company_response()
         for _ in range(2):
@@ -159,14 +170,51 @@ class DesktopProtocolTests(TestCase):
         ticket, _ = self.login()
         self.assertTrue(self.value(self.send(ticket, strCompanyFileName='c:/ACCOUNTING/Example.qbw'), 'sendRequestXML').text)
 
+    def test_missing_wrong_or_duplicate_file_identity_is_rejected(self):
+        for change in ('missing', 'wrong_owner', 'wrong_file', 'duplicate'):
+            self.queue_check()
+            ticket, _ = self.login()
+            self.send(ticket)
+            root = ET.fromstring(self.company_response())
+            company = root.find('.//CompanyRet')
+            extension = company.find('DataExtRet')
+            if change == 'missing':
+                company.remove(extension)
+            elif change == 'wrong_owner':
+                extension.find('OwnerID').text = str(uuid.uuid4())
+            elif change == 'wrong_file':
+                extension.find('DataExtValue').text = str(uuid.uuid4())
+            else:
+                company.append(ET.fromstring(ET.tostring(extension)))
+            result = self.receive(ticket, ET.tostring(root, encoding='unicode'))
+            self.assertEqual(self.value(result, 'receiveResponseXML').text, '-1')
+            self.connection.refresh_from_db()
+            self.assertIsNone(self.connection.verified_at)
+
+    def test_optional_dotnet_parameters_and_minimum_qbxml_version(self):
+        self.assertEqual(self.call('serverVersion', {}).status_code, 200)
+        ticket, _ = self.login()
+        query = self.call('sendRequestXML', dict(ticket=ticket, strCompanyFileName=self.path,
+            qbXMLCountry='US', qbXMLMajorVers=13, qbXMLMinorVers=0))
+        self.assertTrue(self.value(query, 'sendRequestXML').text)
+        result = self.call('receiveResponseXML', dict(ticket=ticket, response=self.company_response()))
+        self.assertEqual(self.value(result, 'receiveResponseXML').text, '100')
+
+    def test_configuration_revision_invalidates_old_ticket(self):
+        ticket, _ = self.login()
+        DesktopConnection.objects.filter(pk=self.connection.pk).update(configuration_revision=2)
+        self.assertEqual(self.send(ticket).status_code, 500)
+
     def test_mismatched_company_request_status_and_conflicting_replay(self):
         for override in ({'name': 'Other Company'}, {'request_id': str(uuid.uuid4())}, {'status': '500'}):
             with self.subTest(override=override):
+                self.queue_check()
                 ticket, _ = self.login()
                 self.send(ticket)
                 self.assertEqual(self.value(self.receive(ticket, self.company_response(**override)), 'receiveResponseXML').text, '-1')
                 self.connection.refresh_from_db()
                 self.assertIsNone(self.connection.verified_at)
+        self.queue_check()
         ticket, _ = self.login()
         self.send(ticket)
         self.receive(ticket, self.company_response())
@@ -177,6 +225,7 @@ class DesktopProtocolTests(TestCase):
     def test_unsolicited_response_and_quickbooks_error(self):
         ticket, _ = self.login()
         self.assertEqual(self.value(self.receive(ticket, self.company_response()), 'receiveResponseXML').text, '-1')
+        self.queue_check()
         ticket, _ = self.login()
         self.send(ticket)
         result = self.receive(ticket, self.company_response(), hresult='0x123', message='Private file details')
@@ -188,6 +237,7 @@ class DesktopProtocolTests(TestCase):
     def test_connection_error_and_unknown_version_never_return_writes(self):
         ticket, _ = self.login()
         self.assertIsNone(self.value(self.send(ticket, qbXMLMajorVers='unknown'), 'sendRequestXML').text)
+        self.queue_check()
         ticket, _ = self.login()
         result = self.call('connectionError', dict(ticket=ticket, hresult='failure', message='private path'))
         self.assertEqual(self.value(result, 'connectionError').text, 'done')
@@ -281,7 +331,7 @@ class DesktopExportTests(TestCase):
         for kwargs in ({'request_id': uuid.uuid4()}, {'txn_id': ''}, {'edit_sequence': ' '}, {'txn_id': 'x' * 51}):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValidationError):
                 self.receipt(export, **kwargs)
-        other = DesktopConnection.objects.create(organization=self.organization, active=True, company_file_digest='a' * 64)
+        other = DesktopConnection.objects.create(organization=self.organization, active=False, company_file_digest='a' * 64)
         with self.assertRaises(ValidationError):
             self.receipt(export, connection_id=other.pk)
         DesktopConnection.objects.filter(pk=self.connection.pk).update(company_file_digest='b' * 64)
@@ -320,6 +370,7 @@ class DesktopExportTests(TestCase):
 
     def test_second_connection_cannot_export_same_invoice(self):
         self.reserve()
+        DesktopConnection.objects.filter(pk=self.connection.pk).update(active=False)
         other = DesktopConnection.objects.create(organization=self.organization, active=True,
             expected_company_name='Example', company_file_digest='d' * 64, verified_at=timezone.now())
         with self.assertRaises(ValidationError):

@@ -244,7 +244,9 @@ TURNSTILE_FORMS_ENABLED = env_bool('TURNSTILE_FORMS_ENABLED', APP_ENVIRONMENT ==
 # QuickBooks integration is hidden for the Heritage launch. Heritage uses
 # QuickBooks Desktop, which requires a separate Web Connector/qbXML adapter.
 QUICKBOOKS_INTEGRATION_ENABLED = env_bool('QUICKBOOKS_INTEGRATION_ENABLED', False)
-QUICKBOOKS_DESKTOP_CONNECTOR_ENABLED = env_bool('QUICKBOOKS_DESKTOP_CONNECTOR_ENABLED', False)
+# This enables only the restricted company verification protocol. No accounting
+# write generator exists. Every company still needs explicit credential setup.
+QUICKBOOKS_DESKTOP_CONNECTOR_ENABLED = env_bool('QUICKBOOKS_DESKTOP_CONNECTOR_ENABLED', True)
 
 # Dormant QuickBooks Online foundation. Sandbox credentials are development-only. Realm/company IDs
 # are captured per organization during OAuth rather than configured globally.
