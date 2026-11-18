@@ -9,6 +9,12 @@ from billing.models import Invoice, Payment
 from projects.models import CostCode, Organization, Project
 
 from .crypto import decrypt_token, encrypt_token
+from .desktop_models import (  # noqa: F401
+    DesktopAuthThrottle,
+    DesktopConnection,
+    DesktopExport,
+    DesktopSession,
+)
 
 
 class QuickBooksDesktopOnboarding(models.Model):

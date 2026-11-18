@@ -229,6 +229,7 @@ TURNSTILE_SECRET_KEY = os.environ.get('TURNSTILE_SECRET_KEY', '')
 # QuickBooks integration is hidden for the Heritage launch. Heritage uses
 # QuickBooks Desktop, which requires a separate Web Connector/qbXML adapter.
 QUICKBOOKS_INTEGRATION_ENABLED = env_bool('QUICKBOOKS_INTEGRATION_ENABLED', False)
+QUICKBOOKS_DESKTOP_CONNECTOR_ENABLED = env_bool('QUICKBOOKS_DESKTOP_CONNECTOR_ENABLED', False)
 
 # Dormant QuickBooks Online foundation. Sandbox credentials are development-only. Realm/company IDs
 # are captured per organization during OAuth rather than configured globally.

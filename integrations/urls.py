@@ -4,7 +4,7 @@ from django.conf import settings
 from django.http import Http404
 from django.urls import path
 
-from . import views
+from . import desktop_views, views
 
 app_name = 'integrations'
 
@@ -18,6 +18,7 @@ def online_path(route, view, *, name):
     return path(route, enabled_view, name=name)
 
 urlpatterns = [
+    path('quickbooks/desktop/connector/', desktop_views.connector, name='desktop_connector'),
     path('quickbooks/setup/', views.quickbooks_setup, name='quickbooks_setup'),
     path(
         'quickbooks/connect/',
