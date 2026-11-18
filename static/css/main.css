@@ -804,6 +804,13 @@ select {
     border: 1px solid #78877e;
 }
 
+.app-body input:autofill {
+    /* Browsers otherwise force their own fill color for saved credentials. */
+    box-shadow: 0 0 0 1000px #fff inset;
+    -webkit-text-fill-color: var(--color-ink);
+    caret-color: var(--color-ink);
+}
+
 .app-body :where(input, textarea)::placeholder {
     color: #657169;
     opacity: 1;
