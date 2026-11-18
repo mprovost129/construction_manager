@@ -67,6 +67,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'core.security.BrowserSecurityMiddleware',
     'projects.middleware.ClientViewAuditMiddleware',
     'axes.middleware.AxesMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -92,6 +93,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'projects.context_processors.workspace_navigation',
                 'projects.context_processors.application_identity',
+                'core.security.form_security',
             ],
         },
     },
@@ -225,6 +227,7 @@ LEGAL_EFFECTIVE_DATE = os.environ.get('LEGAL_EFFECTIVE_DATE', 'July 31, 2026')
 # document access remains unavailable until both values are configured.
 TURNSTILE_SITE_KEY = os.environ.get('TURNSTILE_SITE_KEY', '')
 TURNSTILE_SECRET_KEY = os.environ.get('TURNSTILE_SECRET_KEY', '')
+TURNSTILE_FORMS_ENABLED = env_bool('TURNSTILE_FORMS_ENABLED', APP_ENVIRONMENT == 'production')
 
 # QuickBooks integration is hidden for the Heritage launch. Heritage uses
 # QuickBooks Desktop, which requires a separate Web Connector/qbXML adapter.

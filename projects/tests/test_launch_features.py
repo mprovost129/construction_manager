@@ -301,7 +301,7 @@ class HeritageLaunchFeatureTests(TestCase):
         self.assertIn('Payment is due', invoice.disclosure_snapshot)
 
     @override_settings(DEBUG=True, TURNSTILE_SITE_KEY='', TURNSTILE_SECRET_KEY='')
-    def test_public_document_requires_verification_then_downloads(self):
+    def test_public_document_links_are_retired_even_for_previously_enabled_versions(self):
         document = ProjectDocument.objects.create(
             project=self.project,
             title='Site plan',
@@ -322,9 +322,15 @@ class HeritageLaunchFeatureTests(TestCase):
             'projects:public_document_download', args=(version.public_share_token,)
         )
 
-        self.assertRedirects(self.client.get(download_url), public_url)
-        response = self.client.post(public_url, {'human_verified': 'on'})
-        self.assertRedirects(response, public_url)
-        response = self.client.get(download_url)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response['Cache-Control'], 'private, no-store')
+        for url in (public_url, download_url):
+            self.assertEqual(self.client.get(url).status_code, 404)
+            self.assertEqual(self.client.post(url, {'human_verified': 'on'}).status_code, 404)
+        self.client.force_login(self.admin)
+        toggle_url = reverse('projects:document_public_share',
+                             args=(self.project.pk, document.pk, version.pk))
+        self.assertEqual(self.client.post(toggle_url).status_code, 404)
+        detail = self.client.get(reverse('projects:document_detail',
+                                        args=(self.project.pk, document.pk)))
+        self.assertContains(detail, 'Public QR links are disabled')
+        self.assertNotContains(detail, str(version.public_share_token))
+        self.assertNotContains(detail, 'Enable public QR')

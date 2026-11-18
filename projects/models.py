@@ -959,7 +959,7 @@ class ProjectDocument(models.Model):
         choices=Category.choices,
         default=Category.GENERAL,
     )
-    client_visible = models.BooleanField(default=True)
+    client_visible = models.BooleanField(default=False)
     requires_client_approval = models.BooleanField(default=False)
     required_approvals = models.PositiveSmallIntegerField(default=1)
     created_by = models.ForeignKey(

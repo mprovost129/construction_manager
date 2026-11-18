@@ -7,6 +7,7 @@ from django.views import View
 from django.views.decorators.cache import never_cache
 
 from .operations import can_view_operations, database_probe, operations_snapshot
+from .security import form_security
 
 
 @method_decorator(never_cache, name='dispatch')
@@ -16,6 +17,7 @@ class OperationsView(LoginRequiredMixin, View):
             return HttpResponseForbidden('Developer access is required.')
         context = operations_snapshot()
         context.update(app_name=settings.APP_NAME, user=request.user)
+        context.update(form_security(request))
         # No workspace processors: a broken project query must not take down this page.
         html = get_template('core/operations.html').render(context)
         return HttpResponse(html)

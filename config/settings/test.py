@@ -32,3 +32,6 @@ STRIPE_SUBSCRIPTIONS_CONFIGURED = False
 STRIPE_LIVE_MODE = False
 STRIPE_ENFORCE_SUBSCRIPTIONS = False
 STRIPE_AUTOMATIC_TAX_ENABLED = False
+
+# Browser protection is enabled explicitly in its integration tests.
+TURNSTILE_FORMS_ENABLED = False

@@ -1,0 +1,6 @@
+{% load static %}
+{% if turnstile_forms_enabled %}
+<script id="heritage-form-security" src="{% static 'js/form-security.js' %}" data-sitekey="{{ form_turnstile_site_key }}" defer></script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
+<noscript><p role="alert">JavaScript and Cloudflare verification are required to submit forms.</p></noscript>
+{% endif %}

@@ -1,13 +1,9 @@
-import base64
 import mimetypes
-import uuid
 from io import BytesIO
 from pathlib import Path
 from textwrap import wrap
 from urllib.parse import urlencode
 
-import requests
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -78,7 +74,6 @@ from .forms import (
     ProjectDocumentVersionForm,
     ProjectForm,
     ProjectInternalAccessForm,
-    PublicDocumentVerificationForm,
     ScheduleMilestoneForm,
     SelectionCreditDispositionForm,
     SelectionCustomRequestForm,
@@ -992,35 +987,12 @@ class ProjectDocumentDetailView(LoginRequiredMixin, TemplateView):
             viewer_signature_request = current_version.signature_requests.filter(
                 signer=self.request.user
             ).first()
-        public_share_url = ''
-        public_qr_data_url = ''
-        if current_version and current_version.public_qr_enabled:
-            public_share_url = self.request.build_absolute_uri(
-                reverse('projects:public_document', args=(current_version.public_share_token,))
-            )
-            import qrcode
-            import qrcode.image.svg
-
-            qr_image = qrcode.make(
-                public_share_url,
-                image_factory=qrcode.image.svg.SvgPathImage,
-                box_size=8,
-                border=2,
-            )
-            qr_buffer = BytesIO()
-            qr_image.save(qr_buffer)
-            public_qr_data_url = (
-                'data:image/svg+xml;base64,'
-                + base64.b64encode(qr_buffer.getvalue()).decode('ascii')
-            )
         context.update(
             {
                 'project': self.project,
                 'document': self.document,
                 'versions': versions,
                 'current_version': current_version,
-                'public_share_url': public_share_url,
-                'public_qr_data_url': public_qr_data_url,
                 'current_version_can_sign': bool(
                     current_version
                     and Path(current_version.original_filename).suffix.lower() == '.pdf'
@@ -1123,91 +1095,21 @@ class ProjectDocumentPublicShareView(LoginRequiredMixin, View):
     http_method_names = ('post',)
 
     def post(self, request, pk, document_pk, version_pk):
-        project = managed_project_or_404(request.user, pk)
-        version = get_object_or_404(
-            ProjectDocumentVersion.objects.select_related('document'),
-            pk=version_pk,
-            document_id=document_pk,
-            document__project=project,
-        )
-        version.public_qr_enabled = not version.public_qr_enabled
-        if not version.public_qr_enabled:
-            version.public_share_token = uuid.uuid4()
-        version.save(update_fields=('public_qr_enabled', 'public_share_token'))
-        state = 'enabled' if version.public_qr_enabled else 'disabled'
-        messages.success(request, f'Public QR access was {state}.')
-        return redirect('projects:document_detail', pk=project.pk, document_pk=document_pk)
+        # Retire the old endpoint without allowing old links or admin POSTs to
+        # reopen anonymous access. Downloads require project authorization.
+        raise Http404
 
 
 class PublicDocumentView(View):
-    template_name = 'projects/public_document.html'
-
-    def get_version(self, token):
-        return get_object_or_404(
-            ProjectDocumentVersion.objects.select_related(
-                'document__project__organization'
-            ),
-            public_share_token=token,
-            public_qr_enabled=True,
-        )
-
-    def verified_session_key(self, version):
-        return f'public_document_verified_{version.public_share_token}'
-
     def get(self, request, token):
-        version = self.get_version(token)
-        return render(
-            request,
-            self.template_name,
-            {
-                'version': version,
-                'verified': request.session.get(self.verified_session_key(version), False),
-                'turnstile_site_key': settings.TURNSTILE_SITE_KEY,
-                'verification_available': bool(settings.TURNSTILE_SITE_KEY and settings.TURNSTILE_SECRET_KEY) or settings.DEBUG,
-                'development_form': PublicDocumentVerificationForm() if settings.DEBUG and not settings.TURNSTILE_SITE_KEY else None,
-            },
-        )
+        raise Http404
 
     def post(self, request, token):
-        version = self.get_version(token)
-        verified = False
-        if settings.TURNSTILE_SITE_KEY and settings.TURNSTILE_SECRET_KEY:
-            try:
-                response = requests.post(
-                    'https://challenges.cloudflare.com/turnstile/v0/siteverify',
-                    data={
-                        'secret': settings.TURNSTILE_SECRET_KEY,
-                        'response': request.POST.get('cf-turnstile-response', ''),
-                        'remoteip': request.META.get('REMOTE_ADDR', ''),
-                    },
-                    timeout=5,
-                )
-                verified = bool(response.ok and response.json().get('success'))
-            except (requests.RequestException, ValueError):
-                verified = False
-        elif settings.DEBUG:
-            verified = PublicDocumentVerificationForm(request.POST).is_valid()
-        if not verified:
-            messages.error(request, 'Human verification was not completed. Please try again.')
-            return redirect('projects:public_document', token=token)
-        request.session[self.verified_session_key(version)] = True
-        return redirect('projects:public_document', token=token)
+        raise Http404
 
 
 class PublicDocumentDownloadView(PublicDocumentView):
-    def get(self, request, token):
-        version = self.get_version(token)
-        if not request.session.get(self.verified_session_key(version), False):
-            return redirect('projects:public_document', token=token)
-        content_type, _ = mimetypes.guess_type(version.original_filename)
-        response = FileResponse(
-            version.file.open('rb'),
-            as_attachment=True,
-            filename=version.original_filename,
-            content_type=content_type or 'application/octet-stream',
-        )
-        response['Cache-Control'] = 'private, no-store'
-        return response
+    pass
 
 
 class ProjectDocumentDecisionView(LoginRequiredMixin, View):

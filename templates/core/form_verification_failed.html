@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block title %}Verification required | {{ app_name }}{% endblock %}
+{% block content %}
+<section class="admin-panel">
+    <h1>Your form was not submitted</h1>
+    <p>We could not complete the security check. Nothing from this submission was saved.</p>
+    <p>Go back to your form and submit it again to get a fresh Cloudflare verification. If the problem continues, contact your project team.</p>
+</section>
+{% endblock %}

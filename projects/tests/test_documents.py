@@ -9,6 +9,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from projects.forms import ProjectDocumentCreateForm
 from projects.models import (
     ActivityEvent,
     DocumentDecision,
@@ -27,6 +28,37 @@ from projects.tests import grant_internal_access
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
 class ProjectDocumentTests(TestCase):
+    def test_new_staff_upload_defaults_to_internal_only(self):
+        self.assertFalse(ProjectDocument().client_visible)
+        self.assertFalse(ProjectDocumentCreateForm()['client_visible'].value())
+
+    def test_private_file_boundary_for_clients_signers_unassigned_and_revoked_users(self):
+        document, version = self.create_document(client_visible=False, approval=False)
+        urls = (
+            reverse('projects:document_detail', args=(self.project.pk, document.pk)),
+            reverse('projects:document_download', args=(self.project.pk, document.pk, version.pk)),
+        )
+        for access_type in ProjectMembership.ClientAccessType.values:
+            ProjectMembership.objects.filter(user=self.client_user).update(client_access_type=access_type)
+            self.client.force_login(self.client_user)
+            for url in urls:
+                with self.subTest(access_type=access_type, url=url):
+                    self.assertEqual(self.client.get(url).status_code, 404)
+        outsider = get_user_model().objects.create_user('outsider@example.com', 'password')
+        self.client.force_login(outsider)
+        for url in urls:
+            self.assertEqual(self.client.get(url).status_code, 404)
+        # Revocation takes effect in an existing session, including shared files.
+        document.client_visible = True
+        document.save(update_fields=['client_visible'])
+        self.client.force_login(self.client_user)
+        ProjectMembership.objects.filter(user=self.client_user).update(is_active=False)
+        for url in urls:
+            self.assertEqual(self.client.get(url).status_code, 404)
+        self.client.logout()
+        for url in urls:
+            self.assertIn(self.client.get(url).status_code, (302, 404))
+
     @classmethod
     def setUpClass(cls):
         cls.private_media_directory = Path(tempfile.mkdtemp(prefix='project-documents-'))

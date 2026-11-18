@@ -61,6 +61,7 @@
 
     document.addEventListener('submit', (event) => {
         const form = event.target;
+        if (event.defaultPrevented) return;
         if (!(form instanceof HTMLFormElement)) {
             return;
         }
@@ -77,13 +78,14 @@
 
         form.dataset.submitting = 'true';
         form.setAttribute('aria-busy', 'true');
-        form.querySelectorAll(submitControlSelector).forEach((control) => {
+        // Let the browser capture the clicked button's name/value first.
+        window.setTimeout(() => form.querySelectorAll(submitControlSelector).forEach((control) => {
             if (control.disabled) {
                 return;
             }
             control.disabled = true;
             control.dataset.submissionLock = 'true';
-        });
+        }), 0);
         if (event.submitter) {
             event.submitter.classList.add('is-submitting');
             event.submitter.setAttribute('aria-busy', 'true');
