@@ -5,7 +5,7 @@
 {% block header %}
 <header class="app-header">
     <nav class="app-nav ops-navigation" aria-label="Operations navigation">
-        <a class="app-brand" href="{% url 'core:home' %}"><span class="app-brand__mark" aria-hidden="true"><i class="bi bi-buildings"></i></span><span>{{ app_name }}</span></a>
+        {% include 'partials/_brand.html' %}
         <div class="ops-switch" aria-label="Application view">
             <a href="{% url 'core:home' %}">Open app</a>
             <a href="{% url 'core:operations' %}" aria-current="page">Operations</a>

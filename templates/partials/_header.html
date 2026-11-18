@@ -1,12 +1,9 @@
 <header class="app-header">
     <nav class="app-nav" aria-label="Primary navigation">
-        <a class="app-brand" href="{% url 'core:home' %}">
-            <span class="app-brand__mark" aria-hidden="true"><i class="bi bi-buildings"></i></span>
-            <span>{{ app_name }}</span>
-        </a>
+        {% include 'partials/_brand.html' %}
         <button class="app-nav__toggle" type="button" aria-expanded="false" aria-controls="primary-nav-menu" hidden>
             <span class="visually-hidden">Open navigation</span>
-            <i class="bi bi-list" aria-hidden="true"></i>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
         </button>
         <div class="app-nav__menu" id="primary-nav-menu">
             <a class="app-nav__link" href="{% url 'core:home' %}">Projects</a>
