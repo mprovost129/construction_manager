@@ -132,11 +132,19 @@ class ClientProjectUploadForm(forms.Form):
 
 
 class DocumentDecisionForm(forms.ModelForm):
+    version_id = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
+    decision = forms.ChoiceField(
+        choices=(
+            (DocumentDecision.Decision.APPROVED, 'Approve'),
+            (DocumentDecision.Decision.DECLINED, 'Decline'),
+        ),
+        widget=forms.RadioSelect,
+    )
+
     class Meta:
         model = DocumentDecision
         fields = ('decision', 'comment')
         widgets = {
-            'decision': forms.RadioSelect,
             'comment': forms.Textarea(attrs={'rows': 4}),
         }
 

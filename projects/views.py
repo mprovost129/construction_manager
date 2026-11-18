@@ -1036,7 +1036,9 @@ class ProjectDocumentDetailView(LoginRequiredMixin, TemplateView):
                     and self.document.requires_client_approval
                     and not viewer_decision
                 ),
-                'decision_form': DocumentDecisionForm(),
+                'decision_form': DocumentDecisionForm(initial={
+                    'version_id': current_version.pk if current_version else None,
+                }),
             }
         )
         return context
@@ -1213,30 +1215,33 @@ class ProjectDocumentDecisionView(LoginRequiredMixin, View):
 
     def post(self, request, pk, document_pk):
         project = documents_project_or_404(request.user, pk)
-        if not is_project_client(request.user, project):
-            raise PermissionDenied('Only project clients can record a decision.')
-        document = get_object_or_404(
-            ProjectDocument,
-            pk=document_pk,
-            project=project,
-            client_visible=True,
-            requires_client_approval=True,
-        )
-        version = document.latest_version
-        if not version:
-            raise PermissionDenied('This document does not have a version to review.')
-        if version.decisions.filter(decided_by=request.user).exists():
-            messages.info(request, 'Your decision for this version is already recorded.')
-            return redirect(
-                'projects:document_detail', pk=project.pk, document_pk=document.pk
-            )
-        form = DocumentDecisionForm(request.POST)
-        if not form.is_valid():
-            messages.error(request, 'Choose approve or decline before submitting.')
-            return redirect(
-                'projects:document_detail', pk=project.pk, document_pk=document.pk
-            )
+        if not can_approve_for_project(request.user, project):
+            raise PermissionDenied('Only project clients and authorized signers can record a decision.')
         with transaction.atomic():
+            # Version uploads lock this same parent row. Keep the version check,
+            # duplicate check and decision together so neither can race an upload.
+            document = get_object_or_404(
+                ProjectDocument.objects.select_for_update(),
+                pk=document_pk, project=project, client_visible=True,
+                requires_client_approval=True,
+            )
+            version = document.latest_version
+            if not version:
+                raise PermissionDenied('This document does not have a version to review.')
+            form = DocumentDecisionForm(request.POST)
+            if not form.is_valid():
+                messages.error(request, (
+                    'Refresh this page and review the current version before recording your decision.'
+                    if 'version_id' in form.errors
+                    else 'Choose approve or decline before submitting.'
+                ))
+                return redirect('projects:document_detail', pk=project.pk, document_pk=document.pk)
+            if form.cleaned_data['version_id'] != version.pk:
+                messages.warning(request, 'A newer document version is available. Review and download the current version before recording your decision. No decision was saved.')
+                return redirect('projects:document_detail', pk=project.pk, document_pk=document.pk)
+            if version.decisions.filter(decided_by=request.user).exists():
+                messages.info(request, 'Your decision for this version is already recorded.')
+                return redirect('projects:document_detail', pk=project.pk, document_pk=document.pk)
             decision = form.save(commit=False)
             decision.version = version
             decision.decided_by = request.user
@@ -1368,6 +1373,7 @@ class ProjectDocumentSignatureReviewView(LoginRequiredMixin, FormView):
 
     def dispatch(self, request, *args, **kwargs):
         self.project = documents_project_or_404(request.user, kwargs['pk'])
+        visible_document_or_404(request.user, self.project, kwargs['document_pk'])
         self.signature_request = get_object_or_404(
             DocumentSignatureRequest.objects.select_related(
                 'version__document', 'signer', 'requested_by'
@@ -1406,6 +1412,11 @@ class ProjectDocumentSignatureReviewView(LoginRequiredMixin, FormView):
 
     def form_valid(self, form):
         with transaction.atomic():
+            get_object_or_404(
+                ProjectDocument.objects.select_for_update(),
+                pk=self.signature_request.version.document_id,
+                project=self.project, client_visible=True,
+            )
             signature_request = DocumentSignatureRequest.objects.select_for_update().get(
                 pk=self.signature_request.pk
             )
@@ -1534,6 +1545,7 @@ class ProjectDocumentSignatureCancelView(LoginRequiredMixin, View):
 class ProjectDocumentSignatureCertificateView(LoginRequiredMixin, View):
     def get(self, request, pk, document_pk, signature_request_pk):
         project = documents_project_or_404(request.user, pk)
+        visible_document_or_404(request.user, project, document_pk)
         signature_request = get_object_or_404(
             DocumentSignatureRequest.objects.select_related(
                 'version__document', 'signer', 'requested_by'

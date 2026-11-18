@@ -14,8 +14,13 @@
 
 {% if can_decide %}
 <section class="decision-panel">
-    <div><p class="eyebrow">Your decision</p><h2>Review version {{ current_version.version_number }}</h2><p>Your identity and the time of this decision will be permanently recorded.</p></div>
-    <form method="post" action="{% url 'projects:document_decision' project.pk document.pk %}" class="stacked-form">{% csrf_token %}{{ decision_form.non_field_errors }}{% for field in decision_form %}<div class="form-field"><label>{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}<button class="btn btn-primary" type="submit">Record decision</button></form>
+    <div><p class="eyebrow">Your decision</p><h2>Review version {{ current_version.version_number }}</h2><p>Download and review this version before deciding. Your decision applies only to version {{ current_version.version_number }}; a replacement will need a new review.</p><p>Your identity and the time of this decision will be permanently recorded.</p></div>
+    <form method="post" action="{% url 'projects:document_decision' project.pk document.pk %}" class="stacked-form">
+        {% csrf_token %}{{ decision_form.non_field_errors }}{{ decision_form.version_id }}
+        <fieldset class="form-field"><legend class="fs-6 fw-bold">Decision</legend>{{ decision_form.decision }}{{ decision_form.decision.errors }}</fieldset>
+        <div class="form-field"><label for="{{ decision_form.comment.id_for_label }}">Comment (optional)</label>{{ decision_form.comment }}{{ decision_form.comment.errors }}</div>
+        <button class="btn btn-primary" type="submit">Record decision for version {{ current_version.version_number }}</button>
+    </form>
 </section>
 {% elif viewer_decision %}
 <section class="decision-panel decision-panel--recorded"><i class="bi bi-shield-check"></i><div><p class="eyebrow">Decision recorded</p><h2>{{ viewer_decision.get_decision_display }}</h2><p>{{ viewer_decision.decided_at|date:"M j, Y g:i A" }}{% if viewer_decision.comment %} · {{ viewer_decision.comment }}{% endif %}</p></div></section>

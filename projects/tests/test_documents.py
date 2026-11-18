@@ -365,6 +365,7 @@ class ProjectDocumentTests(TestCase):
             {
                 'decision': DocumentDecision.Decision.APPROVED,
                 'comment': 'Approved as shown.',
+                'version_id': version.pk,
             },
         )
 
@@ -387,7 +388,7 @@ class ProjectDocumentTests(TestCase):
             reverse(
                 'projects:document_decision', args=(self.project.pk, document.pk)
             ),
-            {'decision': DocumentDecision.Decision.DECLINED},
+            {'decision': DocumentDecision.Decision.DECLINED, 'version_id': version.pk},
         )
         self.assertEqual(DocumentDecision.objects.count(), 1)
         self.assertEqual(len(mail.outbox), 1)
@@ -406,7 +407,7 @@ class ProjectDocumentTests(TestCase):
             user=second_client,
             role=OrganizationMembership.Role.CLIENT,
         )
-        document, _version = self.create_document()
+        document, version = self.create_document()
         document.required_approvals = 2
         document.save(update_fields=['required_approvals'])
         decision_url = reverse(
@@ -415,7 +416,7 @@ class ProjectDocumentTests(TestCase):
         list_url = reverse('projects:document_list', args=(self.project.pk,))
 
         self.client.force_login(self.client_user)
-        self.client.post(decision_url, {'decision': DocumentDecision.Decision.APPROVED})
+        self.client.post(decision_url, {'decision': DocumentDecision.Decision.APPROVED, 'version_id': version.pk})
         self.client.force_login(self.staff_user)
         listed = next(
             d for d in self.client.get(list_url).context['documents']
@@ -424,13 +425,95 @@ class ProjectDocumentTests(TestCase):
         self.assertIn('1 of 2', listed.approval_status)
 
         self.client.force_login(second_client)
-        self.client.post(decision_url, {'decision': DocumentDecision.Decision.APPROVED})
+        self.client.post(decision_url, {'decision': DocumentDecision.Decision.APPROVED, 'version_id': version.pk})
         self.client.force_login(self.staff_user)
         listed = next(
             d for d in self.client.get(list_url).context['documents']
             if d.pk == document.pk
         )
         self.assertEqual(listed.approval_status, 'Approved')
+
+    def test_stale_page_cannot_approve_an_unseen_replacement(self):
+        document, first_version = self.create_document()
+        self.client.force_login(self.client_user)
+        detail_url = reverse('projects:document_detail', args=(self.project.pk, document.pk))
+        page = self.client.get(detail_url)
+        self.assertContains(page, f'name="version_id" value="{first_version.pk}"')
+        replacement = ProjectDocumentVersion.objects.create(
+            document=document, version_number=2, file=self.upload('replacement.pdf'),
+            original_filename='replacement.pdf', uploaded_by=self.admin_user,
+        )
+        decision_url = reverse('projects:document_decision', args=(self.project.pk, document.pk))
+        for decision in DocumentDecision.Decision.values:
+            response = self.client.post(decision_url, {
+                'decision': decision, 'version_id': first_version.pk,
+            }, follow=True)
+            self.assertContains(response, 'No decision was saved.')
+            self.assertFalse(DocumentDecision.objects.exists())
+        self.assertFalse(ActivityEvent.objects.filter(event_type=ActivityEvent.Type.DOCUMENT_DECISION_RECORDED).exists())
+        self.assertEqual(len(mail.outbox), 0)
+        self.client.post(decision_url, {'decision': 'approved', 'version_id': replacement.pk})
+        self.assertEqual(DocumentDecision.objects.get().version_id, replacement.pk)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_missing_malformed_and_foreign_versions_cannot_record_decisions(self):
+        document, version = self.create_document()
+        _, other_version = self.create_document(project=self.other_project)
+        self.client.force_login(self.client_user)
+        url = reverse('projects:document_decision', args=(self.project.pk, document.pk))
+        for version_id in (None, '', 'invalid', -1, 0, other_version.pk, 999999999999999999999999):
+            with self.subTest(version_id=version_id):
+                data = {'decision': 'approved'}
+                if version_id is not None:
+                    data['version_id'] = version_id
+                self.assertEqual(self.client.post(url, data).status_code, 302)
+                self.assertFalse(version.decisions.exists())
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_authorized_signer_can_record_the_decision_shown_in_portal(self):
+        ProjectMembership.objects.filter(project=self.project, user=self.client_user).update(
+            client_access_type=ProjectMembership.ClientAccessType.SIGNER,
+        )
+        document, version = self.create_document()
+        self.client.force_login(self.client_user)
+        detail = self.client.get(reverse('projects:document_detail', args=(self.project.pk, document.pk)))
+        self.assertContains(detail, 'Record decision for version 1')
+        response = self.client.post(reverse('projects:document_decision', args=(self.project.pk, document.pk)), {
+            'decision': 'declined', 'version_id': version.pk,
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(DocumentDecision.objects.get().decision, 'declined')
+
+    def test_internal_and_revoked_documents_cannot_receive_client_decisions(self):
+        document, version = self.create_document()
+        self.client.force_login(self.client_user)
+        url = reverse('projects:document_decision', args=(self.project.pk, document.pk))
+        data = {'decision': 'approved', 'version_id': version.pk}
+        ProjectDocument.objects.filter(pk=document.pk).update(client_visible=False)
+        self.assertEqual(self.client.post(url, data).status_code, 404)
+        ProjectDocument.objects.filter(pk=document.pk).update(client_visible=True)
+        ProjectMembership.objects.filter(project=self.project, user=self.client_user).update(is_active=False)
+        self.assertEqual(self.client.post(url, data).status_code, 404)
+        self.assertFalse(DocumentDecision.objects.exists())
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_internal_document_signature_links_do_not_bypass_visibility(self):
+        document, version = self.create_document(approval=False)
+        signature = DocumentSignatureRequest.objects.create(
+            version=version, signer=self.client_user, requested_by=self.admin_user,
+            document_sha256=hashlib.sha256(b'%PDF-1.4 test').hexdigest(),
+        )
+        self.client.force_login(self.client_user)
+        ProjectDocument.objects.filter(pk=document.pk).update(client_visible=False)
+        args = (self.project.pk, document.pk, signature.pk)
+        review_url = reverse('projects:document_signature_review', args=args)
+        self.assertEqual(self.client.get(review_url).status_code, 404)
+        self.assertEqual(self.client.post(review_url, {'action': 'decline', 'decline_reason': 'No'}).status_code, 404)
+        self.assertEqual(self.client.get(reverse('projects:document_signature_certificate', args=args)).status_code, 404)
+        signature.refresh_from_db()
+        self.assertEqual(signature.status, DocumentSignatureRequest.Status.PENDING)
+        self.assertFalse(signature.events.exists())
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_internal_user_cannot_record_client_decision(self):
         document, _ = self.create_document()
