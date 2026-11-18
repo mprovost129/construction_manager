@@ -13,10 +13,14 @@ details can now be collected from the administrator setup page.
   governing law, and effective date displayed by the legal pages.
 - [ ] Confirm production email delivery by sending a real invitation and a
   password-reset email to an internal test address.
-- [ ] Confirm the production PostgreSQL database has automated backups, then
-  document and test the restore procedure.
-- [ ] Confirm uploaded documents use storage that survives a Render deploy or
-  service replacement. Do not rely on an ephemeral service filesystem.
+- [x] Confirm production PostgreSQL recovery and test the logical backup restore.
+  The November 18 isolated database and document restore drill passed; see the
+  [results and recovery limits](restore_drill_2026_11_18.md).
+- [x] Confirm uploaded documents use durable private storage. R2 backup and
+  recovery verified all 9 stored objects and all 7 database file references.
+- [ ] Verify private recovery-vault custody of application encryption keys and
+  historical fallback keys; then validate application-level recovery before a
+  real database cutover.
 - [ ] Confirm Sentry receives a production test event and that the event does
   not contain client data.
 - [ ] Run migrations and static collection as part of the release.
