@@ -125,11 +125,18 @@ class MFATests(TestCase):
         self.assertTrue(device.confirmed)
         self.assertNotEqual(old_session, self.client.session.session_key)
         self.assertEqual(len(response.context['codes']), 10)
+        self.assertContains(response, 'Download codes (.txt)')
+        self.assertContains(response, 'Print codes')
+        self.assertContains(response, 'data-recovery-account')
+        self.assertIn('no-store', response['Cache-Control'])
+        for recovery_code in response.context['codes']:
+            self.assertContains(response, f'<code>{recovery_code}</code>', count=1)
         self.assertEqual(device.recovery_codes.count(), 10)
         self.assertTrue(all(len(x) == 64 for x in device.recovery_codes.values_list('digest', flat=True)))
         self.assertTrue(MFAAuditEvent.objects.filter(event='enrolled').exists())
         self.assertEqual(self.client.get('/').status_code, 200)
         self.assertNotContains(self.client.get(reverse('users:security')), response.context['codes'][0])
+        self.assertNotContains(self.client.get(reverse('users:mfa_recovery_codes')), 'data-recovery-download')
         self.assertNotContains(self.client.get(self.setup_url, follow=True), 'data:image/png')
 
     def test_login_success_still_requires_mfa_and_password_reset_does_not_disable_it(self):

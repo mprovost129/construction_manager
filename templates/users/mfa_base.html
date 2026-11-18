@@ -6,6 +6,7 @@
     <meta name="robots" content="noindex, nofollow">
     <title>Account security | {{ app_name }}</title>
     {% include 'partials/_styles.html' %}
+    {% block extra_css %}{% endblock %}
 </head>
 <body class="app-body">
 <header class="app-header"><nav class="app-nav" aria-label="Account access">
@@ -19,4 +20,5 @@
 </section></main>
 {% include 'partials/_scripts.html' %}
 {% include 'partials/_form_security.html' %}
+{% block extra_js %}{% endblock %}
 </body></html>

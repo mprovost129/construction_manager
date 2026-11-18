@@ -1,8 +1,23 @@
 {% extends 'users/mfa_base.html' %}
+{% load static %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/recovery-codes.css' %}">{% endblock %}
 {% block content %}
+<div class="recovery-sheet" data-recovery-sheet data-app-name="{{ app_name }}">
 <h1>Save your recovery codes</h1>
+<p class="recovery-account" data-recovery-account>{{ app_name }} &middot; {{ user.email }}</p>
 <p>Two-step verification is active. Store these codes in a password manager or another safe place separate from your phone. Each code can be used once, together with your password.</p>
 <p><strong>These codes are shown only now.</strong> Previous recovery codes no longer work.</p>
-<ul>{% for code in codes %}<li><code>{{ code }}</code></li>{% endfor %}</ul>
-<a class="btn btn-primary mt-3" href="{% url 'users:security' %}">I have saved my recovery codes</a>
+<ol class="recovery-code-list">{% for code in codes %}<li><code>{{ code }}</code></li>{% endfor %}</ol>
+<p class="recovery-safety">Keep this file or printout private. Anyone with your password and an unused recovery code can sign in to your account.</p>
+</div>
+<div class="recovery-actions" hidden data-recovery-actions>
+    <button class="btn btn-outline-primary" type="button" data-recovery-download>Download codes (.txt)</button>
+    <button class="btn btn-outline-primary" type="button" data-recovery-print>Print codes</button>
+</div>
+<p class="recovery-feedback" role="status" data-recovery-status></p>
+<noscript><p>Use your browser's Print command or copy the codes to a safe place.</p></noscript>
+<a class="btn btn-primary recovery-done" href="{% url 'users:security' %}">I have saved my recovery codes</a>
+{% endblock %}
+{% block extra_js %}
+<script src="{% static 'js/recovery-codes.js' %}"></script>
 {% endblock %}
