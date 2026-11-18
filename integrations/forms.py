@@ -6,10 +6,18 @@ from .models import QuickBooksConnection, QuickBooksDesktopOnboarding
 
 
 class QuickBooksDesktopOnboardingForm(forms.ModelForm):
+    revision = forms.IntegerField(required=False, min_value=0, widget=forms.HiddenInput)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.initial['revision'] = self.instance.revision
+
     class Meta:
         model = QuickBooksDesktopOnboarding
         fields = ('edition_year', 'hosting', 'workstation', 'company_file_count',
-                  'setup_contact', 'customer_structure', 'item_tax_notes', 'numbering_credits')
+                  'setup_contact', 'customer_structure', 'item_tax_notes', 'numbering_credits',
+                  'operator_ready', 'storage_reviewed', 'backup_ready', 'test_company_ready',
+                  'existing_apps_reviewed', 'connector_installed')
         widgets = {name: forms.Textarea(attrs={'rows': 3}) for name in (
             'customer_structure', 'item_tax_notes', 'numbering_credits'
         )}

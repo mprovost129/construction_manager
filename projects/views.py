@@ -490,6 +490,8 @@ class ProjectCostEntryCreateView(LoginRequiredMixin, FormView):
 
     def dispatch(self, request, *args, **kwargs):
         self.project = managed_project_or_404(request.user, kwargs['pk'])
+        if not can_view_project_budget(request.user, self.project):
+            raise PermissionDenied('Budget access is required to record costs.')
         return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self):
@@ -522,6 +524,8 @@ class ProjectCostEntryDeleteView(LoginRequiredMixin, View):
 
     def post(self, request, pk, entry_pk):
         project = managed_project_or_404(request.user, pk)
+        if not can_view_project_budget(request.user, project):
+            raise PermissionDenied('Budget access is required to remove costs.')
         entry = get_object_or_404(ProjectCostEntry, project=project, pk=entry_pk)
         delete_cost_entry(entry_id=entry.pk, actor=request.user)
         messages.success(request, 'Cost entry removed.')
@@ -5169,12 +5173,24 @@ class CompanyTeamView(LoginRequiredMixin, TemplateView):
                 ).select_related('actor')[:20],
             }
         )
+        for membership in context['team_memberships']:
+            membership.access_form = TeamMembershipForm(instance=membership, auto_id=f'member_{membership.pk}_%s')
+        from projects.access import accounting_organizations_for_user
+        context['can_view_accounting_setup'] = accounting_organizations_for_user(
+            self.request.user).filter(pk=self.organization.pk).exists()
         return context
 
 
 class TeamInviteView(LoginRequiredMixin, FormView):
     form_class = TeamInvitationForm
     template_name = 'projects/invite_team_member.html'
+
+    def get_initial(self):
+        initial = super().get_initial()
+        if self.request.GET.get('purpose') == 'accounting':
+            initial.update(role='accountant', accounting_view=True, accounting_edit=True,
+                           project_budget_view=False)
+        return initial
 
     def dispatch(self, request, *args, **kwargs):
         self.organization = managed_organization_or_404(
@@ -5346,6 +5362,9 @@ class TeamInvitationResendView(LoginRequiredMixin, View):
                 organization=organization,
                 email=old_invitation.email,
                 role=old_invitation.role,
+                accounting_view=old_invitation.accounting_view,
+                accounting_edit=old_invitation.accounting_edit,
+                project_budget_view=old_invitation.project_budget_view,
                 invited_by=request.user,
             )
             record_activity(
@@ -5396,8 +5415,12 @@ class TeamInvitationRevokeView(LoginRequiredMixin, View):
 class TeamMembershipUpdateView(LoginRequiredMixin, View):
     http_method_names = ('post',)
 
+    @transaction.atomic
     def post(self, request, slug, membership_pk):
         organization = managed_organization_or_404(request.user, slug)
+        Organization.objects.select_for_update().get(pk=organization.pk)
+        if not can_manage_organization(request.user, organization):
+            raise PermissionDenied('Only company administrators can manage the team.')
         membership = get_object_or_404(
             OrganizationMembership.objects.select_related('user'),
             pk=membership_pk,
@@ -5410,9 +5433,12 @@ class TeamMembershipUpdateView(LoginRequiredMixin, View):
 
         old_role = membership.role
         old_active = membership.is_active
+        old_features = {name: membership.feature_allowed(name) for name in
+                        ('accounting_view', 'accounting_edit', 'project_budget_view')}
         form = TeamMembershipForm(request.POST, instance=membership)
         if not form.is_valid():
-            messages.error(request, 'Choose a valid team role and access status.')
+            messages.error(request, 'Changes were not saved. ' + ' '.join(
+                str(error) for errors in form.errors.values() for error in errors))
             return redirect('projects:company_team', slug=organization.slug)
 
         new_role = form.cleaned_data['role']
@@ -5430,6 +5456,14 @@ class TeamMembershipUpdateView(LoginRequiredMixin, View):
                 return redirect('projects:company_team', slug=organization.slug)
 
         membership = form.save()
+        new_features = {name: membership.feature_allowed(name) for name in old_features}
+        if old_features != new_features:
+            record_activity(
+                organization=organization, actor=request.user,
+                event_type=ActivityEvent.Type.TEAM_ACCESS_CHANGED,
+                summary=f'{request.user.email} updated feature permissions for {membership.user.email}.',
+                metadata={'email': membership.user.email, 'before': old_features, 'after': new_features},
+            )
         if old_role != membership.role:
             record_activity(
                 organization=organization,
@@ -5597,6 +5631,9 @@ class TeamInvitationAcceptView(View):
                 request, invitation, error=error, status=409
             )
         messages.success(request, f'You joined {organization.name}.')
+        from projects.access import accounting_organizations_for_user
+        if accounting_organizations_for_user(request.user).filter(pk=organization.pk).exists():
+            return redirect(reverse('integrations:quickbooks_setup') + '?' + urlencode({'organization': organization.slug}))
         return redirect('projects:company_team', slug=organization.slug)
 
     def get(self, request, token):
@@ -5658,4 +5695,7 @@ class TeamInvitationAcceptView(View):
         organization = accept_organization_invitation(invitation, user)
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         messages.success(request, f'Welcome to {organization.name}.')
+        from projects.access import accounting_organizations_for_user
+        if accounting_organizations_for_user(user).filter(pk=organization.pk).exists():
+            return redirect(reverse('integrations:quickbooks_setup') + '?' + urlencode({'organization': organization.slug}))
         return redirect('projects:company_team', slug=organization.slug)

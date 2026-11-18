@@ -35,6 +35,13 @@ class QuickBooksDesktopOnboarding(models.Model):
     customer_structure = models.TextField('How customers and jobs are organized', max_length=2000, blank=True)
     item_tax_notes = models.TextField('Invoice items, accounts, and sales tax', max_length=2000, blank=True)
     numbering_credits = models.TextField('Invoice numbering and credit handling', max_length=2000, blank=True)
+    operator_ready = models.BooleanField('QuickBooks administrator is available to approve setup', default=False)
+    storage_reviewed = models.BooleanField('IT has checked the active file location and OneDrive sync status', default=False)
+    backup_ready = models.BooleanField('A current backup is available before connection testing', default=False)
+    test_company_ready = models.BooleanField('A separate test company file is ready', default=False)
+    existing_apps_reviewed = models.BooleanField('Existing QuickBooks connected apps have been reviewed', default=False)
+    connector_installed = models.BooleanField('A compatible Intuit Web Connector is installed on the setup computer', default=False)
+    revision = models.PositiveIntegerField(default=0, editable=False)
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -43,6 +50,12 @@ class QuickBooksDesktopOnboarding(models.Model):
         fields = ('edition_year', 'hosting', 'workstation', 'company_file_count',
                   'setup_contact', 'customer_structure', 'item_tax_notes', 'numbering_credits')
         return [self._meta.get_field(name).verbose_name for name in fields if not getattr(self, name)]
+
+    @property
+    def missing_preparation(self):
+        names = ('operator_ready', 'storage_reviewed', 'backup_ready', 'test_company_ready',
+                 'existing_apps_reviewed', 'connector_installed')
+        return [self._meta.get_field(name).verbose_name for name in names if not getattr(self, name)]
 
 
 class QuickBooksConnection(models.Model):

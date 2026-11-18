@@ -1869,3 +1869,9 @@ select {
     .public-share-panel { grid-template-columns: 1fr; }
     .empty-state__actions { align-items: stretch; flex-direction: column; }
 }
+/* Keep per-person permission controls readable inside the team table. */
+.team-permissions { min-width: 16rem; max-width: 28rem; text-align: left; white-space: normal; }
+.team-permissions summary { cursor: pointer; font-weight: 600; }
+.team-permissions form { margin-top: 1rem; }
+.team-permissions .check-label { display: flex; align-items: flex-start; gap: .6rem; }
+.team-permissions input[type="checkbox"] { flex: 0 0 auto; margin-top: .25rem; }

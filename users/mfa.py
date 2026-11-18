@@ -20,7 +20,8 @@ FLOW_VIEWS = frozenset({'users:mfa_setup', 'users:mfa_verify', 'logout', 'admin:
 def administrator(user):
     return user.is_staff or user.is_superuser or user.has_perm('core.view_operations') or user.organization_memberships.filter(
         is_active=True, role='admin',
-    ).exists()
+    ).exists() or any(m.can_view_accounting or m.can_view_budget
+                     for m in user.organization_memberships.filter(is_active=True))
 
 
 def verified(request, device):

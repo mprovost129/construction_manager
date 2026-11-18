@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from .access import internal_organizations_for_user
+from .access import accounting_organizations_for_user, internal_organizations_for_user
 
 
 def application_identity(request):
@@ -31,13 +31,7 @@ def workspace_navigation(request):
     return {
         'has_internal_access': has_internal_access,
         'can_create_projects': can_create_projects,
-        'can_manage_integrations': (
-            user.is_superuser
-            or user.organization_memberships.filter(
-                is_active=True,
-                role='admin',
-            ).exists()
-        ),
+        'can_manage_integrations': accounting_organizations_for_user(user).exists(),
         'unread_notification_count': user.in_app_notifications.filter(
             read_at__isnull=True
         ).count(),

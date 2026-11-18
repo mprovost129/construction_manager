@@ -143,6 +143,10 @@ class OrganizationMembership(models.Model):
     )
     role = models.CharField(max_length=20, choices=Role.choices)
     is_active = models.BooleanField(default=True)
+    # None preserves role defaults for existing memberships; explicit False revokes.
+    accounting_view = models.BooleanField(null=True, default=None, blank=True)
+    accounting_edit = models.BooleanField(null=True, default=None, blank=True)
+    project_budget_view = models.BooleanField(null=True, default=None, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -157,6 +161,31 @@ class OrganizationMembership(models.Model):
     @property
     def is_internal(self):
         return self.role in self.INTERNAL_ROLES
+
+    def feature_allowed(self, field):
+        if not self.is_active or not self.is_internal:
+            return False
+        defaults = {
+            'accounting_view': (self.Role.ADMIN,),
+            'accounting_edit': (self.Role.ADMIN,),
+            'project_budget_view': (self.Role.ADMIN, self.Role.MANAGER,
+                                    self.Role.PROJECT_MANAGER, self.Role.ACCOUNTANT),
+        }
+        roles = defaults[field]
+        value = getattr(self, field)
+        return self.role in roles if value is None else value
+
+    @property
+    def can_view_accounting(self):
+        return self.feature_allowed('accounting_view')
+
+    @property
+    def can_edit_accounting(self):
+        return self.can_view_accounting and self.feature_allowed('accounting_edit')
+
+    @property
+    def can_view_budget(self):
+        return self.feature_allowed('project_budget_view')
 
     @property
     def can_view_company_financials(self):
@@ -482,6 +511,9 @@ class InAppNotification(models.Model):
 
 
 class OrganizationInvitation(models.Model):
+    accounting_view = models.BooleanField(null=True, default=None, blank=True)
+    accounting_edit = models.BooleanField(null=True, default=None, blank=True)
+    project_budget_view = models.BooleanField(null=True, default=None, blank=True)
     token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     organization = models.ForeignKey(
         Organization,
@@ -588,6 +620,7 @@ class ActivityEvent(models.Model):
         TEAM_JOINED = 'team_joined', 'Team member joined'
         TEAM_ROLE_CHANGED = 'team_role_changed', 'Team role changed'
         TEAM_ACCESS_CHANGED = 'team_access_changed', 'Team access changed'
+        ACCOUNTING_SETUP_UPDATED = 'accounting_setup_updated', 'Accounting setup updated'
         INTERNAL_ACCESS_ASSIGNED = (
             'internal_access_assigned',
             'Internal project access assigned',

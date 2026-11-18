@@ -764,10 +764,34 @@ class ProjectForm(forms.ModelForm):
         self.fields['organization'].disabled = lock_organization
 
 
-class TeamInvitationForm(forms.ModelForm):
+class FeatureAccessForm(forms.ModelForm):
+    accounting_view = forms.BooleanField(required=False, label='View QuickBooks setup',
+        help_text='Read company setup details and the accountant checklist.')
+    accounting_edit = forms.BooleanField(required=False, label='Update QuickBooks setup',
+        help_text='Save setup details and checklist progress. Requires View QuickBooks setup.')
+    project_budget_view = forms.BooleanField(required=False, label='View assigned project budgets',
+        help_text='See internal costs and profitability on assigned projects. Project assignment is still required.')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in ('accounting_view', 'accounting_edit', 'project_budget_view'):
+            if getattr(self.instance, name, None) is None:
+                membership = OrganizationMembership(role=getattr(self.instance, 'role', ''))
+                self.initial.setdefault(name, membership.feature_allowed(name))
+                if self.initial[name] is None:
+                    self.initial[name] = membership.feature_allowed(name)
+
+    def clean(self):
+        data = super().clean()
+        if data.get('accounting_edit') and not data.get('accounting_view'):
+            self.add_error('accounting_edit', 'Also select View QuickBooks setup to allow updates.')
+        return data
+
+
+class TeamInvitationForm(FeatureAccessForm):
     class Meta:
         model = OrganizationInvitation
-        fields = ('email', 'role')
+        fields = ('email', 'role', 'accounting_view', 'accounting_edit', 'project_budget_view')
         widgets = {
             'email': forms.EmailInput(
                 attrs={'autocomplete': 'email', 'placeholder': 'team@example.com'}
@@ -802,7 +826,7 @@ class TeamInvitationForm(forms.ModelForm):
         return email
 
 
-class TeamMembershipForm(forms.ModelForm):
+class TeamMembershipForm(FeatureAccessForm):
     role = forms.ChoiceField(
         choices=(
             (
@@ -838,7 +862,7 @@ class TeamMembershipForm(forms.ModelForm):
 
     class Meta:
         model = OrganizationMembership
-        fields = ('role', 'is_active')
+        fields = ('role', 'is_active', 'accounting_view', 'accounting_edit', 'project_budget_view')
 
 
 class ProjectInternalAccessForm(forms.ModelForm):
