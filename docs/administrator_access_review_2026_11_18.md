@@ -33,10 +33,13 @@ live CAPTCHA test remain separate evidence; this is not a penetration test.
   no unreadable seeds were found. Only the result was output, never the seed,
   encryption key, password or recovery-code value.
 - No historical fallback keys are currently configured.
-- **Independent recovery-vault custody remains unverified.** A working live key
-  does not establish that a recoverable copy exists outside the hosting account.
+- **Owner confirmed the recovery copy saved on November 18, 2026.** After
+  instructions to copy the current `SECRET_KEY` into a protected Google Password
+  Manager note saved to the Google Account, the owner replied "saved". This is
+  owner-confirmed custody; the assistant did not inspect the vault or compare
+  secret values. Recovery using that saved copy has not been tested.
 
-## Private step required from the owner
+## Private recovery-copy procedure
 
 1. Choose an approved private password manager or encrypted recovery vault.
    Do not put the actual secret in this repository, this report, ordinary cloud
@@ -56,5 +59,6 @@ live CAPTCHA test remain separate evidence; this is not a penetration test.
 
 The [successful database/document restore drill](restore_drill_2026_11_18.md)
 did not copy application encryption keys or test login against the restored
-database. Independent key custody and an application-level recovery check remain
-separate requirements before treating full disaster recovery as verified.
+database. Key custody is now owner-confirmed. Recovery using the saved key and an
+application-level recovery check remain separate requirements before treating
+full disaster recovery as verified.

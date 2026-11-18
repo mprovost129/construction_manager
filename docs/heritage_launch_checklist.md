@@ -18,9 +18,11 @@ details can now be collected from the administrator setup page.
   [results and recovery limits](restore_drill_2026_11_18.md).
 - [x] Confirm uploaded documents use durable private storage. R2 backup and
   recovery verified all 9 stored objects and all 7 database file references.
-- [ ] Verify private recovery-vault custody of application encryption keys and
-  historical fallback keys; then validate application-level recovery before a
-  real database cutover.
+- [x] Obtain owner confirmation of private application-key recovery storage.
+  Owner confirmed the Google Password Manager copy saved on November 18; no
+  historical fallback keys are currently configured. Secret values were not inspected.
+- [ ] Test recovery using the saved key and validate application-level recovery
+  before a real database cutover.
 - [ ] Confirm Sentry receives a production test event and that the event does
   not contain client data.
 - [ ] Run migrations and static collection as part of the release.
