@@ -16,14 +16,16 @@
             {% if can_manage_integrations %}
                 <a class="app-nav__link" href="{% if quickbooks_integration_enabled %}{% url 'integrations:quickbooks_connect' %}{% else %}{% url 'integrations:quickbooks_setup' %}{% endif %}">QuickBooks</a>
             {% endif %}
-            <a class="app-nav__link" href="{% url 'core:help' %}">Help</a>
             {% if can_preview_client %}<a class="app-nav__link" href="{% url 'projects:client_preview_start' %}{% if project %}?project={{ project.pk }}{% endif %}">View as client</a>{% endif %}
             {% if can_view_operations %}
                 <a class="app-nav__link" href="{% url 'core:operations' %}"><i class="bi bi-activity" aria-hidden="true"></i> Operations</a>
             {% endif %}
+            {% if user.is_authenticated and not client_preview_active %}
+                <a class="app-nav__link" href="{% url 'users:security' %}">Account security</a>
+            {% endif %}
+            <a class="app-nav__link" href="{% url 'core:help' %}" aria-label="Help" title="Help"><i class="bi bi-question-circle" aria-hidden="true"></i></a>
             {% if user.is_authenticated %}
                 {% if not client_preview_active %}
-                <a class="app-nav__link" href="{% url 'users:security' %}">Account security</a>
                 <a class="app-nav__link" href="{% url 'projects:notification_list' %}" aria-label="Notifications{% if unread_notification_count %}, {{ unread_notification_count }} unread{% endif %}"><i class="bi bi-bell"></i>{% if unread_notification_count %} <span class="notification-count">{{ unread_notification_count }}</span>{% endif %}</a>
                 <span class="app-nav__identity">{{ user.email }}</span>
                 {% else %}<span class="app-nav__identity">Client preview</span>{% endif %}
