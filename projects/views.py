@@ -3101,32 +3101,8 @@ class FinishSelectionListView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        selections = self.project.finish_selections.select_related(
-            'chosen_option', 'selected_by', 'package'
-        )
-        if is_project_client(self.request.user, self.project):
-            selections = selections.exclude(status=FinishSelection.Status.DRAFT)
-        packages = {}
-        standalone = []
-        for selection in selections:
-            if selection.package_id:
-                packages.setdefault(selection.package, []).append(selection)
-            else:
-                standalone.append(selection)
-        package_groups = sorted(
-            packages.items(), key=lambda item: item[0].title.lower()
-        )
-        context.update(
-            {
-                'project': self.project,
-                'selections': selections,
-                'package_groups': package_groups,
-                'standalone_selections': standalone,
-                'can_manage_project': can_manage_project(
-                    self.request.user, self.project
-                ),
-            }
-        )
+        from .selection_board import board_context
+        context.update(board_context(self.project, self.request.user, self.request.GET))
         return context
 
 

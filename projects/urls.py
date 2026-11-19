@@ -507,3 +507,6 @@ urlpatterns = [
         name='accept_team_invitation',
     ),
 ]
+
+from .selection_template_urls import urlpatterns as selection_template_patterns
+urlpatterns += selection_template_patterns

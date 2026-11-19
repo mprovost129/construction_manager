@@ -1,0 +1,1 @@
+<tr>{% for field in rowform.visible_fields %}<td><label class="visually-hidden" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}{% if forloop.first %}{% for hidden in rowform.hidden_fields %}{{ hidden }}{{ hidden.errors }}{% endfor %}{{ rowform.non_field_errors }}{% endif %}</td>{% endfor %}</tr>

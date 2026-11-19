@@ -2045,6 +2045,66 @@ class ProjectCostEntry(models.Model):
         return f'{self.project}: {self.description} (${self.amount})'
 
 
+def selection_template_upload_path(instance, filename):
+    return f'selection_templates/{instance.row.template.organization_id}/{instance.row.template_id}/{uuid.uuid4().hex}_{Path(filename).name}'
+
+
+class SelectionTemplate(models.Model):
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='selection_templates')
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('name', 'pk')
+
+    def __str__(self):
+        return self.name
+
+
+class SelectionTemplateRow(models.Model):
+    template = models.ForeignKey(SelectionTemplate, on_delete=models.CASCADE, related_name='rows')
+    key = models.UUIDField(default=uuid.uuid4, editable=False)
+    category = models.CharField(max_length=200, blank=True)
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    location = models.CharField(max_length=200, blank=True)
+    allowance_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ('category', 'sort_order', 'pk')
+        constraints = [models.CheckConstraint(condition=models.Q(allowance_amount__gte=0), name='selection_template_allowance_nonnegative')]
+
+    def __str__(self):
+        return self.title
+
+
+class SelectionTemplateOption(models.Model):
+    row = models.ForeignKey(SelectionTemplateRow, on_delete=models.CASCADE, related_name='options')
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    is_recommended = models.BooleanField(default=False)
+    sort_order = models.PositiveIntegerField(default=0)
+    vendor_name = models.CharField(max_length=200, blank=True)
+    product_url = models.URLField(blank=True)
+    specification = models.TextField(blank=True)
+    lead_time = models.CharField(max_length=100, blank=True)
+    image = models.FileField(storage=private_document_storage, upload_to=selection_template_upload_path, blank=True, null=True)
+    attachment = models.FileField(storage=private_document_storage, upload_to=selection_template_upload_path, blank=True, null=True)
+
+    class Meta:
+        ordering = ('sort_order', 'pk')
+        constraints = [
+            models.CheckConstraint(condition=models.Q(price__gte=0), name='selection_template_price_nonnegative'),
+            models.UniqueConstraint(Lower('name'), 'row', name='selection_template_unique_option'),
+        ]
+
+
 class SelectionPackage(models.Model):
     project = models.ForeignKey(
         Project,
@@ -2083,6 +2143,7 @@ class SelectionPackage(models.Model):
 
 
 class FinishSelection(models.Model):
+    template_row_key = models.UUIDField(null=True, blank=True, editable=False)
     class Status(models.TextChoices):
         IMPORTED = 'imported', 'Selected (Buildertrend)'
         DRAFT = 'draft', 'Unreleased'

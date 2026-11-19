@@ -518,7 +518,7 @@ class SelectionPackageForm(forms.ModelForm):
 class FinishSelectionForm(forms.ModelForm):
     new_package_title = forms.CharField(
         required=False,
-        label='New package name',
+        label='New category name',
         help_text=(
             'Group this choice with others due together, e.g. "Kitchen." '
             'Leave blank to keep it standalone.'
@@ -535,7 +535,7 @@ class FinishSelectionForm(forms.ModelForm):
             'allowance_amount',
             'due_date',
         )
-        labels = {'allowance_amount': 'Client allowance', 'package': 'Existing package'}
+        labels = {'allowance_amount': 'Client allowance', 'package': 'Category'}
         help_texts = {
             'allowance_amount': (
                 'Clients will see each option as over, under, or within this allowance.'
@@ -602,6 +602,8 @@ class SelectionOptionForm(forms.ModelForm):
             'specification': forms.Textarea(attrs={'rows': 4}),
             'price': forms.NumberInput(attrs={'step': '0.01'}),
             'cost': forms.NumberInput(attrs={'step': '0.01'}),
+            'image': forms.FileInput(attrs={'accept': 'image/png,image/jpeg,image/webp'}),
+            'attachment': forms.FileInput(),
         }
 
     def clean_image(self):
