@@ -1,4 +1,25 @@
 (() => {
+  const editor = document.getElementById('template-rows');
+  let unsaved = false;
+  const markUnsaved = () => {
+    unsaved = true;
+    const status = document.querySelector('[data-template-save-status]');
+    if (status) status.textContent = 'Unsaved row changes';
+  };
+  editor?.addEventListener('input', markUnsaved);
+  editor?.addEventListener('change', markUnsaved);
+  if (editor) {
+    window.addEventListener('beforeunload', event => {
+      if (!unsaved) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
+    // The security check may defer the first submit. Clear the warning only
+    // after it has finished and the browser is actually submitting this form.
+    editor.addEventListener('submit', event => {
+      queueMicrotask(() => { if (!event.defaultPrevented) unsaved = false; });
+    });
+  }
   document.querySelectorAll('[data-selection-toggle]').forEach(button => button.addEventListener('click', () => {
     const row = document.getElementById(button.dataset.selectionToggle);
     row.hidden = !row.hidden;
@@ -23,5 +44,7 @@
     }));
     document.getElementById('template-row-body').appendChild(row);
     total.value = String(Number(total.value) + 1);
+    markUnsaved();
+    document.getElementById('template-row-body').lastElementChild.querySelector('input:not([type="hidden"])')?.focus();
   });
 })();
