@@ -17,11 +17,12 @@ from .models import AuthenticatorDevice, MFAAuditEvent, MFARecoveryCode
 FLOW_VIEWS = frozenset({'users:mfa_setup', 'users:mfa_verify', 'logout', 'admin:logout'})
 
 
-def administrator(user):
-    return user.is_staff or user.is_superuser or user.has_perm('core.view_operations') or user.organization_memberships.filter(
-        is_active=True, role='admin',
-    ).exists() or any(m.can_view_accounting or m.can_view_budget
-                     for m in user.organization_memberships.filter(is_active=True))
+def enrollment_required(user):
+    """One active company's requirement applies to the account's sign-in."""
+    from projects.models import OrganizationMembership
+    return user.organization_memberships.filter(
+        is_active=True, role__in=OrganizationMembership.INTERNAL_ROLES, mfa_required=True,
+    ).exists()
 
 
 def verified(request, device):
@@ -97,7 +98,7 @@ class AdministratorMFAMiddleware:
             return None
         device = AuthenticatorDevice.objects.filter(account=request.user).first()
         required = (device and device.confirmed) or (
-            settings.MFA_REQUIRED_FOR_ADMINS and administrator(request.user)
+            enrollment_required(request.user)
         )
         if not required or verified(request, device) or name in FLOW_VIEWS:
             return None

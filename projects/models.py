@@ -144,6 +144,7 @@ class OrganizationMembership(models.Model):
     role = models.CharField(max_length=20, choices=Role.choices)
     is_active = models.BooleanField(default=True)
     # None preserves role defaults for existing memberships; explicit False revokes.
+    mfa_required = models.BooleanField(default=False)
     accounting_view = models.BooleanField(null=True, default=None, blank=True)
     accounting_edit = models.BooleanField(null=True, default=None, blank=True)
     desktop_manage = models.BooleanField(null=True, default=None, blank=True)
@@ -168,6 +169,7 @@ class OrganizationMembership(models.Model):
         if not self.is_active or not self.is_internal:
             return False
         defaults = {
+            'mfa_required': (),
             'accounting_view': (self.Role.ADMIN,),
             'accounting_edit': (self.Role.ADMIN,),
             'desktop_manage': (self.Role.ADMIN,),
@@ -525,6 +527,7 @@ class InAppNotification(models.Model):
 class OrganizationInvitation(models.Model):
     desktop_manage = models.BooleanField(null=True, default=None, blank=True)
     desktop_check = models.BooleanField(null=True, default=None, blank=True)
+    mfa_required = models.BooleanField(default=False)
     accounting_view = models.BooleanField(null=True, default=None, blank=True)
     accounting_edit = models.BooleanField(null=True, default=None, blank=True)
     project_budget_view = models.BooleanField(null=True, default=None, blank=True)

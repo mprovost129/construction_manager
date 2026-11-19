@@ -1,13 +1,14 @@
 {% extends 'users/mfa_base.html' %}
 {% block content %}
 <h1>Account security</h1>
+{% if required %}<p>Your company requires two-step verification. A company administrator manages this requirement in Team &amp; roles.</p>{% else %}<p>Two-step verification is optional for your account.</p>{% endif %}
 {% if enabled %}
 <p>Two-step verification is on. Your authenticator app protects this account in addition to your password.</p>
 <p>You have {{ remaining_codes }} unused recovery codes.</p>
 <a class="btn btn-outline-primary" href="{% url 'users:mfa_recovery_codes' %}">Replace recovery codes</a>
+{% if not required %}<a class="btn btn-outline-danger" href="{% url 'users:mfa_disable' %}">Turn off two-step verification</a>{% endif %}
 {% else %}
 <p>Add a second step to protect your account with codes from an authenticator app.</p>
-{% if required %}<p>Administrator, accounting, and budget access requires two-step verification before accessing company information.</p>{% endif %}
 <a class="btn btn-primary" href="{% url 'users:mfa_setup' %}">Set up two-step verification</a>
 {% endif %}
 <p class="mt-4">Keep your recovery codes somewhere safe and separate from your phone. If you lose both your phone and recovery codes, contact your administrator for identity-verified recovery.</p>

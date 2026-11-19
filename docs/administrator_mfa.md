@@ -1,16 +1,26 @@
 # Heritage administrator two-step verification
 
-Production requires authenticator enrollment for active company administrators,
-Django staff/superusers, and accounts permitted to view Operations. Other users
-can opt in under Account security. Once enrolled, every account must verify,
-regardless of the administrator rollout setting. MFA does not grant any project,
-financial, company, or Operations permission.
+Two-step verification is optional by default for all roles, including administrators
+and the site owner. In **Company > Team & roles**, an administrator can check
+**Require two-step verification (2FA)** for each internal member or invitation.
+The current administrator has a separate checkbox for their own requirement;
+this form cannot change their own role or feature access. Changes are audited.
+If any active internal company membership requires 2FA, the account must enroll
+and verify before accessing the app. Inactive memberships do not impose a policy.
+
+Unchecking makes enrollment optional; it never deletes an authenticator or bypasses
+a user's enabled second factor. Users with optional 2FA can turn it off themselves
+under Account security, after verifying their password and a fresh authenticator
+or unused recovery code and confirming the change. The device and recovery codes
+are then deleted, verification markers cleared, and the current session rotated.
+Re-enrollment creates a fresh device. Company-required users cannot disable 2FA.
+MFA never grants project, financial, company, or Operations access.
 
 ## Enrollment and daily use
 
-After password sign-in, an administrator without an authenticator is restricted
-to enrollment and sign-out. Existing sessions are gated as soon as this release
-is deployed. Enter the current password to start a ten-minute setup, scan the
+After password sign-in, a user whose company requires 2FA and who has no
+authenticator is restricted to enrollment and sign-out. A new requirement applies
+to existing sessions on their next request. Enter the current password to start a ten-minute setup, scan the
 locally generated QR code with an authenticator app, then confirm a six-digit
 code. The account owner must perform enrollment themselves; do not send QR codes,
 setup keys, passwords, or recovery codes in chat or support tickets.
@@ -26,8 +36,8 @@ hours. Logout, password/session invalidation, or device removal requires renewed
 verification. A password reset does not bypass MFA. An expired verification blocks
 mutating requests without applying changes; verify and submit the form again.
 
-No browser interface can disable MFA, expose an enrolled seed, or replace the
-authenticator. Phone replacement and loss of both factors require an operator-led
+No administrator-facing interface can expose an enrolled seed or remove another
+user's authenticator. Phone replacement and loss of both factors require an operator-led
 identity verification and controlled recovery. Verify identity through established
 company channels, record approval, invalidate all account sessions, then arrange
 fresh enrollment through the restricted setup flow. Do not remove MFA solely on
@@ -59,9 +69,10 @@ automate that exceptional recovery operation.
 ## Deployment and key rotation
 
 Install pinned requirements and apply all migrations before accepting traffic.
-`MFA_REQUIRED_FOR_ADMINS` defaults to true in production. Disabling this setting
-does not bypass already-enrolled accounts, but would leave unenrolled admins
-unprotected; do not use it as a routine recovery mechanism.
+The old `MFA_REQUIRED_FOR_ADMINS` environment flag is retired and has no effect.
+Migration 0037 makes existing membership and invitation requirements optional,
+as requested. Existing devices, recovery codes and verified sessions are preserved.
+Use the Team & roles checkboxes to impose requirements after deployment.
 
 Before rotating SECRET_KEY, put the old key in SECRET_KEY_FALLBACKS through the
 secret manager. Deploy the new current key with the old fallback retained. Run

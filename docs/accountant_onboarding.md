@@ -27,8 +27,8 @@ after acceptance, update the member's permissions instead.
 ## Accountant or setup person
 
 1. Accept the invitation addressed to your own work email.
-2. Set up two-step verification and privately save your recovery codes. Accounting
-   and budget access requires verification under Heritage's security policy.
+2. Set up two-step verification if your administrator requires it, or choose it
+   voluntarily in Account security. Privately save the recovery codes if you enroll.
 3. Open QuickBooks in the top navigation. Read the shared setup guide and save
    your portion of the checklist. Read-only users can review but cannot save.
 4. Coordinate with the QuickBooks administrator and the Windows computer operator.

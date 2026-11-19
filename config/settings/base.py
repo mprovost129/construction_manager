@@ -142,7 +142,6 @@ LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
 
 # Enrolled accounts always require MFA. Administrators must enroll in production.
-MFA_REQUIRED_FOR_ADMINS = env_bool('MFA_REQUIRED_FOR_ADMINS', APP_ENVIRONMENT == 'production')
 MFA_SESSION_SECONDS = 8 * 60 * 60
 MFA_SETUP_SECONDS = 10 * 60
 OTP_TOTP_ISSUER = APP_NAME

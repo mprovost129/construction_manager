@@ -494,6 +494,8 @@ urlpatterns = [
         views.TeamInvitationRevokeView.as_view(),
         name='revoke_team_invitation',
     ),
+    path('companies/<slug:slug>/team/own-two-step/', views.OwnMFARequirementUpdateView.as_view(),
+         name='update_own_mfa_requirement'),
     path(
         'companies/<slug:slug>/team/members/<int:membership_pk>/update/',
         views.TeamMembershipUpdateView.as_view(),

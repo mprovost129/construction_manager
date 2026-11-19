@@ -764,7 +764,13 @@ class ProjectForm(forms.ModelForm):
         self.fields['organization'].disabled = lock_organization
 
 
+class MFARequirementForm(forms.Form):
+    mfa_required = forms.BooleanField(required=False, label='Require two-step verification (2FA)',
+        help_text='Checked: this person must use an authenticator. Unchecked: optional; an existing authenticator stays on until its owner turns it off in Account security. A requirement from another company still applies.')
+
+
 class FeatureAccessForm(forms.ModelForm):
+    mfa_required = MFARequirementForm.base_fields['mfa_required']
     desktop_manage = forms.BooleanField(required=False, label='Manage QuickBooks connection',
         help_text='Create or reset the shared connection, download its setup file, and disconnect it. Requires View QuickBooks setup.')
     desktop_check = forms.BooleanField(required=False, label='Request QuickBooks connection checks',
@@ -798,7 +804,7 @@ class FeatureAccessForm(forms.ModelForm):
 class TeamInvitationForm(FeatureAccessForm):
     class Meta:
         model = OrganizationInvitation
-        fields = ('email', 'role', 'accounting_view', 'accounting_edit', 'desktop_manage', 'desktop_check', 'project_budget_view')
+        fields = ('email', 'role', 'mfa_required', 'accounting_view', 'accounting_edit', 'desktop_manage', 'desktop_check', 'project_budget_view')
         widgets = {
             'email': forms.EmailInput(
                 attrs={'autocomplete': 'email', 'placeholder': 'team@example.com'}
@@ -869,7 +875,7 @@ class TeamMembershipForm(FeatureAccessForm):
 
     class Meta:
         model = OrganizationMembership
-        fields = ('role', 'is_active', 'accounting_view', 'accounting_edit', 'desktop_manage', 'desktop_check', 'project_budget_view')
+        fields = ('role', 'is_active', 'mfa_required', 'accounting_view', 'accounting_edit', 'desktop_manage', 'desktop_check', 'project_budget_view')
 
 
 class ProjectInternalAccessForm(forms.ModelForm):

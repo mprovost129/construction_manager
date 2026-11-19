@@ -5362,6 +5362,7 @@ class TeamInvitationResendView(LoginRequiredMixin, View):
                 organization=organization,
                 email=old_invitation.email,
                 role=old_invitation.role,
+                mfa_required=old_invitation.mfa_required,
                 accounting_view=old_invitation.accounting_view,
                 accounting_edit=old_invitation.accounting_edit,
                 desktop_manage=old_invitation.desktop_manage,
@@ -5414,6 +5415,33 @@ class TeamInvitationRevokeView(LoginRequiredMixin, View):
         return redirect('projects:company_team', slug=organization.slug)
 
 
+class OwnMFARequirementUpdateView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    @transaction.atomic
+    def post(self, request, slug):
+        from .forms import MFARequirementForm
+        organization = managed_organization_or_404(request.user, slug)
+        Organization.objects.select_for_update().get(pk=organization.pk)
+        if not can_manage_organization(request.user, organization):
+            raise PermissionDenied('Only company administrators can manage this requirement.')
+        get_user_model().objects.select_for_update().get(pk=request.user.pk)
+        membership = get_object_or_404(OrganizationMembership, organization=organization,
+            user=request.user, is_active=True, role__in=OrganizationMembership.INTERNAL_ROLES)
+        form = MFARequirementForm(request.POST)
+        if form.is_valid():
+            before = membership.mfa_required
+            membership.mfa_required = form.cleaned_data['mfa_required']
+            membership.save(update_fields=['mfa_required'])
+            if before != membership.mfa_required:
+                record_activity(organization=organization, actor=request.user,
+                    event_type=ActivityEvent.Type.TEAM_ACCESS_CHANGED,
+                    summary=f'{request.user.email} changed their two-step verification requirement.',
+                    metadata={'before': {'mfa_required': before}, 'after': {'mfa_required': membership.mfa_required}})
+            messages.success(request, 'Two-step verification requirement saved. Existing authenticator settings are unchanged.')
+        return redirect('projects:company_team', slug=slug)
+
+
 class TeamMembershipUpdateView(LoginRequiredMixin, View):
     http_method_names = ('post',)
 
@@ -5433,10 +5461,11 @@ class TeamMembershipUpdateView(LoginRequiredMixin, View):
             messages.error(request, 'You cannot change your own role or access.')
             return redirect('projects:company_team', slug=organization.slug)
 
+        get_user_model().objects.select_for_update().get(pk=membership.user_id)
         old_role = membership.role
         old_active = membership.is_active
         old_features = {name: membership.feature_allowed(name) for name in
-                        ('accounting_view', 'accounting_edit', 'project_budget_view', 'desktop_manage', 'desktop_check')}
+                        ('accounting_view', 'accounting_edit', 'project_budget_view', 'desktop_manage', 'desktop_check', 'mfa_required')}
         form = TeamMembershipForm(request.POST, instance=membership)
         if not form.is_valid():
             messages.error(request, 'Changes were not saved. ' + ' '.join(

@@ -964,10 +964,11 @@ def accept_organization_invitation(invitation, user):
     if invitation.email.casefold() != user.email.casefold():
         raise PermissionDenied('This invitation was sent to another email address.')
 
+    get_user_model().objects.select_for_update().get(pk=user.pk)
     membership, created = OrganizationMembership.objects.get_or_create(
         organization=invitation.organization,
         user=user,
-        defaults={'role': invitation.role, 'accounting_view': invitation.accounting_view,
+        defaults={'role': invitation.role, 'mfa_required': invitation.mfa_required, 'accounting_view': invitation.accounting_view,
                   'desktop_manage': invitation.desktop_manage, 'desktop_check': invitation.desktop_check,
                   'accounting_edit': invitation.accounting_edit,
                   'project_budget_view': invitation.project_budget_view},
@@ -979,13 +980,14 @@ def accept_organization_invitation(invitation, user):
             )
         membership.role = invitation.role
         membership.is_active = True
+        membership.mfa_required = invitation.mfa_required
         membership.accounting_view = invitation.accounting_view
         membership.accounting_edit = invitation.accounting_edit
         membership.desktop_manage = invitation.desktop_manage
         membership.desktop_check = invitation.desktop_check
         membership.project_budget_view = invitation.project_budget_view
         membership.save(update_fields=('role', 'is_active', 'accounting_view',
-                                       'accounting_edit', 'desktop_manage', 'desktop_check', 'project_budget_view'))
+                                       'accounting_edit', 'desktop_manage', 'desktop_check', 'project_budget_view', 'mfa_required'))
 
     invitation.accepted_by = user
     invitation.accepted_at = timezone.now()

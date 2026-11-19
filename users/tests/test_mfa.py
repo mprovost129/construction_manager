@@ -23,6 +23,8 @@ from users.models import AuthenticatorDevice, MFAAuditEvent
 class MFATests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user('admin@example.com', 'Example-password-123!', is_staff=True)
+        self.org = Organization.objects.create(name='Test', slug='test')
+        self.membership = OrganizationMembership.objects.create(organization=self.org, user=self.user, role='admin', mfa_required=True)
         self.client.force_login(self.user)
         self.setup_url = reverse('users:mfa_setup')
         self.verify_url = reverse('users:mfa_verify')
@@ -58,14 +60,14 @@ class MFATests(TestCase):
     def test_company_admin_requires_mfa_without_django_staff(self):
         self.user.is_staff = False
         self.user.save()
-        organization = Organization.objects.create(name='Test', slug='test')
-        membership = OrganizationMembership.objects.create(organization=organization, user=self.user, role='admin')
+        membership = self.membership
         self.assertEqual(self.client.get('/').status_code, 302)
         membership.is_active = False
         membership.save()
         self.assertEqual(self.client.get('/').status_code, 200)
 
     def test_clients_unenrolled_and_anonymous_are_not_forced_to_enroll(self):
+        self.membership.delete()
         self.user.is_staff = False
         self.user.save()
         self.assertEqual(self.client.get('/').status_code, 200)
@@ -268,7 +270,7 @@ class MFATests(TestCase):
         response = self.client.post(self.verify_url, {'code': self.code(device), 'next': '/companies/'})
         self.assertEqual(response.url, '/companies/')
 
-    def test_operations_permission_requires_mfa_even_without_staff_flag(self):
+    def test_required_membership_applies_even_with_operations_permission(self):
         self.user.is_staff = False
         self.user.save()
         self.user.user_permissions.add(Permission.objects.get(codename='view_operations'))

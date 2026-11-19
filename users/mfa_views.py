@@ -6,6 +6,7 @@ from django import forms
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -13,7 +14,7 @@ from django.views.decorators.debug import sensitive_post_parameters, sensitive_v
 from django.views.decorators.http import require_http_methods
 
 from .mfa import (
-    administrator,
+    enrollment_required,
     issue_recovery_codes,
     mark_verified,
     safe_next,
@@ -43,6 +44,10 @@ class RecoveryForm(CodeForm, PasswordForm):
     pass
 
 
+class DisableMFAForm(RecoveryForm):
+    confirm = forms.BooleanField(label='Turn off two-step verification and invalidate my recovery codes.')
+
+
 def password_correct(request, form):
     account = authenticate(request=request, username=request.user.email,
                            password=form.cleaned_data['password'])
@@ -65,7 +70,7 @@ def security(request):
     device = device_for(request)
     return render(request, 'users/security.html', {
         'enabled': bool(device and device.confirmed),
-        'required': settings.MFA_REQUIRED_FOR_ADMINS and administrator(request.user),
+        'required': enrollment_required(request.user),
         'remaining_codes': device.recovery_codes.count() if device and device.confirmed else 0,
     })
 
@@ -174,3 +179,35 @@ def recovery_codes(request):
                 return render(request, 'users/recovery_codes.html', {'codes': codes})
         form.add_error('code', 'That code could not be verified. Wait for a new code and try again.')
     return render(request, 'users/recovery_regenerate.html', {'form': form})
+
+
+@sensitive_post_parameters()
+@login_required
+@require_http_methods(['GET', 'POST'])
+@sensitive_variables()
+def disable(request):
+    if enrollment_required(request.user):
+        raise PermissionDenied('Your company requires two-step verification.')
+    device = device_for(request)
+    if not device or not device.confirmed:
+        return redirect('users:security')
+    if not verified(request, device):
+        return redirect('users:mfa_verify')
+    form = DisableMFAForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid() and password_correct(request, form):
+        with transaction.atomic():
+            # Serialize with team requirement changes and enrollment.
+            get_user_model().objects.select_for_update().get(pk=request.user.pk)
+            if enrollment_required(request.user):
+                raise PermissionDenied('Your company now requires two-step verification.')
+            device = device_for(request, locked=True)
+            if verified(request, device) and verify_code(device, form.cleaned_data['code'],
+                                                       recovery=form.cleaned_data['use_recovery']):
+                device.delete()
+                MFAAuditEvent.objects.create(user=request.user, event='disabled_by_owner')
+                for key in ('mfa_device', 'mfa_user', 'mfa_at', 'mfa_setup_device'):
+                    request.session.pop(key, None)
+                request.session.cycle_key()
+                return redirect('users:security')
+        form.add_error('code', 'That code could not be verified. Wait for a new code and try again.')
+    return render(request, 'users/mfa_disable.html', {'form': form})

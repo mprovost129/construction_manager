@@ -178,6 +178,7 @@ class DesktopSetupTests(TestCase):
 
     @override_settings(MFA_REQUIRED_FOR_ADMINS=True)
     def test_accounting_access_requires_mfa(self):
+        self.grant(mfa_required=True)
         self.provision()
         self.client.force_login(self.operator)
         self.assertTrue(self.client.get(self.url).url.startswith(reverse('users:mfa_setup')))

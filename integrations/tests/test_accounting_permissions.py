@@ -131,6 +131,7 @@ class AccountingPermissionsTests(TestCase):
 
     @override_settings(MFA_REQUIRED_FOR_ADMINS=True)
     def test_delegated_accounting_requires_mfa_before_read_or_write(self):
+        self.grant(mfa_required=True)
         self.grant(accounting_view=True, accounting_edit=True, project_budget_view=False)
         response = self.client.get(self.url)
         self.assertTrue(response.url.startswith(reverse('users:mfa_setup')))
