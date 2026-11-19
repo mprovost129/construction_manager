@@ -1,6 +1,7 @@
 from django.conf import settings
 
 from .access import accounting_organizations_for_user, internal_organizations_for_user
+from .selection_templates import template_organizations
 
 
 def application_identity(request):
@@ -22,6 +23,7 @@ def workspace_navigation(request):
             'has_internal_access': False,
             'can_create_projects': False,
             'can_manage_integrations': False,
+            'can_manage_templates': False,
             'unread_notification_count': 0,
         }
     has_internal_access = internal_organizations_for_user(user).exists()
@@ -31,6 +33,7 @@ def workspace_navigation(request):
     return {
         'has_internal_access': has_internal_access,
         'can_create_projects': can_create_projects,
+        'can_manage_templates': template_organizations(user).exists(),
         'can_manage_integrations': accounting_organizations_for_user(user).exists(),
         'unread_notification_count': user.in_app_notifications.filter(
             read_at__isnull=True

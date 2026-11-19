@@ -50,6 +50,36 @@ class SelectionTemplateTests(TestCase):
     def make_template(self):
         return save_project_template(self.project,self.admin,'Standard home','Reusable',self.project.finish_selections.all())
 
+    def test_templates_navigation_routes_authorized_staff_to_library(self):
+        self.make_template()
+        for user in (self.admin, self.manager):
+            self.client.force_login(user)
+            response = self.client.get(self.url('home'), follow=True)
+            self.assertRedirects(response, self.url('library', 'builder'))
+            self.assertContains(response, 'href="/templates/" aria-current="page">Templates</a>')
+            for label in ('Create template', 'Edit template', 'Name &amp; description', 'Copy / duplicate', 'Deleted templates'):
+                self.assertContains(response, label)
+
+    def test_templates_home_blocks_clients_and_inactive_staff(self):
+        for user in (self.customer, self.manager):
+            if user == self.manager:
+                user.organization_memberships.update(is_active=False)
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(self.url('home')).status_code, 403)
+            self.assertNotContains(self.client.get(reverse('core:home')), 'href="/templates/"')
+        self.client.logout()
+        response = self.client.get(self.url('home'))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('next=/templates/', response.url)
+
+    def test_templates_company_picker_only_lists_allowed_companies(self):
+        Organization.objects.create(name='Hidden company', slug='hidden')
+        OrganizationMembership.objects.create(organization=self.other_org, user=self.admin, role='admin')
+        response = self.client.get(self.url('home'))
+        self.assertContains(response, self.url('library', 'builder'))
+        self.assertContains(response, self.url('library', 'other'))
+        self.assertNotContains(response, 'Hidden company')
+
     def test_create_grid_add_update_delete_and_stale_edit(self):
         response=self.client.post(self.url('create','builder'),{'name':'Kitchen','description':'Finishes'})
         self.assertEqual(response.status_code,302)

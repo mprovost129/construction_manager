@@ -91,6 +91,17 @@ def editor(request, form, title, back, help_text='', **context):
 
 @login_required
 @require_http_methods(['GET'])
+def home(request):
+    organizations = list(template_organizations(request.user).order_by('name', 'pk'))
+    if not organizations:
+        raise PermissionDenied
+    if len(organizations) == 1:
+        return redirect('projects:selection_template_library', slug=organizations[0].slug)
+    return render(request, 'projects/selection_template_home.html', {'organizations': organizations})
+
+
+@login_required
+@require_http_methods(['GET'])
 def library(request, slug):
     organization = organization_for(request.user, slug)
     templates = organization.selection_templates.filter(deleted_at__isnull=request.GET.get('deleted') != '1').annotate(row_count=Count('rows'))

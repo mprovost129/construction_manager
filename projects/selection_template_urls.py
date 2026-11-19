@@ -2,6 +2,7 @@ from django.urls import path
 from . import selection_template_views as v
 
 urlpatterns = [
+    path('templates/', v.home, name='selection_template_home'),
     path('companies/<slug:slug>/selection-templates/<int:template_pk>/load/', v.choose_project, name='selection_template_choose_project'),
     path('companies/<slug:slug>/selection-templates/', v.library, name='selection_template_library'),
     path('companies/<slug:slug>/selection-templates/new/', v.create, name='selection_template_create'),
