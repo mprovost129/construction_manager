@@ -5,6 +5,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import UserCreationForm
 from django.utils import timezone
+from .choice_images import ChoiceGalleryMixin
 
 from .models import (
     ChangeOrder,
@@ -565,7 +566,7 @@ class FinishSelectionForm(forms.ModelForm):
         return cleaned_data
 
 
-class SelectionOptionForm(forms.ModelForm):
+class SelectionOptionForm(ChoiceGalleryMixin, forms.ModelForm):
     class Meta:
         model = SelectionOption
         fields = (
@@ -580,6 +581,7 @@ class SelectionOptionForm(forms.ModelForm):
             'specification',
             'lead_time',
             'image',
+            'image_caption',
             'attachment',
         )
         labels = {

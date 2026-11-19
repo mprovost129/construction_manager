@@ -2114,6 +2114,7 @@ class SelectionTemplateOption(models.Model):
     specification = models.TextField(blank=True)
     lead_time = models.CharField(max_length=100, blank=True)
     image = models.FileField(storage=private_document_storage, upload_to=selection_template_upload_path, blank=True, null=True)
+    image_caption = models.CharField(max_length=250, blank=True)
     attachment = models.FileField(storage=private_document_storage, upload_to=selection_template_upload_path, blank=True, null=True)
 
     class Meta:
@@ -2447,6 +2448,7 @@ class SelectionOption(models.Model):
     product_url = models.URLField(blank=True)
     specification = models.TextField(blank=True)
     lead_time = models.CharField(max_length=100, blank=True)
+    image_caption = models.CharField(max_length=250, blank=True)
     image = models.FileField(
         storage=private_document_storage,
         upload_to=selection_option_upload_path,
@@ -2501,6 +2503,32 @@ class SelectionOption(models.Model):
 
     def __str__(self):
         return f'{self.selection.display_number}: {self.name}'
+
+
+def choice_image_upload_path(instance, filename):
+    return f'choice_gallery/{uuid.uuid4().hex}/{Path(filename).name}'
+
+
+class ChoiceImage(models.Model):
+    option = models.ForeignKey(SelectionOption, null=True, blank=True, on_delete=models.CASCADE, related_name='gallery_images')
+    template_option = models.ForeignKey(SelectionTemplateOption, null=True, blank=True, on_delete=models.CASCADE, related_name='gallery_images')
+    image = models.FileField(storage=private_document_storage, upload_to=choice_image_upload_path)
+    caption = models.CharField(max_length=250, blank=True)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ('sort_order', 'pk')
+        constraints = [models.CheckConstraint(
+            condition=(models.Q(option__isnull=False, template_option__isnull=True) |
+                       models.Q(option__isnull=True, template_option__isnull=False)),
+            name='choice_image_exactly_one_parent')]
+
+    def get_absolute_url(self):
+        from django.urls import reverse
+        if self.option_id:
+            return reverse('projects:selection_choice_image', args=[self.option.selection.project_id, self.option.selection_id, self.option_id, self.pk])
+        row = self.template_option.row
+        return reverse('projects:selection_template_choice_image', args=[row.template.organization.slug, row.template_id, row.pk, self.template_option_id, self.pk])
 
 
 class SelectionCustomRequest(models.Model):

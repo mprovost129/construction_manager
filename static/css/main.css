@@ -1875,3 +1875,14 @@ select {
 .team-permissions form { margin-top: 1rem; }
 .team-permissions .check-label { display: flex; align-items: flex-start; gap: .6rem; }
 .team-permissions input[type="checkbox"] { flex: 0 0 auto; margin-top: .25rem; }
+
+/* Choice galleries work in project and template views. */
+.choice-gallery{display:flex;flex-wrap:wrap;gap:.75rem;margin:.75rem 0;position:relative;z-index:2}
+.choice-gallery figure{margin:0;width:120px;max-width:100%}
+.choice-gallery img{width:120px!important;height:100px!important;object-fit:contain;background:#f3f6f4;border:1px solid #d5e2d9;border-radius:.4rem}
+.choice-gallery figcaption{font-size:.8rem;overflow-wrap:anywhere;margin-top:.25rem}
+.choice-gallery-edit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem}
+.choice-gallery-edit-item{min-width:0;padding:1rem;border:1px solid #d5e2d9;border-radius:.5rem;display:grid;gap:.4rem}
+.choice-gallery-edit-item legend{font-size:1rem;font-weight:600;float:none;width:auto}
+.choice-gallery-edit-item img,.choice-cover-preview img{width:180px;height:150px;object-fit:contain;max-width:100%}
+.choice-gallery-edit-item input:not([type=checkbox]){width:100%;background:white;border:1px solid #b8c8be;border-radius:.35rem;padding:.5rem}

@@ -10,12 +10,12 @@ from django.utils import timezone
 from .access import can_manage_project, can_manage_organization
 from .models import (ActivityEvent, FinishSelection, Organization, Project,
                      SelectionTemplate, SelectionTemplateRow, SelectionTemplateOption,
-                     SelectionOption, SelectionPackage)
+                     SelectionOption, SelectionPackage, ChoiceImage)
 from .services import record_activity
 
 ROW_FIELDS = ('title', 'description', 'location', 'allowance_amount')
 OPTION_FIELDS = ('name', 'description', 'price', 'is_recommended', 'sort_order',
-                 'vendor_name', 'product_url', 'specification', 'lead_time')
+                 'vendor_name', 'product_url', 'specification', 'lead_time', 'image_caption')
 
 
 def template_organizations(user):
@@ -68,6 +68,13 @@ def copy_options(source_options, destination, saved):
                     saved.append((copied.storage, copied.name))
         option.full_clean()
         option.save()
+        for original_photo in source.gallery_images.all():
+            parent = {'template_option': option} if isinstance(option, SelectionTemplateOption) else {'option': option}
+            photo = ChoiceImage(**parent, caption=original_photo.caption, sort_order=original_photo.sort_order)
+            with original_photo.image.open('rb') as data:
+                photo.image.save(Path(original_photo.image.name).name, data, save=False)
+                saved.append((photo.image.storage, photo.image.name))
+            photo.save()
 
 
 def save_project_template(project, user, name, description, selections):
@@ -77,7 +84,7 @@ def save_project_template(project, user, name, description, selections):
         Project.objects.select_for_update().get(pk=project.pk)
         template = SelectionTemplate.objects.create(organization=project.organization, name=name,
                                                     description=description, created_by=user)
-        for index, selection in enumerate(selections.select_related('package').prefetch_related('options').order_by('package__title', 'title', 'pk')):
+        for index, selection in enumerate(selections.select_related('package').prefetch_related('options__gallery_images').order_by('package__title', 'title', 'pk')):
             if selection.project_id != project.pk:
                 raise PermissionDenied
             row = SelectionTemplateRow.objects.create(template=template, sort_order=index,
@@ -95,7 +102,7 @@ def copy_template(source, user, name):
         source = SelectionTemplate.objects.select_for_update().get(pk=source.pk, deleted_at__isnull=True)
         template = SelectionTemplate.objects.create(organization=source.organization, name=name,
                                                     description=source.description, created_by=user)
-        for original in source.rows.prefetch_related('options'):
+        for original in source.rows.prefetch_related('options__gallery_images'):
             row = SelectionTemplateRow.objects.create(template=template, category=original.category,
                 sort_order=original.sort_order, **{field: getattr(original, field) for field in ROW_FIELDS})
             copy_options(original.options.all(), row, saved)
@@ -118,7 +125,7 @@ def load_template(template, project, user, rows, due_date=None):
         keys = {s.template_row_key for s in existing if s.template_row_key}
         identities = {row_identity(s.title, s.location, s.package.title if s.package_id else '') for s in existing}
         number = project.finish_selections.aggregate(value=Max('number'))['value'] or 0
-        for row in rows.prefetch_related('options'):
+        for row in rows.prefetch_related('options__gallery_images'):
             if row.template_id != template.pk:
                 raise PermissionDenied
             identity = row_identity(row.title, row.location, row.category)

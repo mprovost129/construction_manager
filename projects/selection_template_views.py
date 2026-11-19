@@ -14,6 +14,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
+from .choice_images import saved_choice_files
 from .forms import SelectionOptionForm
 from .access import projects_for_user, can_manage_project
 from .models import SelectionTemplate, SelectionTemplateRow, SelectionTemplateOption
@@ -161,7 +162,7 @@ def detail(request, slug, template_pk):
         messages.error(request, 'This template changed in another window. Reload it before saving; your changes were not applied.')
     return render(request, 'projects/selection_template_detail.html',
         {'template': template, 'formset': formset, 'version': request.POST.get('version') if conflict else template.updated_at.isoformat(),
-         'rows': template.rows.filter(pk__in=visible_ids).prefetch_related('options'), 'conflict': conflict, 'page': page})
+         'rows': template.rows.filter(pk__in=visible_ids).prefetch_related('options__gallery_images'), 'conflict': conflict, 'page': page})
 
 
 @login_required
@@ -235,9 +236,10 @@ def option_edit(request, slug, template_pk, row_pk, option_pk=None):
     option = get_object_or_404(row.options, pk=option_pk) if option_pk else SelectionTemplateOption(row=row)
     form = TemplateOptionForm(request.POST or None, request.FILES or None, instance=option)
     if request.method == 'POST' and form.is_valid():
-        with transaction.atomic():
+        with saved_choice_files(form), transaction.atomic():
             SelectionTemplate.objects.select_for_update().get(pk=template.pk, deleted_at__isnull=True)
-            form.save()
+            option = form.save()
+            form.save_gallery(option)
             template.save(update_fields=['updated_at'])
             audit(template, request.user, 'saved a choice in')
         return redirect(detail_url(template))

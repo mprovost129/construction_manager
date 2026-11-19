@@ -1,7 +1,10 @@
 from django.urls import path
 from . import selection_template_views as v
+from . import choice_images as gallery
 
 urlpatterns = [
+    path('projects/<int:pk>/selections/<int:selection_pk>/options/<int:option_pk>/photos/<int:image_pk>/', gallery.project_image, name='selection_choice_image'),
+    path('companies/<slug:slug>/selection-templates/<int:template_pk>/rows/<int:row_pk>/choices/<int:option_pk>/photos/<int:image_pk>/', gallery.template_image, name='selection_template_choice_image'),
     path('templates/', v.home, name='selection_template_home'),
     path('companies/<slug:slug>/selection-templates/<int:template_pk>/load/', v.choose_project, name='selection_template_choose_project'),
     path('companies/<slug:slug>/selection-templates/', v.library, name='selection_template_library'),

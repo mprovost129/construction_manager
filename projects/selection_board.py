@@ -6,7 +6,7 @@ from .selection_templates import can_use_templates
 
 
 def board_context(project, user, params):
-    selections = project.finish_selections.select_related('chosen_option', 'package').prefetch_related('options', 'reference_photos')
+    selections = project.finish_selections.select_related('chosen_option', 'package').prefetch_related('options__gallery_images', 'reference_photos')
     if is_project_client(user, project):
         selections = selections.exclude(status=FinishSelection.Status.DRAFT)
     query = params.get('q', '').strip()[:200]
@@ -33,7 +33,7 @@ def board_context(project, user, params):
                                   if photo.client_visible or can_manage_project(user, project)]
         selection.board_price = selection.imported_total if selection.status == 'imported' else selection.chosen_option.price if selection.chosen_option_id else None
         selection.board_remaining = selection.allowance_amount - selection.board_price if selection.board_price is not None else None
-        selection.board_files = sum(bool(o.image) + bool(o.attachment) for o in options) + len(selection.board_photos)
+        selection.board_files = sum(bool(o.image) + bool(o.attachment) + len(o.gallery_images.all()) for o in options) + len(selection.board_photos)
         selection.board_image = next((o for o in options if o.image), None)
         label = ((selection.package.title if selection.package_id else 'Uncategorized') if group == 'category'
                  else (selection.location or 'No location') if group == 'location' else 'All selections')

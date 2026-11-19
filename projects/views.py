@@ -46,6 +46,7 @@ from .access import (
 )
 from .action_center import build_project_action_center
 from .financials import project_financial_summary
+from .choice_images import saved_choice_files
 from .forms import (
     ChangeOrderDecisionForm,
     ChangeOrderForm,
@@ -3261,7 +3262,7 @@ class FinishSelectionDetailView(LoginRequiredMixin, TemplateView):
             {
                 'project': self.project,
                 'selection': self.selection,
-                'selection_options': self.selection.options.all(),
+                'selection_options': self.selection.options.prefetch_related('gallery_images'),
                 'reference_photos': self.selection.reference_photos.all() if can_manage else self.selection.reference_photos.filter(client_visible=True),
                 'can_manage_project': can_manage,
                 'can_choose': can_choose,
@@ -3325,7 +3326,7 @@ class SelectionOptionCreateView(LoginRequiredMixin, FormView):
         return kwargs
 
     def form_valid(self, form):
-        with transaction.atomic():
+        with saved_choice_files(form), transaction.atomic():
             selection = get_object_or_404(
                 FinishSelection.objects.select_for_update(),
                 project=self.project,
@@ -3337,6 +3338,7 @@ class SelectionOptionCreateView(LoginRequiredMixin, FormView):
             option.selection = selection
             option.full_clean()
             option.save()
+            form.save_gallery(option)
             record_activity(
                 organization=self.project.organization,
                 project=self.project,
@@ -3399,7 +3401,7 @@ class SelectionOptionUpdateView(LoginRequiredMixin, FormView):
 
     def form_valid(self, form):
         editable_fields = tuple(SelectionOptionForm.Meta.fields)
-        with transaction.atomic():
+        with saved_choice_files(form), transaction.atomic():
             selection = get_object_or_404(
                 FinishSelection.objects.select_for_update(),
                 project=self.project,
@@ -3420,8 +3422,10 @@ class SelectionOptionUpdateView(LoginRequiredMixin, FormView):
                     setattr(option, field_name, form.cleaned_data[field_name] or '')
                 else:
                     setattr(option, field_name, form.cleaned_data[field_name])
+            form.track_choice_files(option)
             option.full_clean()
             option.save(update_fields=editable_fields + ('updated_at',))
+            form.save_gallery(option)
             record_activity(
                 organization=self.project.organization,
                 project=self.project,

@@ -3,3 +3,5 @@
 @media print{header,footer,.selection-toolbar,.selection-actions,.breadcrumb-nav,button{display:none!important}.selection-grid-scroll{overflow:visible}.selection-choice-row[hidden]{display:table-row}.selection-grid{font-size:9pt}.selection-choice{break-inside:avoid}.app-main{max-width:none!important}}
 
 .template-editor-toolbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:1rem;background:#fff;padding:.75rem;border:1px solid #dce5df;border-radius:.5rem}.selection-options[id]{scroll-margin-top:5rem}
+
+details.selection-options{display:block}.selection-choice{align-items:flex-start}.selection-choice>div:last-child{min-width:0;flex:1}.selection-choice__image{flex-shrink:0}
