@@ -294,6 +294,50 @@ class SelectionTemplateTests(TestCase):
         self.assertEqual(response['Cache-Control'],'private, no-store')
         response.close()
 
+    def test_row_order_overrides_category_in_editor_copy_and_load(self):
+        template = SelectionTemplate.objects.create(organization=self.org, name='Ordered', created_by=self.admin)
+        shower = SelectionTemplateRow.objects.create(template=template, category='06.1 - Master Tiled Shower',
+            title='Shower glass', sort_order=55)
+        plumbing = SelectionTemplateRow.objects.create(template=template, category='06 - Plumbing Fixtures',
+            title='Faucet', sort_order=38)
+        fireplace = SelectionTemplateRow.objects.create(template=template, category='05 - Fireplace',
+            title='Mantle', sort_order=37)
+        tied = SelectionTemplateRow.objects.create(template=template, category='01 - Other',
+            title='Another faucet', sort_order=38)
+        expected = [fireplace, plumbing, tied, shower]
+        response = self.client.get(self.url('detail', 'builder', template.pk))
+        self.assertEqual([form.instance.pk for form in response.context['formset'].initial_forms],
+                         [row.pk for row in expected])
+        self.assertEqual(list(response.context['rows']), expected)
+        copied = copy_template(template, self.admin, 'Ordered copy')
+        self.assertEqual(list(copied.rows.values_list('title', flat=True)), [row.title for row in expected])
+        self.assertEqual(load_template(copied, self.target, self.admin, copied.rows.all()), (4, 0))
+        self.assertEqual(list(self.target.finish_selections.order_by('number').values_list('title', flat=True)),
+                         [row.title for row in expected])
+
+    def test_grid_order_edit_moves_row_across_pages_without_losing_rows(self):
+        template = SelectionTemplate.objects.create(organization=self.org, name='Reorder across pages', created_by=self.admin)
+        SelectionTemplateRow.objects.bulk_create([
+            SelectionTemplateRow(template=template, title=f'Row {index}', category='06 - Plumbing', sort_order=index)
+            for index in range(1, 52)])
+        moving = template.rows.get(sort_order=51)
+        moving.category = '06.1 - Shower'
+        moving.save()
+        url = self.url('detail', 'builder', template.pk)
+        response = self.client.get(url + '?page=2')
+        self.assertEqual([form.instance.pk for form in response.context['formset'].initial_forms], [moving.pk])
+        data = {'version': template.updated_at.isoformat(), 'rows-TOTAL_FORMS': 1, 'rows-INITIAL_FORMS': 1,
+                'rows-0-id': moving.pk, 'rows-0-title': moving.title, 'rows-0-category': moving.category,
+                'rows-0-location': '', 'rows-0-allowance_amount': '0', 'rows-0-sort_order': '0'}
+        self.assertEqual(self.client.post(url + '?page=2', data).status_code, 302)
+        moving.refresh_from_db()
+        self.assertEqual(moving.sort_order, 0)
+        self.assertEqual(template.rows.count(), 51)
+        response = self.client.get(url)
+        self.assertEqual(response.context['formset'].initial_forms[0].instance.pk, moving.pk)
+        self.assertEqual(response.context['rows'][0], moving)
+        self.assertEqual(list(template.rows.exclude(pk=moving.pk).values_list('sort_order', flat=True)), list(range(1, 51)))
+
     def test_large_template_page_save_keeps_all_other_rows(self):
         template=SelectionTemplate.objects.create(organization=self.org,name='Large template',created_by=self.admin)
         SelectionTemplateRow.objects.bulk_create([

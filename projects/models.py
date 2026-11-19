@@ -2095,7 +2095,7 @@ class SelectionTemplateRow(models.Model):
     sort_order = models.PositiveIntegerField(default=0)
 
     class Meta:
-        ordering = ('category', 'sort_order', 'pk')
+        ordering = ('sort_order', 'pk')
         constraints = [models.CheckConstraint(condition=models.Q(allowance_amount__gte=0), name='selection_template_allowance_nonnegative')]
 
     def __str__(self):

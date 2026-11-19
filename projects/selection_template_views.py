@@ -35,7 +35,10 @@ class RowForm(forms.ModelForm):
         model = SelectionTemplateRow
         fields = ('category', 'title', 'location', 'allowance_amount', 'sort_order', 'description')
         labels = {'sort_order': 'Order', 'allowance_amount': 'Allowance'}
-        help_texts = {'allowance_amount': 'For a standalone credit, use a zero allowance and a negative choice price.'}
+        help_texts = {
+            'allowance_amount': 'For a standalone credit, use a zero allowance and a negative choice price.',
+            'sort_order': 'Lower numbers appear first across all categories. Rows with the same number keep their creation order.',
+        }
         widgets = {'description': forms.Textarea(attrs={'rows': 3})}
 
 
