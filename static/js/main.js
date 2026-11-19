@@ -1,6 +1,20 @@
 (() => {
     'use strict';
 
+    if (document.querySelector('.client-preview-banner')) {
+        document.querySelectorAll('form:not([data-preview-control])').forEach((form) => {
+            if (form.method.toLowerCase() === 'get') return;
+            form.querySelectorAll('input:not([type="hidden"]), select, textarea, button').forEach((control) => {
+                control.disabled = true;
+                control.title = 'Client preview is read-only. Return to staff view to make changes.';
+            });
+            form.addEventListener('submit', (event) => {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }, true);
+        });
+    }
+
     const navigationToggle = document.querySelector('.app-nav__toggle');
     const navigationMenu = document.querySelector('.app-nav__menu');
     if (navigationToggle && navigationMenu) {

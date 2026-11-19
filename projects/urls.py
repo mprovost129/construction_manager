@@ -1,10 +1,12 @@
 from django.urls import path
 
-from . import views, selection_photos
+from . import views, selection_photos, client_preview
 
 app_name = 'projects'
 
 urlpatterns = [
+    path('client-preview/', client_preview.start, name='client_preview_start'),
+    path('client-preview/stop/', client_preview.stop, name='client_preview_stop'),
     path('projects/<int:pk>/selections/photos/', selection_photos.photo_import, name='selection_photo_import'),
     path('projects/<int:pk>/selections/photos/<int:photo_pk>/visibility/', selection_photos.photo_visibility, name='selection_photo_visibility'),
     path('projects/<int:pk>/selections/<int:selection_pk>/photos/<int:photo_pk>/', selection_photos.photo_image, name='selection_reference_image'),

@@ -21,6 +21,7 @@
     {% block header %}{% include 'partials/_header.html' %}{% endblock %}
 
     <main class="app-main container-xl">
+        {% include 'partials/_client_preview.html' %}
         {% include 'partials/_messages.html' %}
         {% block content %}{% endblock %}
     </main>

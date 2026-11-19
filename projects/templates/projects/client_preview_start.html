@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block title %}View as client | {{ app_name }}{% endblock %}
+{% block content %}
+<section class="page-heading"><div><h1>View as client</h1><p>Choose a project to browse its primary client view. You can only preview projects you already have access to.</p></div></section>
+<form method="post" class="admin-panel stacked-form">{% csrf_token %}
+<p>This preview is read-only. You can navigate and review shared information, but cannot approve, sign, send messages, upload files, or change settings. Client read receipts and activity are not changed.</p>
+<p>When a primary client is assigned, their project decisions are shown. Otherwise, you will see a general primary client preview.</p>
+{{ form.as_p }}
+<div class="form-actions"><button type="submit" class="btn btn-primary">Switch to client view</button><a href="{% url 'core:home' %}">Cancel</a></div>
+</form>
+{% endblock %}

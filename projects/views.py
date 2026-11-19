@@ -1298,11 +1298,12 @@ class ProjectDocumentSignatureReviewView(LoginRequiredMixin, FormView):
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request, *args, **kwargs):
-        record_signature_event(
-            self.signature_request,
-            DocumentSignatureEvent.Type.VIEWED,
-            request,
-        )
+        if not getattr(request, 'client_preview_active', False):
+            record_signature_event(
+                self.signature_request,
+                DocumentSignatureEvent.Type.VIEWED,
+                request,
+            )
         return super().get(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):

@@ -649,6 +649,8 @@ class ActivityEvent(models.Model):
         CLIENT_LOGGED_IN = 'client_logged_in', 'Client logged in'
         CLIENT_LOGGED_OUT = 'client_logged_out', 'Client logged out'
         CLIENT_VIEWED = 'client_viewed', 'Client viewed a page'
+        CLIENT_PREVIEW_STARTED = 'client_preview_started', 'Staff opened client preview'
+        CLIENT_PREVIEW_STOPPED = 'client_preview_stopped', 'Staff left client preview'
         HISTORY_IMPORTED = 'history_imported', 'Buildertrend history imported'
         TEAM_INVITED = 'team_invited', 'Team member invited'
         TEAM_INVITE_RESENT = 'team_invite_resent', 'Team invitation resent'

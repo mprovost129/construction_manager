@@ -19,6 +19,8 @@ OPTION_FIELDS = ('name', 'description', 'price', 'is_recommended', 'sort_order',
 
 
 def template_organizations(user):
+    if getattr(user, '_client_preview_project_id', None):
+        return Organization.objects.none()
     if not user.is_authenticated:
         return Organization.objects.none()
     if user.is_superuser:

@@ -16,6 +16,8 @@ MANAGEMENT_ROLES = (
 
 
 def projects_for_user(user):
+    if getattr(user, '_client_preview_project_id', None):
+        return Project.objects.filter(pk=user._client_preview_project_id)
     if not user.is_authenticated:
         return Project.objects.none()
     if user.is_superuser:
@@ -43,6 +45,8 @@ def projects_for_user(user):
 
 
 def organization_membership_for(user, organization):
+    if getattr(user, '_client_preview_project_id', None):
+        return None
     if not user.is_authenticated:
         return None
     return user.organization_memberships.filter(
@@ -52,6 +56,8 @@ def organization_membership_for(user, organization):
 
 
 def internal_organizations_for_user(user, *, management_only=False):
+    if getattr(user, '_client_preview_project_id', None):
+        return Organization.objects.none()
     if not user.is_authenticated:
         return Organization.objects.none()
     if user.is_superuser:
@@ -118,15 +124,12 @@ def can_use_project_messaging(user, project):
         and organization_membership.role != OrganizationMembership.Role.ACCOUNTANT
     ):
         return projects_for_user(user).filter(pk=project.pk).exists()
-    return project.project_memberships.filter(
-        user=user,
-        is_active=True,
-        role=OrganizationMembership.Role.CLIENT,
-        client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
-    ).exists()
+    return is_project_client(user, project)
 
 
 def is_project_client(user, project):
+    if getattr(user, '_client_preview_project_id', None):
+        return user._client_preview_project_id == project.pk
     if not user.is_authenticated:
         return False
     return project.project_memberships.filter(
@@ -138,6 +141,8 @@ def is_project_client(user, project):
 
 
 def is_project_signer(user, project):
+    if getattr(user, '_client_preview_project_id', None):
+        return False
     if not user.is_authenticated:
         return False
     return project.project_memberships.filter(
@@ -237,6 +242,8 @@ def can_manage_daily_logs(user, project):
 
 
 def accounting_organizations_for_user(user, *, edit=False):
+    if getattr(user, '_client_preview_project_id', None):
+        return Organization.objects.none()
     if not user.is_authenticated or not user.is_active:
         return Organization.objects.none()
     if user.is_superuser:

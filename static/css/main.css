@@ -1886,3 +1886,7 @@ select {
 .choice-gallery-edit-item legend{font-size:1rem;font-weight:600;float:none;width:auto}
 .choice-gallery-edit-item img,.choice-cover-preview img{width:180px;height:150px;object-fit:contain;max-width:100%}
 .choice-gallery-edit-item input:not([type=checkbox]){width:100%;background:white;border:1px solid #b8c8be;border-radius:.35rem;padding:.5rem}
+.client-preview-banner{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1rem;margin-bottom:1.5rem;background:#fff4d6;border:2px solid #a56a00;border-radius:.5rem;color:#3e2b05;box-shadow:0 2px 6px #0001}
+.client-preview-banner p{margin:.25rem 0 0;font-size:.9rem}
+.client-preview-banner form{margin:0;flex-shrink:0}
+@media(max-width:700px){.client-preview-banner{flex-direction:column;align-items:stretch}.client-preview-banner button{width:100%}}

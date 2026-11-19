@@ -17,7 +17,8 @@ class ClientViewAuditMiddleware:
     def __call__(self, request):
         response = self.get_response(request)
         if (
-            request.method != 'GET'
+            getattr(request, 'client_preview_active', False)
+            or request.method != 'GET'
             or response.status_code >= 400
             or not request.user.is_authenticated
             or request.resolver_match is None
