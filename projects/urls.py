@@ -1,10 +1,13 @@
 from django.urls import path
 
-from . import views
+from . import views, selection_photos
 
 app_name = 'projects'
 
 urlpatterns = [
+    path('projects/<int:pk>/selections/photos/', selection_photos.photo_import, name='selection_photo_import'),
+    path('projects/<int:pk>/selections/photos/<int:photo_pk>/visibility/', selection_photos.photo_visibility, name='selection_photo_visibility'),
+    path('projects/<int:pk>/selections/<int:selection_pk>/photos/<int:photo_pk>/', selection_photos.photo_image, name='selection_reference_image'),
     path('notifications/', views.NotificationListView.as_view(), name='notification_list'),
     path(
         'notifications/read-all/',

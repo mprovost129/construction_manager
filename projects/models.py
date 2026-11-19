@@ -14,6 +14,25 @@ from .money import money
 from .storage import private_document_storage
 
 
+class SelectionReferencePhoto(models.Model):
+    """Supporting imagery independent of selection prices and decisions."""
+    selection = models.ForeignKey('FinishSelection', on_delete=models.CASCADE, related_name='reference_photos')
+    image = models.FileField(storage=private_document_storage, upload_to='selection_reference_photos/%Y/%m/')
+    caption = models.CharField(max_length=250)
+    source_key = models.CharField(max_length=160)
+    sha256 = models.CharField(max_length=64)
+    client_visible = models.BooleanField(default=False)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('pk',)
+        constraints = [
+            models.UniqueConstraint(fields=('selection', 'source_key'), name='unique_selection_photo_source'),
+            models.UniqueConstraint(fields=('selection', 'sha256'), name='unique_selection_photo_content'),
+        ]
+
+
 def invitation_expiry():
     return timezone.now() + timedelta(days=7)
 

@@ -3262,6 +3262,7 @@ class FinishSelectionDetailView(LoginRequiredMixin, TemplateView):
                 'project': self.project,
                 'selection': self.selection,
                 'selection_options': self.selection.options.all(),
+                'reference_photos': self.selection.reference_photos.all() if can_manage else self.selection.reference_photos.filter(client_visible=True),
                 'can_manage_project': can_manage,
                 'can_choose': can_choose,
                 'decision_form': SelectionDecisionForm(selection=self.selection),
