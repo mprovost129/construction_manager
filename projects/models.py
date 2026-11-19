@@ -2120,7 +2120,6 @@ class SelectionTemplateOption(models.Model):
     class Meta:
         ordering = ('sort_order', 'pk')
         constraints = [
-            models.CheckConstraint(condition=models.Q(price__gte=0), name='selection_template_price_nonnegative'),
             models.UniqueConstraint(Lower('name'), 'row', name='selection_template_unique_option'),
         ]
 
@@ -2496,10 +2495,6 @@ class SelectionOption(models.Model):
         self.lead_time = self.lead_time.strip()
         if not self.name:
             raise ValidationError({'name': 'Option name cannot be blank.'})
-        if self.price < 0:
-            raise ValidationError({'price': 'Option price cannot be negative.'})
-        if self.cost < 0:
-            raise ValidationError({'cost': 'Option cost cannot be negative.'})
 
     def __str__(self):
         return f'{self.selection.display_number}: {self.name}'

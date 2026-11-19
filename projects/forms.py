@@ -539,7 +539,8 @@ class FinishSelectionForm(forms.ModelForm):
         labels = {'allowance_amount': 'Client allowance', 'package': 'Category'}
         help_texts = {
             'allowance_amount': (
-                'Clients will see each option as over, under, or within this allowance.'
+                'Clients will see each option as over, under, or within this allowance. '
+                'For a standalone credit, use a zero allowance and a negative choice price.'
             ),
             'package': 'Choose an existing package instead of naming a new one below.',
         }
@@ -592,7 +593,8 @@ class SelectionOptionForm(ChoiceGalleryMixin, forms.ModelForm):
             'product_url': 'Product link',
         }
         help_texts = {
-            'cost': 'Internal only and never shown to clients.',
+            'price': 'Use a negative amount for a client credit, e.g. -250.00. The allowance is subtracted from this price to calculate the selection difference.',
+            'cost': 'Internal only and never shown to clients. Use a negative amount for a vendor or project cost credit.',
             'sort_order': 'Lower numbers appear first.',
             'product_url': "Link to the vendor's product page.",
             'lead_time': 'Free text, e.g. "6-8 weeks" or "In stock."',

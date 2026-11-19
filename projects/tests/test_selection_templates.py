@@ -1,4 +1,5 @@
 import tempfile
+from decimal import Decimal
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
@@ -214,7 +215,7 @@ class SelectionTemplateTests(TestCase):
         option=row.options.get()
         self.assertEqual(self.client.get(self.url('option_edit','builder',template.pk,row.pk,option.pk)).status_code,200)
         create=self.url('option_create','builder',template.pk,row.pk)
-        payload={'name':'Painted','price':'-1','sort_order':0}
+        payload={'name':'Painted','price':'not-a-number','sort_order':0}
         self.assertEqual(self.client.post(create,payload).status_code,200)
         self.assertEqual(row.options.count(),1)
         payload.update(price='100',image=SimpleUploadedFile('bad.svg',b'<svg><script>alert(1)</script></svg>',content_type='image/svg+xml'))
@@ -224,6 +225,32 @@ class SelectionTemplateTests(TestCase):
         self.assertEqual(self.client.post(create,payload).status_code,302)
         self.assertEqual(self.client.post(self.url('load',self.target.pk,template.pk),{'rows':[row.pk],'due_date':'2030-02-03'}).status_code,302)
         self.assertEqual(self.target.finish_selections.get().options.count(),2)
+
+    def test_negative_choice_survives_save_edit_copy_and_load_without_duplicates(self):
+        self.option.price = Decimal('-250.75')
+        self.option.cost = Decimal('-123.45')
+        self.option.full_clean()
+        self.option.save()
+        template = self.make_template()
+        row = template.rows.get()
+        option = row.options.get()
+        self.assertEqual(option.price, Decimal('-250.75'))
+        create = self.url('option_create', 'builder', template.pk, row.pk)
+        data = {'name': 'Accessory credit', 'price': '-50.25', 'sort_order': 1}
+        self.assertEqual(self.client.post(create, data).status_code, 302)
+        credit = row.options.get(name='Accessory credit')
+        data['price'] = '-75.50'
+        self.assertEqual(self.client.post(self.url('option_edit', 'builder', template.pk,
+            row.pk, credit.pk), data).status_code, 302)
+        copied = copy_template(template, self.admin, 'Credit template')
+        self.assertEqual(load_template(copied, self.target, self.admin, copied.rows.all()), (1, 0))
+        self.assertEqual(load_template(copied, self.target, self.admin, copied.rows.all()), (0, 1))
+        loaded = self.target.finish_selections.get()
+        self.assertEqual(loaded.status, 'draft')
+        self.assertIsNone(loaded.chosen_option_id)
+        self.assertEqual(list(loaded.options.values_list('price', flat=True)),
+                         [Decimal('-250.75'), Decimal('-75.50')])
+        self.assertEqual(list(loaded.options.values_list('cost', flat=True)), [0, 0])
 
     def test_client_board_hides_drafts_and_company_controls_and_costs(self):
         template=self.make_template()
