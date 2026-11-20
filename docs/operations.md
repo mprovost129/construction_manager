@@ -1,5 +1,49 @@
 # Heritage 360 operations
 
+## Stability update — November 20, 2026
+
+Render confirmed HTTP health-check timeouts before the 8:49 AM and 9:01 AM
+Eastern restarts. Available web-service charts showed memory below approximately
+60% and CPU below approximately 30%; they did not establish the underlying
+request that blocked readiness. Sentry had no matching issue or trace. Worker
+contention during private file downloads is a hypothesis, not a proven cause.
+
+The web container now uses two Gunicorn `gthread` workers with four request
+threads each. Eight request slots allow unrelated requests to make progress
+while some wait for storage. This does not reserve a dedicated health-check slot
+or guarantee availability under arbitrary load. Keep private files behind the
+existing authenticated views and retain `private, no-store` responses.
+
+Production database connections now use Django's per-database `CONN_MAX_AGE=60`
+and `CONN_HEALTH_CHECKS=True`; the old top-level setting was ineffective. New
+connections have a three-second connection timeout. Web queries have a
+15-second statement timeout and five-second lock timeout. Management commands
+(including startup migrations and imports) do not receive those query limits.
+SSL requirements are preserved. Cache connection/read waits are limited to
+three seconds and errors are not silently ignored. Existing SMTP timeout is
+15 seconds. R2 uses three-second connect and 15-second socket-read timeouts,
+two total SDK attempts, and at most two transfer download attempts. Transfers
+run without nested thread pools. Socket/statement limits are not total request
+or whole-transfer deadlines; multiple operations and retries may take longer.
+Timeouts can surface failed requests; do not blindly retry uncertain writes.
+
+`heritage.request_timing` writes warnings for responses taking two seconds or
+more (one second for the health route), and for any 5xx response. Fields are
+registered route name, standard HTTP method, response status, elapsed milliseconds,
+and phase. It never reads user/session data, URLs, URL parameters, headers,
+request bodies, or exception text. Unknown routes are labeled `unmatched`.
+`phase=response` measures response construction; `phase=stream_close` includes
+file transfer and cleanup until the WSGI response closes, not proof of successful
+delivery. Logging failures do not affect the request. These diagnostics cannot
+record a completion for a killed process and do not replace external monitoring.
+
+After deployment, verify the `gthread` startup log, public `/health/`, login page,
+authorized downloads, and Better Stack recovery. Review slow-route warnings and
+CPU/memory during normal photo usage before changing hosting plans. The default
+Gunicorn access log remains disabled to avoid logging sensitive URL parameters.
+Rolling back this release requires no database rollback; it contains no schema
+changes. Do not disable health checks to hide timeouts.
+
 ## Access and switching
 
 Open `/operations/` from the **Operations** link in the normal application header.

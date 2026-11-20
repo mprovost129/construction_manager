@@ -64,6 +64,7 @@ AUTHENTICATION_BACKENDS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'core.request_timing.RequestTimingMiddleware',
     'core.operations.OperationalFailureMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -178,6 +179,11 @@ LOGGING = {
         },
     },
     'loggers': {
+        'heritage.request_timing': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
         'django': {
             'handlers': DJANGO_LOG_HANDLERS,
             'level': os.environ.get('DJANGO_LOG_LEVEL', 'INFO'),

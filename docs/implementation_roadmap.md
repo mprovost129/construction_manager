@@ -1,6 +1,12 @@
 # Construction Manager Implementation Roadmap
 
-Last updated: November 11, 2026
+Last updated: November 20, 2026
+
+November 20 stability update: bounded database/cache/storage waits, eight threaded
+request slots, and privacy-safe slow-response/stream-close logging are implemented.
+See [Operations](operations.md#stability-update--november-20-2026) for the incident
+evidence, verification procedure, and limits. These changes mitigate a plausible
+request-contention risk; they do not establish the exact cause of the two restarts.
 
 This is the authoritative implementation-status document for Construction Manager.
 It translates the answers in [Construction Manager.md](./Construction%20Manager.md)

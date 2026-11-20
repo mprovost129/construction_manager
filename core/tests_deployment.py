@@ -63,6 +63,15 @@ class PrivateStorageTests(SimpleTestCase):
         self.assertTrue(options['querystring_auth'])
         self.assertFalse(options['file_overwrite'])
         self.assertEqual(options['object_parameters']['CacheControl'], 'private, no-store')
+        client_config = options['client_config']
+        self.assertEqual(client_config.connect_timeout, 3)
+        self.assertEqual(client_config.read_timeout, 15)
+        self.assertEqual(client_config.retries['total_max_attempts'], 2)
+        self.assertEqual(client_config.signature_version, 's3v4')
+        self.assertEqual(client_config.s3['addressing_style'], 'path')
+        self.assertFalse(options['transfer_config'].use_threads)
+        self.assertEqual(options['transfer_config'].max_io_queue, 8)
+        self.assertEqual(options['transfer_config'].num_download_attempts, 2)
 
 
 class ReplyAddressTests(SimpleTestCase):

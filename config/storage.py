@@ -2,6 +2,8 @@
 
 import re
 
+from boto3.s3.transfer import TransferConfig
+from botocore.config import Config
 from django.core.exceptions import ImproperlyConfigured
 
 
@@ -27,6 +29,21 @@ def r2_storage_config(environment):
             'querystring_auth': True,
             'file_overwrite': False,
             'max_memory_size': 2 * 1024 * 1024,
+            # Request threads already provide concurrency. Avoid a nested pool
+            # and large download queues for every simultaneous image request.
+            'transfer_config': TransferConfig(
+                use_threads=False, max_io_queue=8, num_download_attempts=2,
+            ),
+            # Socket timeouts and limited retries bound stalled storage calls.
+            # These are per-operation limits, not a total file-transfer deadline.
+            'client_config': Config(
+                signature_version='s3v4',
+                s3={'addressing_style': 'path'},
+                connect_timeout=3,
+                read_timeout=15,
+                retries={'mode': 'standard', 'total_max_attempts': 2},
+                max_pool_connections=8,
+            ),
             'object_parameters': {'CacheControl': 'private, no-store'},
         },
     }
