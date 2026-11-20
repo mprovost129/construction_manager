@@ -274,7 +274,7 @@ class SelectionTemplateTests(TestCase):
             response=self.client.get(board+suffix)
             self.assertContains(response,'Cabinet finish')
             self.assertNotContains(response,'987654')
-            self.assertNotContains(response,'Load / manage templates')
+            self.assertNotContains(response,'Load template')
 
     def test_board_filter_group_and_printable_choices(self):
         response=self.client.get(reverse('projects:selection_list',args=[self.project.pk])+'?group=location&q=Cabinet&status=draft')

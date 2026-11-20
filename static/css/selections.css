@@ -5,3 +5,21 @@
 .template-editor-toolbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:1rem;background:#fff;padding:.75rem;border:1px solid #dce5df;border-radius:.5rem}.selection-options[id]{scroll-margin-top:5rem}
 
 details.selection-options{display:block}.selection-choice{align-items:flex-start}.selection-choice>div:last-child{min-width:0;flex:1}.selection-choice__image{flex-shrink:0}
+
+/* Compact staff controls, separate from the selection filters and row actions. */
+.selection-page-heading{flex-wrap:wrap;align-items:flex-start;gap:1rem}
+.selection-page-heading>div:first-child{flex:1 1 350px}
+.selection-page-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:.2rem}
+.selection-page-actions .btn{display:inline-flex;align-items:center;justify-content:center;gap:.45rem;min-height:40px;padding:.5rem .8rem;font-size:.875rem;line-height:1.35;white-space:nowrap;border-radius:.4rem}
+.selection-action-secondary{color:#254c70;background:#e7eff8;border:1px solid #b6c9de;text-decoration:none}
+.selection-action-secondary:hover,.selection-action-secondary:focus-visible{color:#163a5b;background:#d7e5f4;border-color:#7395b8}
+.selection-page-actions .btn:focus-visible,.selection-action-menu__panel a:focus-visible{outline:3px solid #537faa;outline-offset:3px}
+.selection-action-menu{position:relative}
+.selection-action-menu>summary{cursor:pointer;list-style:none}
+.selection-action-menu>summary::-webkit-details-marker{display:none}
+.selection-action-menu>summary .bi{font-size:.7rem}
+.selection-action-menu__panel{position:absolute;right:0;top:calc(100% + .45rem);z-index:30;min-width:255px;padding:.4rem;background:#fff;border:1px solid #cbd8e5;border-radius:.5rem;box-shadow:0 8px 24px #17364d24}
+.selection-action-menu__panel a{display:block;padding:.65rem .75rem;color:#254c70;text-decoration:none;border-radius:.3rem;font-size:.875rem;white-space:nowrap}
+.selection-action-menu__panel a:hover,.selection-action-menu__panel a:focus-visible{background:#e7eff8}
+.selection-action-menu__panel .selection-action-delete{color:#983a3a;border-top:1px solid #e4e9ef;border-radius:0;margin-top:.25rem;padding-top:.8rem}
+@media(max-width:600px){.selection-page-heading>div:first-child{flex-basis:auto}.selection-page-actions{width:100%}.selection-page-actions>a,.selection-action-menu{flex:1 1 calc(50% - .5rem)}.selection-action-menu>summary{width:100%}.selection-action-menu__panel{min-width:255px;max-width:calc(100vw - 3rem)}}

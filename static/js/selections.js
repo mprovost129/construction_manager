@@ -1,4 +1,14 @@
 (() => {
+  const actionMenu = document.querySelector('.selection-action-menu');
+  document.addEventListener('click', event => {
+    if (actionMenu && !actionMenu.contains(event.target)) actionMenu.open = false;
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && actionMenu?.open) {
+      actionMenu.open = false;
+      actionMenu.querySelector('summary').focus();
+    }
+  });
   const editor = document.getElementById('template-rows');
   let unsaved = false;
   const markUnsaved = () => {

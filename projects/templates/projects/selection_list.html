@@ -3,7 +3,29 @@
 {% block extra_css %}<link rel="stylesheet" href="{% static 'css/selections.css' %}">{% endblock %}
 {% block content %}
 <nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'core:home' %}">Projects</a><span>›</span><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><span>›</span><span>Selections</span></nav>
-<section class="page-heading"><div><p class="eyebrow">{{ project.name }}</p><h1>Selections</h1><p>Review choices, photos, allowances, and deadlines by category.</p></div><div class="form-actions selection-actions">{% if can_use_templates %}<a class="btn btn-outline-secondary" href="{% url 'projects:selection_template_library' project.organization.slug %}?project={{ project.pk }}">Load / manage templates</a><a class="btn btn-outline-secondary" href="{% url 'projects:selection_template_save' project.pk %}">Save as new template</a><a class="btn btn-outline-secondary" href="{% url 'projects:selection_template_replacements' project.pk %}">Template replacement history</a>{% endif %}{% if can_manage_project %}<a class="btn btn-outline-secondary" href="{% url 'projects:selection_photo_import' project.pk %}">Manage reference photos</a><a class="btn btn-primary" href="{% url 'projects:selection_create' project.pk %}">Add selection</a><a class="btn btn-outline-secondary" href="{% url 'projects:selection_delete_template' project.pk %}">Delete loaded template</a><a class="btn btn-outline-secondary" href="{% url 'projects:selection_deleted' project.pk %}">Deleted selections</a>{% endif %}</div></section>
+<section class="page-heading selection-page-heading">
+  <div><p class="eyebrow">{{ project.name }}</p><h1>Selections</h1><p>Review choices, photos, allowances, and deadlines by category.</p></div>
+  {% if can_manage_project or can_use_templates %}
+  <div class="selection-actions selection-page-actions" aria-label="Selection actions">
+    {% if can_manage_project %}<a class="btn btn-primary" href="{% url 'projects:selection_create' project.pk %}"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add selection</a>{% endif %}
+    {% if can_use_templates %}
+    <a class="btn selection-action-secondary" href="{% url 'projects:selection_template_library' project.organization.slug %}?project={{ project.pk }}">Load template</a>
+    <a class="btn selection-action-secondary" href="{% url 'projects:selection_template_save' project.pk %}">Save as template</a>
+    {% endif %}
+    <details class="selection-action-menu">
+      <summary class="btn selection-action-secondary">More actions <i class="bi bi-chevron-down" aria-hidden="true"></i></summary>
+      <div class="selection-action-menu__panel">
+        {% if can_use_templates %}<a href="{% url 'projects:selection_template_replacements' project.pk %}">Template replacement history</a>{% endif %}
+        {% if can_manage_project %}
+        <a href="{% url 'projects:selection_photo_import' project.pk %}">Manage reference photos</a>
+        <a href="{% url 'projects:selection_deleted' project.pk %}">Deleted selections</a>
+        <a class="selection-action-delete" href="{% url 'projects:selection_delete_template' project.pk %}">Delete loaded template</a>
+        {% endif %}
+      </div>
+    </details>
+  </div>
+  {% endif %}
+</section>
 <section class="admin-panel">
 <form method="get" class="selection-toolbar"><div><label for="selection-query">Search</label><input id="selection-query" type="search" name="q" value="{{ query }}" placeholder="Title, category, or location"></div><div><label for="selection-group">Group by</label><select id="selection-group" name="group"><option value="category" {% if group_filter == 'category' %}selected{% endif %}>Category</option><option value="location" {% if group_filter == 'location' %}selected{% endif %}>Location</option><option value="none" {% if group_filter == 'none' %}selected{% endif %}>No grouping</option></select></div><div><label for="selection-status">Status</label><select id="selection-status" name="status"><option value="">All statuses</option>{% for key,label in status_choices %}<option value="{{ key }}" {% if status_filter == key %}selected{% endif %}>{{ label }}</option>{% endfor %}<option value="overdue" {% if status_filter == 'overdue' %}selected{% endif %}>Overdue</option></select></div><div><label for="selection-sort">Sort</label><select id="selection-sort" name="sort"><option value="title" {% if sort_filter == 'title' %}selected{% endif %}>Title A–Z</option><option value="-title" {% if sort_filter == '-title' %}selected{% endif %}>Title Z–A</option><option value="due_date" {% if sort_filter == 'due_date' %}selected{% endif %}>Deadline</option><option value="status" {% if sort_filter == 'status' %}selected{% endif %}>Status</option><option value="number" {% if sort_filter == 'number' %}selected{% endif %}>Template / entry order</option></select></div><div><label for="selection-view">View</label><select id="selection-view" name="view"><option value="list" {% if view_mode == 'list' %}selected{% endif %}>List</option><option value="cards" {% if view_mode == 'cards' %}selected{% endif %}>Cards</option></select></div><button class="btn btn-primary" type="submit">Apply</button><a href="{% url 'projects:selection_list' project.pk %}">Reset</a><button class="btn btn-outline-secondary" type="button" data-print-selections>Print selections</button>{% if view_mode == 'list' %}<button class="btn btn-outline-secondary" type="button" data-expand-selections>Expand choices</button>{% endif %}</form>
 <p class="selection-count">{{ selections|length }} selection{{ selections|length|pluralize }}</p>
