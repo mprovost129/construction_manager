@@ -14,6 +14,25 @@ from .money import money
 from .storage import private_document_storage
 
 
+class SelectionReferencePhoto(models.Model):
+    """Supporting imagery independent of selection prices and decisions."""
+    selection = models.ForeignKey('FinishSelection', on_delete=models.CASCADE, related_name='reference_photos')
+    image = models.FileField(storage=private_document_storage, upload_to='selection_reference_photos/%Y/%m/')
+    caption = models.CharField(max_length=250)
+    source_key = models.CharField(max_length=160)
+    sha256 = models.CharField(max_length=64)
+    client_visible = models.BooleanField(default=False)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('pk',)
+        constraints = [
+            models.UniqueConstraint(fields=('selection', 'source_key'), name='unique_selection_photo_source'),
+            models.UniqueConstraint(fields=('selection', 'sha256'), name='unique_selection_photo_content'),
+        ]
+
+
 def invitation_expiry():
     return timezone.now() + timedelta(days=7)
 
@@ -73,6 +92,41 @@ class Organization(models.Model):
         return self.name
 
 
+class OrganizationDisclosure(models.Model):
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name='disclosures',
+    )
+    title = models.CharField(max_length=200)
+    body = models.TextField()
+    include_on_change_orders = models.BooleanField(default=False)
+    include_on_invoices = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('sort_order', 'title', 'pk')
+
+    def clean(self):
+        super().clean()
+        self.title = self.title.strip()
+        self.body = self.body.strip()
+        if not self.title:
+            raise ValidationError({'title': 'Enter a disclosure title.'})
+        if not self.body:
+            raise ValidationError({'body': 'Enter disclosure text.'})
+        if not (self.include_on_change_orders or self.include_on_invoices):
+            raise ValidationError(
+                'Choose change orders, invoices, or both for this disclosure.'
+            )
+
+    def __str__(self):
+        return f'{self.organization}: {self.title}'
+
+
 class OrganizationMembership(models.Model):
     class Role(models.TextChoices):
         ADMIN = 'admin', 'Admin'
@@ -108,6 +162,13 @@ class OrganizationMembership(models.Model):
     )
     role = models.CharField(max_length=20, choices=Role.choices)
     is_active = models.BooleanField(default=True)
+    # None preserves role defaults for existing memberships; explicit False revokes.
+    mfa_required = models.BooleanField(default=False)
+    accounting_view = models.BooleanField(null=True, default=None, blank=True)
+    accounting_edit = models.BooleanField(null=True, default=None, blank=True)
+    desktop_manage = models.BooleanField(null=True, default=None, blank=True)
+    desktop_check = models.BooleanField(null=True, default=None, blank=True)
+    project_budget_view = models.BooleanField(null=True, default=None, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -122,6 +183,42 @@ class OrganizationMembership(models.Model):
     @property
     def is_internal(self):
         return self.role in self.INTERNAL_ROLES
+
+    def feature_allowed(self, field):
+        if not self.is_active or not self.is_internal:
+            return False
+        defaults = {
+            'mfa_required': (),
+            'accounting_view': (self.Role.ADMIN,),
+            'accounting_edit': (self.Role.ADMIN,),
+            'desktop_manage': (self.Role.ADMIN,),
+            'desktop_check': (self.Role.ADMIN,),
+            'project_budget_view': (self.Role.ADMIN, self.Role.MANAGER,
+                                    self.Role.PROJECT_MANAGER, self.Role.ACCOUNTANT),
+        }
+        roles = defaults[field]
+        value = getattr(self, field)
+        return self.role in roles if value is None else value
+
+    @property
+    def can_view_accounting(self):
+        return self.feature_allowed('accounting_view')
+
+    @property
+    def can_edit_accounting(self):
+        return self.can_view_accounting and self.feature_allowed('accounting_edit')
+
+    @property
+    def can_view_budget(self):
+        return self.feature_allowed('project_budget_view')
+
+    @property
+    def can_manage_desktop(self):
+        return self.can_view_accounting and self.feature_allowed('desktop_manage')
+
+    @property
+    def can_check_desktop(self):
+        return self.can_view_accounting and self.feature_allowed('desktop_check')
 
     @property
     def can_view_company_financials(self):
@@ -155,6 +252,7 @@ class Project(models.Model):
         on_delete=models.CASCADE,
         related_name='projects',
     )
+    import_source = models.JSONField(default=dict, blank=True, editable=False)
     name = models.CharField(max_length=200)
     code = models.CharField(max_length=50, blank=True)
     description = models.TextField(blank=True)
@@ -201,6 +299,7 @@ class ProjectInternalAccess(models.Model):
     )
     can_manage = models.BooleanField(default=False)
     can_invite_clients = models.BooleanField(default=False)
+    is_project_manager = models.BooleanField(default=False)
     receives_notifications = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
     assigned_by = models.ForeignKey(
@@ -242,6 +341,10 @@ class ProjectInternalAccess(models.Model):
 
 
 class ProjectMembership(models.Model):
+    class ClientAccessType(models.TextChoices):
+        PRIMARY = 'primary', 'Primary client'
+        SIGNER = 'signer', 'Authorized signer'
+
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
@@ -264,6 +367,11 @@ class ProjectMembership(models.Model):
                 OrganizationMembership.Role.SUBCONTRACTOR.label,
             ),
         ),
+    )
+    client_access_type = models.CharField(
+        max_length=20,
+        choices=ClientAccessType.choices,
+        default=ClientAccessType.PRIMARY,
     )
     is_active = models.BooleanField(default=True)
     invited_by = models.ForeignKey(
@@ -315,6 +423,11 @@ class ProjectInvitation(models.Model):
         ),
         default=OrganizationMembership.Role.CLIENT,
     )
+    client_access_type = models.CharField(
+        max_length=20,
+        choices=ProjectMembership.ClientAccessType.choices,
+        default=ProjectMembership.ClientAccessType.PRIMARY,
+    )
     invited_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -361,7 +474,85 @@ class ProjectInvitation(models.Model):
         return f'{self.email} invited to {self.project}'
 
 
+class NotificationPreference(models.Model):
+    class Event(models.TextChoices):
+        MESSAGES = 'messages', 'Messages and comments'
+        DAILY_LOGS = 'daily_logs', 'Daily logs and client updates'
+        DOCUMENTS = 'documents', 'Documents, plans, and signatures'
+        ESTIMATES = 'estimates', 'Estimates and proposals'
+        CHANGE_ORDERS = 'change_orders', 'Change orders'
+        SELECTIONS = 'selections', 'Selections'
+        PUNCH_LIST = 'punch_list', 'Punch-list deadlines'
+        SCHEDULE = 'schedule', 'Schedule changes'
+        INVOICES = 'invoices', 'Invoices and payments'
+        PROJECT_ASSIGNMENTS = 'project_assignments', 'Project assignments'
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='notification_preferences',
+    )
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='notification_preferences',
+    )
+    event_type = models.CharField(max_length=30, choices=Event.choices)
+    email_enabled = models.BooleanField(default=True)
+    in_app_enabled = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('project__name', 'event_type')
+        constraints = [
+            models.UniqueConstraint(
+                fields=('user', 'project', 'event_type'),
+                name='projects_unique_notification_preference',
+            ),
+        ]
+
+
+class InAppNotification(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='in_app_notifications',
+    )
+    project = models.ForeignKey(
+        Project,
+        null=True, blank=True,
+        on_delete=models.CASCADE,
+        related_name='in_app_notifications',
+    )
+    staff_thread = models.ForeignKey('StaffThread', on_delete=models.CASCADE, null=True, blank=True, related_name='notifications')
+    event_type = models.CharField(max_length=30, choices=NotificationPreference.Event.choices)
+    title = models.CharField(max_length=200)
+    message = models.TextField(blank=True)
+    url_path = models.CharField(max_length=500, blank=True)
+    read_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at', '-pk')
+        indexes = [
+            models.Index(
+                fields=('user', 'read_at', '-created_at'),
+                name='projects_notif_user_read_idx',
+            ),
+        ]
+
+    @property
+    def is_read(self):
+        return self.read_at is not None
+
+
 class OrganizationInvitation(models.Model):
+    desktop_manage = models.BooleanField(null=True, default=None, blank=True)
+    desktop_check = models.BooleanField(null=True, default=None, blank=True)
+    mfa_required = models.BooleanField(default=False)
+    accounting_view = models.BooleanField(null=True, default=None, blank=True)
+    accounting_edit = models.BooleanField(null=True, default=None, blank=True)
+    project_budget_view = models.BooleanField(null=True, default=None, blank=True)
     token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     organization = models.ForeignKey(
         Organization,
@@ -458,12 +649,20 @@ class ActivityEvent(models.Model):
         CLIENT_JOINED = 'client_joined', 'Client joined'
         CLIENT_ACCESS_REVOKED = 'client_access_revoked', 'Client access revoked'
         CLIENT_ACCESS_RESTORED = 'client_access_restored', 'Client access restored'
+        CLIENT_LOGGED_IN = 'client_logged_in', 'Client logged in'
+        CLIENT_LOGGED_OUT = 'client_logged_out', 'Client logged out'
+        CLIENT_VIEWED = 'client_viewed', 'Client viewed a page'
+        CLIENT_PREVIEW_STARTED = 'client_preview_started', 'Staff opened client preview'
+        CLIENT_PREVIEW_STOPPED = 'client_preview_stopped', 'Staff left client preview'
+        HISTORY_IMPORTED = 'history_imported', 'Buildertrend history imported'
         TEAM_INVITED = 'team_invited', 'Team member invited'
         TEAM_INVITE_RESENT = 'team_invite_resent', 'Team invitation resent'
         TEAM_INVITE_REVOKED = 'team_invite_revoked', 'Team invitation revoked'
         TEAM_JOINED = 'team_joined', 'Team member joined'
         TEAM_ROLE_CHANGED = 'team_role_changed', 'Team role changed'
         TEAM_ACCESS_CHANGED = 'team_access_changed', 'Team access changed'
+        ACCOUNTING_SETUP_UPDATED = 'accounting_setup_updated', 'Accounting setup updated'
+        DESKTOP_CONNECTION_CHANGED = 'desktop_connection_changed', 'QuickBooks connection changed'
         INTERNAL_ACCESS_ASSIGNED = (
             'internal_access_assigned',
             'Internal project access assigned',
@@ -559,6 +758,9 @@ class ActivityEvent(models.Model):
             'selection_reminder_sent',
             'Selection reminder sent',
         )
+        SELECTION_DEADLINE_UPDATED = 'selection_deadline_updated', 'Selection deadline updated'
+        STAFF_MESSAGE_SENT = 'staff_message_sent', 'Internal staff message sent'
+        PUNCH_UPDATED = 'punch_updated', 'Punch-list item updated'
         SCHEDULE_MILESTONE_CREATED = (
             'schedule_milestone_created',
             'Schedule milestone created',
@@ -835,7 +1037,7 @@ class ProjectDocument(models.Model):
         choices=Category.choices,
         default=Category.GENERAL,
     )
-    client_visible = models.BooleanField(default=True)
+    client_visible = models.BooleanField(default=False)
     requires_client_approval = models.BooleanField(default=False)
     required_approvals = models.PositiveSmallIntegerField(default=1)
     created_by = models.ForeignKey(
@@ -891,6 +1093,8 @@ class ProjectDocumentVersion(models.Model):
         related_name='project_document_versions_uploaded',
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    public_share_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    public_qr_enabled = models.BooleanField(default=False)
 
     class Meta:
         ordering = ('-version_number', '-pk')
@@ -1115,11 +1319,14 @@ class CostCode(models.Model):
 
 class ChangeOrder(models.Model):
     class Status(models.TextChoices):
+        IMPORTED = 'imported', 'Approved (Buildertrend)'
         DRAFT = 'draft', 'Draft'
         PENDING = 'pending', 'Awaiting client'
         APPROVED = 'approved', 'Approved'
         DECLINED = 'declined', 'Declined'
         VOIDED = 'voided', 'Voided'
+
+    import_source = models.JSONField(default=dict, blank=True, editable=False)
 
     project = models.ForeignKey(
         Project,
@@ -1185,12 +1392,18 @@ class ChangeOrder(models.Model):
         on_delete=models.PROTECT,
         related_name='credit_change_orders',
     )
+    disclosure_snapshot = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ('-number', '-pk')
         constraints = [
+            models.CheckConstraint(
+                condition=(models.Q(status='imported') & ~models.Q(import_source={}))
+                | (~models.Q(status='imported') & models.Q(import_source={})),
+                name='projects_co_history_provenance',
+            ),
             models.UniqueConstraint(
                 fields=('project', 'number'),
                 name='projects_unique_change_order_number_per_project',
@@ -1198,7 +1411,7 @@ class ChangeOrder(models.Model):
             models.CheckConstraint(
                 condition=(
                     models.Q(
-                        status='draft',
+                        status__in=('draft', 'imported'),
                         submitted_by__isnull=True,
                         submitted_at__isnull=True,
                     )
@@ -1218,7 +1431,7 @@ class ChangeOrder(models.Model):
                         decided_at__isnull=False,
                     )
                     | models.Q(
-                        status__in=('draft', 'pending', 'voided'),
+                        status__in=('draft', 'pending', 'voided', 'imported'),
                         decided_by__isnull=True,
                         decided_at__isnull=True,
                     )
@@ -1233,7 +1446,7 @@ class ChangeOrder(models.Model):
                         voided_at__isnull=False,
                     )
                     | models.Q(
-                        status__in=('draft', 'pending', 'approved', 'declined'),
+                        status__in=('draft', 'pending', 'approved', 'declined', 'imported'),
                         voided_by__isnull=True,
                         voided_at__isnull=True,
                     )
@@ -1259,6 +1472,8 @@ class ChangeOrder(models.Model):
 
     @property
     def quickbooks_handoff_label(self):
+        if self.status == self.Status.IMPORTED:
+            return 'Imported history: invoicing status not supplied'
         if self.status == self.Status.APPROVED:
             return 'Send to QuickBooks when invoiced'
         return 'Not ready for QuickBooks'
@@ -1297,7 +1512,7 @@ class ChangeOrder(models.Model):
                 errors['status'] = 'A completed decision requires an authenticated client.'
         elif self.decided_by_id or self.decided_at:
             errors['status'] = 'Only approved or declined orders can have a decision.'
-        if self.status == self.Status.DRAFT:
+        if self.status in (self.Status.DRAFT, self.Status.IMPORTED):
             if self.submitted_by_id or self.submitted_at:
                 errors['status'] = 'Draft change orders cannot have submission details.'
         elif not self.submitted_by_id or not self.submitted_at:
@@ -1341,6 +1556,10 @@ class ChangeOrder(models.Model):
                     errors['source_selection'] = (
                         'This selection already has an active credit change order.'
                     )
+        if self.status == self.Status.IMPORTED and not self.import_source.get('source_key'):
+            errors['import_source'] = 'Historical orders require source provenance.'
+        if self.import_source and self.status != self.Status.IMPORTED:
+            errors['status'] = 'Imported history cannot become a new client decision.'
         if errors:
             raise ValidationError(errors)
 
@@ -1853,6 +2072,80 @@ class ProjectCostEntry(models.Model):
         return f'{self.project}: {self.description} (${self.amount})'
 
 
+def selection_template_upload_path(instance, filename):
+    return f'selection_templates/{instance.row.template.organization_id}/{instance.row.template_id}/{uuid.uuid4().hex}_{Path(filename).name}'
+
+
+class SelectionTemplate(models.Model):
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='selection_templates')
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('name', 'pk')
+
+    def __str__(self):
+        return self.name
+
+
+class SelectionTemplateRow(models.Model):
+    template = models.ForeignKey(SelectionTemplate, on_delete=models.CASCADE, related_name='rows')
+    key = models.UUIDField(default=uuid.uuid4, editable=False)
+    category = models.CharField(max_length=200, blank=True)
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    location = models.CharField(max_length=200, blank=True)
+    allowance_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ('sort_order', 'pk')
+        constraints = [models.CheckConstraint(condition=models.Q(allowance_amount__gte=0), name='selection_template_allowance_nonnegative')]
+
+    def __str__(self):
+        return self.title
+
+
+class SelectionTemplateReplacement(models.Model):
+    """Private undo record; retained file names remain owned by this snapshot."""
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='template_replacements')
+    template_name = models.CharField(max_length=200)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    before = models.JSONField(default=list)
+    after_revision = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    restored_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ('-created_at', '-pk')
+
+
+class SelectionTemplateOption(models.Model):
+    row = models.ForeignKey(SelectionTemplateRow, on_delete=models.CASCADE, related_name='options')
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    is_recommended = models.BooleanField(default=False)
+    sort_order = models.PositiveIntegerField(default=0)
+    vendor_name = models.CharField(max_length=200, blank=True)
+    product_url = models.URLField(blank=True)
+    specification = models.TextField(blank=True)
+    lead_time = models.CharField(max_length=100, blank=True)
+    image = models.FileField(storage=private_document_storage, upload_to=selection_template_upload_path, blank=True, null=True)
+    image_caption = models.CharField(max_length=250, blank=True)
+    attachment = models.FileField(storage=private_document_storage, upload_to=selection_template_upload_path, blank=True, null=True)
+
+    class Meta:
+        ordering = ('sort_order', 'pk')
+        constraints = [
+            models.UniqueConstraint(Lower('name'), 'row', name='selection_template_unique_option'),
+        ]
+
+
 class SelectionPackage(models.Model):
     project = models.ForeignKey(
         Project,
@@ -1890,18 +2183,33 @@ class SelectionPackage(models.Model):
         return f'{self.project}: {self.title}'
 
 
+class ActiveSelectionManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(archived_at__isnull=True)
+
+
 class FinishSelection(models.Model):
+    objects = ActiveSelectionManager()
+    all_objects = models.Manager()
+    archived_at = models.DateTimeField(null=True, blank=True, editable=False)
+    archived_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        null=True, blank=True, editable=False, related_name='selections_archived')
+    template_row_key = models.UUIDField(null=True, blank=True, editable=False)
     class Status(models.TextChoices):
-        DRAFT = 'draft', 'Draft'
-        OPEN = 'open', 'Awaiting client'
+        IMPORTED = 'imported', 'Selected (Buildertrend)'
+        DRAFT = 'draft', 'Unreleased'
+        OPEN = 'open', 'Pending: Available'
         SELECTED = 'selected', 'Selected'
-        VOIDED = 'voided', 'Voided'
+        VOIDED = 'voided', 'Expired'
 
     class CreditDisposition(models.TextChoices):
         UNDETERMINED = 'undetermined', 'Undetermined'
         APPLY_ELSEWHERE = 'apply_elsewhere', 'Apply to another selection'
         RETURN_AT_CLOSING = 'return_at_closing', 'Return at closing'
         RETAIN_AS_MARGIN = 'retain_as_margin', 'Retain as project margin'
+
+    import_source = models.JSONField(default=dict, blank=True, editable=False)
+    imported_total = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, editable=False)
 
     project = models.ForeignKey(
         Project,
@@ -1925,6 +2233,7 @@ class FinishSelection(models.Model):
         default=0,
     )
     due_date = models.DateField(blank=True, null=True)
+    deadline_reminders_enabled = models.BooleanField(default=True)
     status = models.CharField(
         max_length=10,
         choices=Status.choices,
@@ -1985,7 +2294,14 @@ class FinishSelection(models.Model):
 
     class Meta:
         ordering = ('-number', '-pk')
+        base_manager_name = 'all_objects'
+        default_manager_name = 'objects'
         constraints = [
+            models.CheckConstraint(
+                condition=(models.Q(status='imported', imported_total__isnull=False) & ~models.Q(import_source={}))
+                | (~models.Q(status='imported') & models.Q(import_source={}, imported_total__isnull=True)),
+                name='projects_selection_history_provenance',
+            ),
             models.UniqueConstraint(
                 fields=('project', 'number'),
                 name='projects_unique_selection_number_per_project',
@@ -2012,7 +2328,7 @@ class FinishSelection(models.Model):
             models.CheckConstraint(
                 condition=(
                     models.Q(
-                        status='draft',
+                        status__in=('draft', 'imported'),
                         opened_by__isnull=True,
                         opened_at__isnull=True,
                     )
@@ -2033,7 +2349,7 @@ class FinishSelection(models.Model):
                         selected_at__isnull=False,
                     )
                     | models.Q(
-                        status__in=('draft', 'open', 'voided'),
+                        status__in=('draft', 'open', 'voided', 'imported'),
                         chosen_option__isnull=True,
                         selected_by__isnull=True,
                         selected_at__isnull=True,
@@ -2049,7 +2365,7 @@ class FinishSelection(models.Model):
                         voided_at__isnull=False,
                     )
                     | models.Q(
-                        status__in=('draft', 'open', 'selected'),
+                        status__in=('draft', 'open', 'selected', 'imported'),
                         voided_by__isnull=True,
                         voided_at__isnull=True,
                     )
@@ -2061,6 +2377,36 @@ class FinishSelection(models.Model):
     @property
     def display_number(self):
         return f'SEL-{self.number:03d}'
+
+    @property
+    def is_overdue(self):
+        return bool(
+            self.status == self.Status.OPEN
+            and self.due_date
+            and self.due_date < timezone.localdate()
+        )
+
+    @property
+    def buildertrend_status_label(self):
+        if self.status == self.Status.IMPORTED:
+            return 'Selected (Buildertrend)'
+        if self.status == self.Status.DRAFT:
+            return 'Unreleased'
+        if self.status == self.Status.OPEN:
+            return 'Pending: Overdue' if self.is_overdue else 'Pending: Available'
+        if self.status == self.Status.SELECTED:
+            return 'Selected'
+        return 'Expired'
+
+    @property
+    def buildertrend_status_class(self):
+        return {
+            self.Status.DRAFT: 'unreleased',
+            self.Status.OPEN: 'pending',
+            self.Status.SELECTED: 'selected',
+            self.Status.IMPORTED: 'selected',
+            self.Status.VOIDED: 'expired',
+        }[self.status]
 
     @property
     def selected_variance(self):
@@ -2087,7 +2433,7 @@ class FinishSelection(models.Model):
             errors['title'] = 'Title cannot be blank.'
         if self.allowance_amount < 0:
             errors['allowance_amount'] = 'Allowance cannot be negative.'
-        if self.status == self.Status.DRAFT:
+        if self.status in (self.Status.DRAFT, self.Status.IMPORTED):
             if self.opened_by_id or self.opened_at:
                 errors['status'] = 'Draft selections cannot have publication details.'
         elif not self.opened_by_id or not self.opened_at:
@@ -2108,6 +2454,11 @@ class FinishSelection(models.Model):
             errors['credit_disposition'] = (
                 'A disposition can only be set when the selection has a credit.'
             )
+        if self.status == self.Status.IMPORTED:
+            if not self.import_source.get('source_key') or self.imported_total is None:
+                errors['import_source'] = 'Historical selections require provenance and a signed total.'
+        elif self.import_source or self.imported_total is not None:
+            errors['status'] = 'Imported history cannot become a new client choice.'
         if errors:
             raise ValidationError(errors)
 
@@ -2131,6 +2482,7 @@ class SelectionOption(models.Model):
     product_url = models.URLField(blank=True)
     specification = models.TextField(blank=True)
     lead_time = models.CharField(max_length=100, blank=True)
+    image_caption = models.CharField(max_length=250, blank=True)
     image = models.FileField(
         storage=private_document_storage,
         upload_to=selection_option_upload_path,
@@ -2178,13 +2530,35 @@ class SelectionOption(models.Model):
         self.lead_time = self.lead_time.strip()
         if not self.name:
             raise ValidationError({'name': 'Option name cannot be blank.'})
-        if self.price < 0:
-            raise ValidationError({'price': 'Option price cannot be negative.'})
-        if self.cost < 0:
-            raise ValidationError({'cost': 'Option cost cannot be negative.'})
 
     def __str__(self):
         return f'{self.selection.display_number}: {self.name}'
+
+
+def choice_image_upload_path(instance, filename):
+    return f'choice_gallery/{uuid.uuid4().hex}/{Path(filename).name}'
+
+
+class ChoiceImage(models.Model):
+    option = models.ForeignKey(SelectionOption, null=True, blank=True, on_delete=models.CASCADE, related_name='gallery_images')
+    template_option = models.ForeignKey(SelectionTemplateOption, null=True, blank=True, on_delete=models.CASCADE, related_name='gallery_images')
+    image = models.FileField(storage=private_document_storage, upload_to=choice_image_upload_path)
+    caption = models.CharField(max_length=250, blank=True)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ('sort_order', 'pk')
+        constraints = [models.CheckConstraint(
+            condition=(models.Q(option__isnull=False, template_option__isnull=True) |
+                       models.Q(option__isnull=True, template_option__isnull=False)),
+            name='choice_image_exactly_one_parent')]
+
+    def get_absolute_url(self):
+        from django.urls import reverse
+        if self.option_id:
+            return reverse('projects:selection_choice_image', args=[self.option.selection.project_id, self.option.selection_id, self.option_id, self.pk])
+        row = self.template_option.row
+        return reverse('projects:selection_template_choice_image', args=[row.template.organization.slug, row.template_id, row.pk, self.template_option_id, self.pk])
 
 
 class SelectionCustomRequest(models.Model):
@@ -2416,3 +2790,131 @@ class ScheduleMilestone(models.Model):
 
     def __str__(self):
         return f'{self.project}: {self.title}'
+
+
+class PunchItem(models.Model):
+    class Status(models.TextChoices):
+        OPEN = 'open', 'Open'
+        IN_PROGRESS = 'in_progress', 'In progress'
+        READY = 'ready', 'Ready for verification'
+        VERIFIED = 'verified', 'Verified complete'
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='punch_items')
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    location = models.CharField(max_length=200, blank=True)
+    internal_notes = models.TextField(blank=True)
+    client_visible = models.BooleanField(default=False)
+    assigned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True, blank=True, related_name='assigned_punch_items')
+    due_date = models.DateField(null=True, blank=True)
+    deadline_reminders_enabled = models.BooleanField(default=True)
+    priority = models.CharField(max_length=10, choices=(('normal', 'Normal'), ('high', 'High')), default='normal')
+    status = models.CharField(max_length=15, choices=Status.choices, default=Status.OPEN)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='created_punch_items')
+    verified_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name='verified_punch_items')
+    verified_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = (F('due_date').asc(nulls_last=True), 'pk')
+        indexes = [models.Index(fields=('project', 'status', 'due_date'), name='punch_project_status_due')]
+        constraints = [models.CheckConstraint(
+            condition=(models.Q(status='verified', verified_by__isnull=False, verified_at__isnull=False)
+                       | (~models.Q(status='verified') & models.Q(verified_by__isnull=True, verified_at__isnull=True))),
+            name='punch_verification_matches_status')]
+
+    @property
+    def is_overdue(self):
+        return bool(self.due_date and self.due_date < timezone.localdate()
+                    and self.status in ('open', 'in_progress'))
+
+
+class PunchPhoto(models.Model):
+    item = models.ForeignKey(PunchItem, on_delete=models.CASCADE, related_name='photos')
+    image = models.FileField(storage=private_document_storage, upload_to='punch_photos/%Y/%m/')
+    caption = models.CharField(max_length=200, blank=True)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('pk',)
+
+
+class DeadlineReminder(models.Model):
+    """Durable per-recipient daily claim, shared by manual and scheduled reminders.
+
+    Email is at-most-once attempted per day: ambiguous transport failures must not
+    cause repeated email. In-app delivery remains available when email fails.
+    """
+    selection = models.ForeignKey(FinishSelection, on_delete=models.CASCADE, null=True, blank=True)
+    punch_item = models.ForeignKey(PunchItem, on_delete=models.CASCADE, null=True, blank=True)
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    reminder_date = models.DateField()
+    email_status = models.CharField(max_length=12, default='pending', choices=(
+        ('pending', 'Pending'), ('accepted', 'Accepted by mail service'),
+        ('failed', 'Delivery not confirmed'), ('disabled', 'Email disabled')))
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=(models.Q(selection__isnull=False, punch_item__isnull=True)
+                                              | models.Q(selection__isnull=True, punch_item__isnull=False)),
+                                   name='deadline_exactly_one_target'),
+            models.UniqueConstraint(fields=('selection', 'recipient', 'reminder_date'), name='deadline_selection_daily'),
+            models.UniqueConstraint(fields=('punch_item', 'recipient', 'reminder_date'), name='deadline_punch_daily'),
+        ]
+
+
+
+class StaffThread(models.Model):
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='staff_threads')
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, null=True, blank=True, related_name='staff_threads')
+    subject = models.CharField(max_length=200)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='staff_threads_started')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-updated_at', '-pk')
+
+    def clean(self):
+        if self.project_id and self.project.organization_id != self.organization_id:
+            raise ValidationError({'project': 'Project must belong to this company.'})
+
+
+class StaffParticipant(models.Model):
+    thread = models.ForeignKey(StaffThread, on_delete=models.CASCADE, related_name='participants')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='staff_conversations')
+    email_enabled = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=('thread', 'user'), name='staff_unique_participant')]
+
+
+class StaffMessage(models.Model):
+    thread = models.ForeignKey(StaffThread, on_delete=models.CASCADE, related_name='messages')
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='staff_messages_sent')
+    body = models.TextField(max_length=10000)
+    submission_id = models.UUIDField(default=uuid.uuid4)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('created_at', 'pk')
+        constraints = [models.UniqueConstraint(fields=('author', 'submission_id'), name='staff_unique_submission')]
+
+
+class StaffMessageDelivery(models.Model):
+    message = models.ForeignKey(StaffMessage, on_delete=models.CASCADE, related_name='deliveries')
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    email_status = models.CharField(max_length=12, default='pending', choices=(
+        ('pending', 'Pending'), ('sending', 'Sending'), ('skipped', 'No longer eligible'), ('accepted', 'Accepted by mail service'),
+        ('failed', 'Delivery not confirmed'), ('disabled', 'Email disabled')))
+    created_at = models.DateTimeField(auto_now_add=True)
+    attempted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=('message', 'recipient'), name='staff_unique_delivery')]
+        indexes = [models.Index(fields=('email_status', 'id'), name='staff_email_queue_idx')]

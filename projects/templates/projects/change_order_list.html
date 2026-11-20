@@ -15,8 +15,8 @@
     {% for change_order in change_orders %}
     <a class="document-row" href="{% url 'projects:change_order_detail' project.pk change_order.pk %}">
         <div class="document-row__icon"><i class="bi bi-arrow-left-right"></i></div>
-        <div class="document-row__body"><h2>{{ change_order.display_number }} · {{ change_order.title }}</h2><p>Client price change: ${{ change_order.price_delta|floatformat:2 }} · Schedule: {{ change_order.schedule_delta_days }} day{{ change_order.schedule_delta_days|pluralize }}</p></div>
-        <div class="document-row__meta"><span class="status-pill {% if change_order.status == 'approved' %}status-pill--active{% elif change_order.status == 'pending' %}status-pill--on_hold{% elif change_order.status == 'declined' %}status-pill--declined{% endif %}">{{ change_order.get_status_display }}</span><i class="bi bi-chevron-right"></i></div>
+        <div class="document-row__body"><h2>{{ change_order.display_number }} · {{ change_order.title }}</h2><p>Client price change: ${{ change_order.price_delta|floatformat:2 }} {% if change_order.status != "imported" %} · Schedule: {{ change_order.schedule_delta_days }} day{{ change_order.schedule_delta_days|pluralize }}{% endif %}</p></div>
+        <div class="document-row__meta"><span class="status-pill {% if change_order.status == 'approved' or change_order.status == 'imported' %}status-pill--active{% elif change_order.status == 'pending' %}status-pill--on_hold{% elif change_order.status == 'declined' %}status-pill--declined{% endif %}">{{ change_order.get_status_display }}</span><i class="bi bi-chevron-right"></i></div>
     </a>
     {% endfor %}
 </section>

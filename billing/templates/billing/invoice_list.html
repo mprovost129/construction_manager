@@ -6,7 +6,7 @@
 <nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><span>Invoices</span></nav>
 
 <section class="page-heading">
-    <div><p class="eyebrow">Project accounting</p><h1>Invoices</h1><p class="text-secondary mb-0">{% if viewer_is_client %}Review invoice details, balances, and payment status. Online payment is not available.{% else %}Prepare local drafts and issue client-visible invoices. QuickBooks synchronization remains a separate accounting step.{% endif %}</p></div>
+    <div><p class="eyebrow">Project accounting</p><h1>Invoices</h1><p class="text-secondary mb-0">{% if viewer_is_client %}Review invoice details, balances, and payment status. Online payment is not available.{% else %}Prepare local drafts and issue client-visible invoices. QuickBooks Desktop synchronization is deferred and remains a separate accounting step.{% endif %}</p></div>
     {% if can_manage_invoices %}<a class="btn btn-primary" href="{% url 'billing:invoice_create' project.pk %}"><i class="bi bi-plus-lg"></i> New invoice draft</a>{% endif %}
 </section>
 

@@ -240,6 +240,49 @@ class FinishSelectionTests(TestCase):
             ).exists()
         )
 
+    def test_negative_choice_can_be_created_edited_selected_and_reported_as_credit(self):
+        from projects.financials import project_financial_summary
+
+        selection, _ = self.create_selection(with_option=False)
+        selection.allowance_amount = Decimal('0.00')
+        selection.save(update_fields=['allowance_amount'])
+        self.client.force_login(self.staff_user)
+        data = {'name': 'Owner supplied fixture credit', 'price': '-250.00',
+                'cost': '-175.25', 'sort_order': '0'}
+        create_url = reverse('projects:selection_option_create', args=(self.project.pk, selection.pk))
+        self.assertEqual(self.client.post(create_url, data).status_code, 302)
+        option = selection.options.get()
+        option.full_clean()
+        self.assertEqual(option.price, Decimal('-250.00'))
+        self.assertEqual(option.cost, Decimal('-175.25'))
+        self.assertEqual(option.margin, Decimal('-74.75'))
+        edit_url = reverse('projects:selection_option_edit', args=(self.project.pk, selection.pk, option.pk))
+        data['price'] = '-300.50'
+        self.assertEqual(self.client.post(edit_url, data).status_code, 302)
+        option.refresh_from_db()
+        self.assertEqual(option.price, Decimal('-300.50'))
+        self.assertEqual(self.client.post(reverse('projects:selection_publish',
+            args=(self.project.pk, selection.pk))).status_code, 302)
+
+        self.client.force_login(self.client_user)
+        for url in (reverse('projects:selection_detail', args=(self.project.pk, selection.pk)),
+                    reverse('projects:selection_list', args=(self.project.pk,))):
+            response = self.client.get(url)
+            self.assertContains(response, '-300.50')
+            self.assertNotContains(response, '-175.25')
+        self.assertEqual(self.client.post(edit_url, data).status_code, 403)
+        self.assertEqual(self.client.post(reverse('projects:selection_choose',
+            args=(self.project.pk, selection.pk)), {'option': option.pk}).status_code, 302)
+        selection.refresh_from_db()
+        self.assertTrue(selection.has_credit)
+        self.assertEqual(selection.selected_variance, Decimal('-300.50'))
+        summary = project_financial_summary(self.project)
+        self.assertEqual(summary['selection_credit_total'], Decimal('300.50'))
+        self.assertEqual(summary['approved_change_order_total'], Decimal('0.00'))
+        # A positive allowance is still subtracted once from the signed choice price.
+        selection.allowance_amount = Decimal('1000.00')
+        self.assertEqual(selection.selected_variance, Decimal('-1300.50'))
+
     def test_publish_requires_an_option_and_an_active_client(self):
         no_option, _ = self.create_selection(with_option=False)
         no_client, _ = self.create_selection(project=self.other_project)
@@ -772,7 +815,7 @@ class FinishSelectionTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertEqual(
-            mail.outbox[0].to, ['client@example.com', 'second-client@example.com']
+            sorted(message.to[0] for message in mail.outbox), ['client@example.com', 'second-client@example.com']
         )
         self.assertTrue(
             ActivityEvent.objects.filter(
@@ -795,7 +838,7 @@ class FinishSelectionTests(TestCase):
 
         call_command('send_overdue_selection_reminders')
 
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)
         self.assertIn(overdue_selection.display_number, mail.outbox[0].body)
         reminder_events = ActivityEvent.objects.filter(
             event_type=ActivityEvent.Type.SELECTION_REMINDER_SENT

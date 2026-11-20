@@ -6,13 +6,15 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from billing.models import Invoice
-from projects.access import can_manage_organization
+from projects.access import accounting_organizations_for_user, can_manage_organization
+from projects.services import record_activity
 from projects.models import CostCode, Organization, OrganizationMembership, Project
 
 from .customer_sync import (
@@ -22,7 +24,11 @@ from .customer_sync import (
     start_project_customer_sync,
     start_project_customer_update,
 )
-from .forms import QuickBooksItemMappingForm, QuickBooksProjectCustomerMappingForm
+from .forms import (
+    QuickBooksDesktopOnboardingForm,
+    QuickBooksItemMappingForm,
+    QuickBooksProjectCustomerMappingForm,
+)
 from .invoice_sync import (
     resolve_invoice_sync_attempt,
     retry_invoice_sync_attempt,
@@ -36,6 +42,7 @@ from .item_sync import (
 )
 from .models import (
     QuickBooksConnection,
+    QuickBooksDesktopOnboarding,
     QuickBooksInvoiceMapping,
     QuickBooksItemMapping,
     QuickBooksProjectCustomerMapping,
@@ -91,6 +98,8 @@ def _connect_redirect(organization=None):
 @login_required
 @require_GET
 def quickbooks_connect(request):
+    if not settings.QUICKBOOKS_INTEGRATION_ENABLED:
+        return redirect('integrations:quickbooks_setup')
     organizations = _manageable_organizations(request.user)
     organization_slug = request.GET.get('organization', '')
     selected_organization = None
@@ -147,6 +156,55 @@ def quickbooks_connect(request):
             'quickbooks_environment': settings.QUICKBOOKS_ENVIRONMENT,
         },
     )
+
+
+@login_required
+@require_http_methods(['GET', 'POST'])
+def quickbooks_setup(request):
+    organizations = accounting_organizations_for_user(request.user)
+    if not organizations.exists():
+        raise PermissionDenied('Your administrator has not granted access to accounting setup.')
+    slug = request.POST.get('organization', '') if request.method == 'POST' else request.GET.get('organization', '')
+    organization = get_object_or_404(organizations, slug=slug) if slug else (
+        organizations.first() if organizations.count() == 1 else None
+    )
+    onboarding = None
+    form = None
+    can_edit = False
+    if organization:
+        can_edit = accounting_organizations_for_user(request.user, edit=True).filter(pk=organization.pk).exists()
+        if request.method == 'POST' and not can_edit:
+            raise PermissionDenied('Your accounting setup access is read-only.')
+        onboarding = QuickBooksDesktopOnboarding.objects.filter(organization=organization).first()
+        onboarding = onboarding or QuickBooksDesktopOnboarding(organization=organization)
+        form = QuickBooksDesktopOnboardingForm(
+            request.POST if request.method == 'POST' else None, instance=onboarding
+        )
+        if request.method == 'POST' and form.is_valid():
+            with transaction.atomic():
+                Organization.objects.select_for_update().get(pk=organization.pk)
+                current = QuickBooksDesktopOnboarding.objects.filter(organization=organization).first()
+                if (form.cleaned_data.get('revision') or 0) != (current.revision if current else 0):
+                    form.add_error(None, 'Someone else updated this setup. Reload the page and review their changes before saving again.')
+                else:
+                    onboarding = form.save(commit=False)
+                    onboarding.updated_by = request.user
+                    onboarding.revision += 1
+                    onboarding.save()
+                    record_activity(organization=organization, actor=request.user,
+                        event_type='accounting_setup_updated',
+                        summary=f'{request.user.email} updated QuickBooks preparation details.',
+                        metadata={'revision': onboarding.revision})
+                    messages.success(request, 'Setup details saved. QuickBooks has not been connected or changed.')
+                    return redirect(reverse('integrations:quickbooks_setup') + '?' + urlencode({'organization': organization.slug}))
+        if not can_edit:
+            for field in form.fields.values():
+                field.disabled = True
+    return render(request, 'integrations/quickbooks_setup.html', {
+        'organizations': organizations, 'selected_organization': organization,
+        'onboarding': onboarding, 'form': form, 'can_edit_setup': can_edit,
+        'can_manage_team': bool(organization and can_manage_organization(request.user, organization)),
+    })
 
 
 @login_required

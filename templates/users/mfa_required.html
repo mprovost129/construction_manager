@@ -1,0 +1,6 @@
+{% extends 'users/mfa_base.html' %}
+{% block content %}
+<h1>Verification required</h1>
+<p>Your security verification is required or has expired. This submission was not saved. Verify your account, then return to the form and submit it again.</p>
+<a class="btn btn-primary" href="{{ verification_url }}">Verify account</a>
+{% endblock %}

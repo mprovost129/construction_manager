@@ -1,0 +1,5 @@
+{% extends 'base.html' %}
+{% block title %}Read-only client preview | {{ app_name }}{% endblock %}
+{% block content %}
+<section class="admin-panel"><h1>This action is unavailable in client preview</h1><p>Client preview is read-only and limited to the selected project's client pages. Return to staff view to make changes or open staff tools.</p>{% if client_preview_project %}<a class="btn btn-primary" href="{% url 'projects:detail' client_preview_project.pk %}">Back to client project</a>{% endif %}</section>
+{% endblock %}

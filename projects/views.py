@@ -24,6 +24,7 @@ from reportlab.pdfgen import canvas
 from billing.access import can_use_invoices
 
 from .access import (
+    can_approve_for_project,
     can_invite_clients,
     can_manage_daily_logs,
     can_manage_organization,
@@ -38,12 +39,14 @@ from .access import (
     can_use_schedule,
     can_use_selections,
     can_view_project_budget,
+    can_view_reconciliation,
     internal_organizations_for_user,
     is_project_client,
     organization_membership_for,
     projects_for_user,
 )
 from .action_center import build_project_action_center
+from .choice_images import saved_choice_files
 from .financials import project_financial_summary
 from .forms import (
     ChangeOrderDecisionForm,
@@ -66,6 +69,7 @@ from .forms import (
     EstimateVoidForm,
     FinishSelectionForm,
     InvitationSignupForm,
+    OrganizationDisclosureForm,
     OrganizationTaxSettingsForm,
     ProjectCostEntryForm,
     ProjectDocumentCreateForm,
@@ -97,7 +101,10 @@ from .models import (
     EstimateDecision,
     EstimateLineItem,
     FinishSelection,
+    InAppNotification,
+    NotificationPreference,
     Organization,
+    OrganizationDisclosure,
     OrganizationInvitation,
     OrganizationMembership,
     Project,
@@ -117,6 +124,7 @@ from .schedule_calendar import (
     choose_calendar_month,
     shift_month,
 )
+from .selection_deadline import DeadlineForm
 from .services import (
     DOCUMENT_SIGNATURE_CONSENT,
     accept_organization_invitation,
@@ -141,6 +149,7 @@ from .services import (
     send_estimate_review_notification,
     send_estimate_voided_notification,
     send_message_notifications,
+    send_project_assignment_notification,
     send_project_invitation,
     send_selection_chosen_notification,
     send_selection_custom_request_notification,
@@ -149,6 +158,7 @@ from .services import (
     send_selection_voided_notification,
     send_team_invitation,
 )
+from .staff_access import staff_projects, visible_notifications
 
 
 def managed_project_or_404(user, pk):
@@ -193,7 +203,7 @@ def documents_project_or_404(user, pk):
 
 def visible_document_or_404(user, project, document_pk):
     queryset = ProjectDocument.objects.filter(project=project)
-    if is_project_client(user, project):
+    if can_approve_for_project(user, project):
         queryset = queryset.filter(client_visible=True)
     return get_object_or_404(queryset, pk=document_pk)
 
@@ -210,7 +220,7 @@ def change_orders_project_or_404(user, pk):
 
 def visible_change_order_or_404(user, project, change_order_pk):
     queryset = ChangeOrder.objects.filter(project=project)
-    if is_project_client(user, project):
+    if can_approve_for_project(user, project):
         queryset = queryset.exclude(status=ChangeOrder.Status.DRAFT)
     return get_object_or_404(queryset, pk=change_order_pk)
 
@@ -227,7 +237,7 @@ def estimates_project_or_404(user, pk):
 
 def visible_estimate_or_404(user, project, estimate_pk):
     queryset = Estimate.objects.filter(project=project)
-    if is_project_client(user, project):
+    if can_approve_for_project(user, project):
         queryset = queryset.exclude(status=Estimate.Status.DRAFT)
     return get_object_or_404(queryset, pk=estimate_pk)
 
@@ -237,7 +247,10 @@ def financials_project_or_404(user, pk):
         projects_for_user(user).select_related('organization'),
         pk=pk,
     )
-    if not can_use_estimates(user, project):
+    membership = organization_membership_for(user, project.organization)
+    if not (user.is_superuser or (
+        membership and membership.is_internal and membership.can_view_project_financials
+    )):
         raise PermissionDenied('You cannot access project financials.')
     return project
 
@@ -389,6 +402,8 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
                 'organization_membership': organization_membership,
                 'project_membership': project_membership,
                 'internal_access': internal_access,
+                'viewer_is_internal': is_internal,
+                'can_use_staff_messages': staff_projects(self.request.user).filter(pk=self.object.pk).exists(),
                 'can_manage_project': can_manage_project(
                     self.request.user, self.object
                 ),
@@ -424,6 +439,7 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
                 'action_count': (
                     action_center['action_count'] if action_center else 0
                 ),
+                'can_view_reconciliation': can_view_reconciliation(self.request.user, self.object),
                 'can_view_project_financials': bool(
                     self.request.user.is_superuser
                     or (
@@ -474,12 +490,47 @@ class ProjectFinancialSummaryView(LoginRequiredMixin, TemplateView):
         return context
 
 
+class ProjectReconciliationView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/reconciliation.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        self.project = get_object_or_404(projects_for_user(request.user).select_related('organization'), pk=kwargs['pk'])
+        if not can_view_reconciliation(request.user, self.project):
+            raise PermissionDenied('You cannot access this project reconciliation.')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        from .reconciliation import project_reconciliation
+        context = super().get_context_data(**kwargs)
+        context.update(project=self.project, report=project_reconciliation(self.project, client_view=is_project_client(self.request.user, self.project)),
+                       viewer_is_client=is_project_client(self.request.user, self.project),
+                       generated_at=timezone.now())
+        return context
+
+    def get(self, request, *args, **kwargs):
+        context = self.get_context_data(**kwargs)
+        if request.GET.get('download') == 'csv':
+            from .reconciliation_export import reconciliation_csv
+            response = HttpResponse(reconciliation_csv(context['project'], context['report']),
+                                    content_type='text/csv; charset=utf-8')
+            response['Content-Disposition'] = f'attachment; filename="project-{self.project.pk}-reconciliation.csv"'
+            response['Cache-Control'] = 'private, no-store'
+            return response
+        response = self.render_to_response(context)
+        response['Cache-Control'] = 'private, no-store'
+        return response
+
+
 class ProjectCostEntryCreateView(LoginRequiredMixin, FormView):
     form_class = ProjectCostEntryForm
     template_name = 'projects/project_cost_entry_form.html'
 
     def dispatch(self, request, *args, **kwargs):
         self.project = managed_project_or_404(request.user, kwargs['pk'])
+        if not can_view_project_budget(request.user, self.project):
+            raise PermissionDenied('Budget access is required to record costs.')
         return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self):
@@ -512,6 +563,8 @@ class ProjectCostEntryDeleteView(LoginRequiredMixin, View):
 
     def post(self, request, pk, entry_pk):
         project = managed_project_or_404(request.user, pk)
+        if not can_view_project_budget(request.user, project):
+            raise PermissionDenied('Budget access is required to remove costs.')
         entry = get_object_or_404(ProjectCostEntry, project=project, pk=entry_pk)
         delete_cost_entry(entry_id=entry.pk, actor=request.user)
         messages.success(request, 'Cost entry removed.')
@@ -739,7 +792,7 @@ class ProjectDocumentListView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        viewer_is_client = is_project_client(self.request.user, self.project)
+        viewer_is_client = can_approve_for_project(self.request.user, self.project)
         can_manage = can_manage_project(self.request.user, self.project)
         document_search = self.request.GET.get('q', '').strip()[:100]
         requested_category = self.request.GET.get('category', '').strip()
@@ -823,7 +876,10 @@ class ProjectDocumentListView(LoginRequiredMixin, TemplateView):
                 ),
                 'document_querystring': urlencode(query_params),
                 'can_manage_project': can_manage,
-                'can_upload_files': viewer_is_client,
+                'can_upload_files': is_project_client(
+                    self.request.user,
+                    self.project,
+                ),
             }
         )
         return context
@@ -964,7 +1020,7 @@ class ProjectDocumentDetailView(LoginRequiredMixin, TemplateView):
             'signature_requests__events__actor',
         ).select_related('uploaded_by')
         current_version = versions.first()
-        viewer_is_client = is_project_client(self.request.user, self.project)
+        viewer_is_client = can_approve_for_project(self.request.user, self.project)
         viewer_decision = None
         viewer_signature_request = None
         if current_version:
@@ -995,7 +1051,9 @@ class ProjectDocumentDetailView(LoginRequiredMixin, TemplateView):
                     and self.document.requires_client_approval
                     and not viewer_decision
                 ),
-                'decision_form': DocumentDecisionForm(),
+                'decision_form': DocumentDecisionForm(initial={
+                    'version_id': current_version.pk if current_version else None,
+                }),
             }
         )
         return context
@@ -1076,35 +1134,59 @@ class ProjectDocumentDownloadView(LoginRequiredMixin, View):
         )
 
 
+class ProjectDocumentPublicShareView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, pk, document_pk, version_pk):
+        # Retire the old endpoint without allowing old links or admin POSTs to
+        # reopen anonymous access. Downloads require project authorization.
+        raise Http404
+
+
+class PublicDocumentView(View):
+    def get(self, request, token):
+        raise Http404
+
+    def post(self, request, token):
+        raise Http404
+
+
+class PublicDocumentDownloadView(PublicDocumentView):
+    pass
+
+
 class ProjectDocumentDecisionView(LoginRequiredMixin, View):
     http_method_names = ('post',)
 
     def post(self, request, pk, document_pk):
         project = documents_project_or_404(request.user, pk)
-        if not is_project_client(request.user, project):
-            raise PermissionDenied('Only project clients can record a decision.')
-        document = get_object_or_404(
-            ProjectDocument,
-            pk=document_pk,
-            project=project,
-            client_visible=True,
-            requires_client_approval=True,
-        )
-        version = document.latest_version
-        if not version:
-            raise PermissionDenied('This document does not have a version to review.')
-        if version.decisions.filter(decided_by=request.user).exists():
-            messages.info(request, 'Your decision for this version is already recorded.')
-            return redirect(
-                'projects:document_detail', pk=project.pk, document_pk=document.pk
-            )
-        form = DocumentDecisionForm(request.POST)
-        if not form.is_valid():
-            messages.error(request, 'Choose approve or decline before submitting.')
-            return redirect(
-                'projects:document_detail', pk=project.pk, document_pk=document.pk
-            )
+        if not can_approve_for_project(request.user, project):
+            raise PermissionDenied('Only project clients and authorized signers can record a decision.')
         with transaction.atomic():
+            # Version uploads lock this same parent row. Keep the version check,
+            # duplicate check and decision together so neither can race an upload.
+            document = get_object_or_404(
+                ProjectDocument.objects.select_for_update(),
+                pk=document_pk, project=project, client_visible=True,
+                requires_client_approval=True,
+            )
+            version = document.latest_version
+            if not version:
+                raise PermissionDenied('This document does not have a version to review.')
+            form = DocumentDecisionForm(request.POST)
+            if not form.is_valid():
+                messages.error(request, (
+                    'Refresh this page and review the current version before recording your decision.'
+                    if 'version_id' in form.errors
+                    else 'Choose approve or decline before submitting.'
+                ))
+                return redirect('projects:document_detail', pk=project.pk, document_pk=document.pk)
+            if form.cleaned_data['version_id'] != version.pk:
+                messages.warning(request, 'A newer document version is available. Review and download the current version before recording your decision. No decision was saved.')
+                return redirect('projects:document_detail', pk=project.pk, document_pk=document.pk)
+            if version.decisions.filter(decided_by=request.user).exists():
+                messages.info(request, 'Your decision for this version is already recorded.')
+                return redirect('projects:document_detail', pk=project.pk, document_pk=document.pk)
             decision = form.save(commit=False)
             decision.version = version
             decision.decided_by = request.user
@@ -1236,6 +1318,7 @@ class ProjectDocumentSignatureReviewView(LoginRequiredMixin, FormView):
 
     def dispatch(self, request, *args, **kwargs):
         self.project = documents_project_or_404(request.user, kwargs['pk'])
+        visible_document_or_404(request.user, self.project, kwargs['document_pk'])
         self.signature_request = get_object_or_404(
             DocumentSignatureRequest.objects.select_related(
                 'version__document', 'signer', 'requested_by'
@@ -1244,7 +1327,7 @@ class ProjectDocumentSignatureReviewView(LoginRequiredMixin, FormView):
             version__document_id=kwargs['document_pk'],
             version__document__project=self.project,
         )
-        if request.user != self.signature_request.signer or not is_project_client(
+        if request.user != self.signature_request.signer or not can_approve_for_project(
             request.user, self.project
         ):
             raise PermissionDenied(
@@ -1253,11 +1336,12 @@ class ProjectDocumentSignatureReviewView(LoginRequiredMixin, FormView):
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request, *args, **kwargs):
-        record_signature_event(
-            self.signature_request,
-            DocumentSignatureEvent.Type.VIEWED,
-            request,
-        )
+        if not getattr(request, 'client_preview_active', False):
+            record_signature_event(
+                self.signature_request,
+                DocumentSignatureEvent.Type.VIEWED,
+                request,
+            )
         return super().get(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
@@ -1274,6 +1358,11 @@ class ProjectDocumentSignatureReviewView(LoginRequiredMixin, FormView):
 
     def form_valid(self, form):
         with transaction.atomic():
+            get_object_or_404(
+                ProjectDocument.objects.select_for_update(),
+                pk=self.signature_request.version.document_id,
+                project=self.project, client_visible=True,
+            )
             signature_request = DocumentSignatureRequest.objects.select_for_update().get(
                 pk=self.signature_request.pk
             )
@@ -1402,6 +1491,7 @@ class ProjectDocumentSignatureCancelView(LoginRequiredMixin, View):
 class ProjectDocumentSignatureCertificateView(LoginRequiredMixin, View):
     def get(self, request, pk, document_pk, signature_request_pk):
         project = documents_project_or_404(request.user, pk)
+        visible_document_or_404(request.user, project, document_pk)
         signature_request = get_object_or_404(
             DocumentSignatureRequest.objects.select_related(
                 'version__document', 'signer', 'requested_by'
@@ -1498,7 +1588,7 @@ class ChangeOrderListView(LoginRequiredMixin, TemplateView):
         change_orders = self.project.change_orders.select_related(
             'created_by', 'decided_by'
         )
-        if is_project_client(self.request.user, self.project):
+        if can_approve_for_project(self.request.user, self.project):
             change_orders = change_orders.exclude(status=ChangeOrder.Status.DRAFT)
         context.update(
             {
@@ -1708,7 +1798,7 @@ class ChangeOrderDetailView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        viewer_is_client = is_project_client(self.request.user, self.project)
+        viewer_is_client = can_approve_for_project(self.request.user, self.project)
         can_manage = can_manage_project(self.request.user, self.project)
         decisions = list(
             self.change_order.decisions.select_related('decided_by')
@@ -1724,6 +1814,9 @@ class ChangeOrderDetailView(LoginRequiredMixin, TemplateView):
                 'project': self.project,
                 'change_order': self.change_order,
                 'can_manage_project': can_manage,
+                'can_manage_disclosures': can_manage_organization(
+                    self.request.user, self.project.organization
+                ),
                 'can_decide': bool(
                     viewer_is_client
                     and self.change_order.status == ChangeOrder.Status.PENDING
@@ -1736,6 +1829,14 @@ class ChangeOrderDetailView(LoginRequiredMixin, TemplateView):
                 'replacement': getattr(self.change_order, 'replaced_by', None),
                 'source_invoice': getattr(self.change_order, 'invoice', None),
                 'credit_memo': getattr(self.change_order, 'credit_memo', None),
+                'active_change_order_disclosures': (
+                    self.project.organization.disclosures.filter(
+                        is_active=True,
+                        include_on_change_orders=True,
+                    )
+                    if can_manage and self.change_order.status == ChangeOrder.Status.DRAFT
+                    else OrganizationDisclosure.objects.none()
+                ),
                 'void_form': (
                     ChangeOrderVoidForm()
                     if can_manage
@@ -1774,12 +1875,20 @@ class ChangeOrderSubmitView(LoginRequiredMixin, View):
             change_order.status = ChangeOrder.Status.PENDING
             change_order.submitted_by = request.user
             change_order.submitted_at = timezone.now()
+            change_order.disclosure_snapshot = '\n\n'.join(
+                f'{disclosure.title}\n{disclosure.body}'
+                for disclosure in project.organization.disclosures.filter(
+                    is_active=True,
+                    include_on_change_orders=True,
+                )
+            )
             change_order.full_clean()
             change_order.save(
                 update_fields=(
                     'status',
                     'submitted_by',
                     'submitted_at',
+                    'disclosure_snapshot',
                     'updated_at',
                 )
             )
@@ -1815,7 +1924,7 @@ class ChangeOrderDecisionView(LoginRequiredMixin, View):
 
     def post(self, request, pk, change_order_pk):
         project = change_orders_project_or_404(request.user, pk)
-        if not is_project_client(request.user, project):
+        if not can_approve_for_project(request.user, project):
             raise PermissionDenied('Only assigned clients can record a decision.')
         form = ChangeOrderDecisionForm(request.POST)
         if not form.is_valid():
@@ -2361,7 +2470,7 @@ class EstimateListView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         estimates = self.project.estimates.select_related('created_by', 'decided_by')
-        if is_project_client(self.request.user, self.project):
+        if can_approve_for_project(self.request.user, self.project):
             estimates = estimates.exclude(status=Estimate.Status.DRAFT)
         context.update(
             {
@@ -2496,7 +2605,7 @@ class EstimateDetailView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        viewer_is_client = is_project_client(self.request.user, self.project)
+        viewer_is_client = can_approve_for_project(self.request.user, self.project)
         can_manage = can_manage_project(self.request.user, self.project)
         decisions = list(self.estimate.decisions.select_related('decided_by'))
         progress = evaluate_approval_progress(
@@ -2585,7 +2694,7 @@ class EstimateDecisionView(LoginRequiredMixin, View):
 
     def post(self, request, pk, estimate_pk):
         project = estimates_project_or_404(request.user, pk)
-        if not is_project_client(request.user, project):
+        if not can_approve_for_project(request.user, project):
             raise PermissionDenied('Only assigned clients can record a decision.')
         form = EstimateDecisionForm(request.POST)
         if not form.is_valid():
@@ -3032,32 +3141,8 @@ class FinishSelectionListView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        selections = self.project.finish_selections.select_related(
-            'chosen_option', 'selected_by', 'package'
-        )
-        if is_project_client(self.request.user, self.project):
-            selections = selections.exclude(status=FinishSelection.Status.DRAFT)
-        packages = {}
-        standalone = []
-        for selection in selections:
-            if selection.package_id:
-                packages.setdefault(selection.package, []).append(selection)
-            else:
-                standalone.append(selection)
-        package_groups = sorted(
-            packages.items(), key=lambda item: item[0].title.lower()
-        )
-        context.update(
-            {
-                'project': self.project,
-                'selections': selections,
-                'package_groups': package_groups,
-                'standalone_selections': standalone,
-                'can_manage_project': can_manage_project(
-                    self.request.user, self.project
-                ),
-            }
-        )
+        from .selection_board import board_context
+        context.update(board_context(self.project, self.request.user, self.request.GET))
         return context
 
 
@@ -3089,7 +3174,7 @@ class FinishSelectionCreateView(LoginRequiredMixin, FormView):
     def form_valid(self, form):
         with transaction.atomic():
             Project.objects.select_for_update().get(pk=self.project.pk)
-            current_number = self.project.finish_selections.aggregate(
+            current_number = FinishSelection.all_objects.filter(project=self.project).aggregate(
                 maximum=Max('number')
             )['maximum']
             selection = form.save(commit=False)
@@ -3216,7 +3301,9 @@ class FinishSelectionDetailView(LoginRequiredMixin, TemplateView):
             {
                 'project': self.project,
                 'selection': self.selection,
-                'selection_options': self.selection.options.all(),
+                'deadline_form': DeadlineForm(instance=self.selection),
+                'selection_options': self.selection.options.prefetch_related('gallery_images'),
+                'reference_photos': self.selection.reference_photos.all() if can_manage else self.selection.reference_photos.filter(client_visible=True),
                 'can_manage_project': can_manage,
                 'can_choose': can_choose,
                 'decision_form': SelectionDecisionForm(selection=self.selection),
@@ -3279,7 +3366,7 @@ class SelectionOptionCreateView(LoginRequiredMixin, FormView):
         return kwargs
 
     def form_valid(self, form):
-        with transaction.atomic():
+        with saved_choice_files(form), transaction.atomic():
             selection = get_object_or_404(
                 FinishSelection.objects.select_for_update(),
                 project=self.project,
@@ -3291,6 +3378,7 @@ class SelectionOptionCreateView(LoginRequiredMixin, FormView):
             option.selection = selection
             option.full_clean()
             option.save()
+            form.save_gallery(option)
             record_activity(
                 organization=self.project.organization,
                 project=self.project,
@@ -3353,7 +3441,7 @@ class SelectionOptionUpdateView(LoginRequiredMixin, FormView):
 
     def form_valid(self, form):
         editable_fields = tuple(SelectionOptionForm.Meta.fields)
-        with transaction.atomic():
+        with saved_choice_files(form), transaction.atomic():
             selection = get_object_or_404(
                 FinishSelection.objects.select_for_update(),
                 project=self.project,
@@ -3374,8 +3462,10 @@ class SelectionOptionUpdateView(LoginRequiredMixin, FormView):
                     setattr(option, field_name, form.cleaned_data[field_name] or '')
                 else:
                     setattr(option, field_name, form.cleaned_data[field_name])
+            form.track_choice_files(option)
             option.full_clean()
             option.save(update_fields=editable_fields + ('updated_at',))
+            form.save_gallery(option)
             record_activity(
                 organization=self.project.organization,
                 project=self.project,
@@ -3701,7 +3791,7 @@ class SelectionPackageDetailView(LoginRequiredMixin, TemplateView):
                 'choices': choices,
                 'chosen_count': sum(
                     1 for choice in choices
-                    if choice.status == FinishSelection.Status.SELECTED
+                    if choice.status in (FinishSelection.Status.SELECTED, FinishSelection.Status.IMPORTED)
                 ),
                 'can_manage_project': can_manage_project(
                     self.request.user, self.project
@@ -3979,7 +4069,7 @@ class FinishSelectionReminderView(LoginRequiredMixin, View):
                 ),
                 metadata={'selection_id': selection.pk},
             )
-        messages.success(request, 'A reminder was sent to the client.')
+        messages.success(request, 'Reminder processed. Each client receives at most one reminder per day through their enabled channels.' if delivery_result else 'No new reminder: clients may already have been reminded today or have alerts disabled.')
         return redirect(
             'projects:selection_detail', pk=project.pk, selection_pk=selection.pk
         )
@@ -4587,6 +4677,18 @@ class ProjectPeopleView(LoginRequiredMixin, TemplateView):
                 'project_memberships': self.project.project_memberships.select_related(
                     'user'
                 ),
+                'has_designated_client': self.project.project_memberships.filter(
+                    role=OrganizationMembership.Role.CLIENT,
+                    client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
+                    is_active=True,
+                ).exists()
+                or self.project.invitations.filter(
+                    role=OrganizationMembership.Role.CLIENT,
+                    client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
+                    accepted_at__isnull=True,
+                    revoked_at__isnull=True,
+                    expires_at__gt=timezone.now(),
+                ).exists(),
                 'invitations': self.project.invitations.select_related(
                     'invited_by', 'accepted_by'
                 )[:50],
@@ -4605,10 +4707,22 @@ class ProjectInternalAccessUpdateView(LoginRequiredMixin, View):
             messages.error(request, 'Choose a valid internal user and permissions.')
             return redirect('projects:people', pk=project.pk)
         membership = form.cleaned_data['membership']
+        existing_access = ProjectInternalAccess.objects.filter(
+            project=project,
+            membership=membership,
+        ).first()
+        was_project_manager = bool(
+            existing_access
+            and existing_access.is_active
+            and existing_access.is_project_manager
+        )
         defaults = {
+            'is_project_manager': form.cleaned_data['is_project_manager'],
             'can_manage': form.cleaned_data['can_manage'],
             'can_invite_clients': form.cleaned_data['can_invite_clients'],
-            'receives_notifications': form.cleaned_data['receives_notifications'],
+            'receives_notifications': (
+                existing_access.receives_notifications if existing_access else True
+            ),
             'is_active': True,
             'assigned_by': request.user,
         }
@@ -4635,11 +4749,15 @@ class ProjectInternalAccessUpdateView(LoginRequiredMixin, View):
                 ),
                 metadata={
                     'membership_id': membership.pk,
+                    'is_project_manager': access.is_project_manager,
                     'can_manage': access.can_manage,
                     'can_invite_clients': access.can_invite_clients,
                     'receives_notifications': access.receives_notifications,
                 },
             )
+        if access.is_project_manager and not was_project_manager:
+            delivery_result = send_project_assignment_notification(request, access)
+            warn_if_notification_failed(request, delivery_result)
         messages.success(request, f'Project access updated for {membership.user.email}.')
         return redirect('projects:people', pk=project.pk)
 
@@ -4698,6 +4816,12 @@ class ClientInviteView(LoginRequiredMixin, FormView):
         context['project'] = self.project
         return context
 
+    def get_initial(self):
+        initial = super().get_initial()
+        if self.request.GET.get('access') == ProjectMembership.ClientAccessType.SIGNER:
+            initial['client_access_type'] = ProjectMembership.ClientAccessType.SIGNER
+        return initial
+
     def form_valid(self, form):
         with transaction.atomic():
             if form.expired_invitation:
@@ -4737,6 +4861,20 @@ class ProjectInvitationResendView(LoginRequiredMixin, View):
         if old_invitation.accepted_at:
             messages.error(request, 'Accepted invitations cannot be resent.')
             return redirect('projects:people', pk=project.pk)
+        if (
+            old_invitation.client_access_type
+            == ProjectMembership.ClientAccessType.PRIMARY
+            and project.project_memberships.filter(
+            role=OrganizationMembership.Role.CLIENT,
+            client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
+            is_active=True,
+            ).exists()
+        ):
+            messages.error(
+                request,
+                'This project already has a designated client account holder.',
+            )
+            return redirect('projects:people', pk=project.pk)
         with transaction.atomic():
             old_invitation.revoked_at = timezone.now()
             old_invitation.save(update_fields=('revoked_at',))
@@ -4744,6 +4882,7 @@ class ProjectInvitationResendView(LoginRequiredMixin, View):
                 project=project,
                 email=old_invitation.email,
                 role=old_invitation.role,
+                client_access_type=old_invitation.client_access_type,
                 invited_by=request.user,
             )
             record_activity(
@@ -4810,6 +4949,23 @@ class ProjectMemberAccessView(LoginRequiredMixin, View):
             if membership.is_active == active:
                 messages.info(request, f'Project access is already {state}.')
                 return redirect('projects:people', pk=project.pk)
+            if (
+                active
+                and membership.role == OrganizationMembership.Role.CLIENT
+                and membership.client_access_type
+                == ProjectMembership.ClientAccessType.PRIMARY
+                and ProjectMembership.objects.select_for_update().filter(
+                    project=project,
+                    role=OrganizationMembership.Role.CLIENT,
+                    client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
+                    is_active=True,
+                ).exclude(pk=membership.pk).exists()
+            ):
+                messages.error(
+                    request,
+                    'Revoke the current designated client before restoring this account.',
+                )
+                return redirect('projects:people', pk=project.pk)
             membership.is_active = active
             membership.save(update_fields=('is_active',))
             event_type = (
@@ -4839,6 +4995,173 @@ class CompanyListView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         context['organizations'] = internal_organizations_for_user(self.request.user)
         return context
+
+
+class NotificationListView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/notification_list.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['notifications'] = visible_notifications(self.request.user).select_related(
+            'project', 'staff_thread'
+        )[:100]
+        context['projects'] = projects_for_user(self.request.user).order_by('name')
+        return context
+
+
+class NotificationMarkReadView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request, notification_pk):
+        notification = get_object_or_404(
+            visible_notifications(request.user),
+            pk=notification_pk,
+            user=request.user,
+        )
+        if notification.read_at is None:
+            notification.read_at = timezone.now()
+            notification.save(update_fields=('read_at',))
+        target = notification.url_path
+        if not target or not target.startswith('/') or target.startswith('//'):
+            target = reverse('projects:notification_list')
+        return redirect(target)
+
+
+class NotificationMarkAllReadView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    def post(self, request):
+        visible_notifications(request.user).filter(read_at__isnull=True).update(
+            read_at=timezone.now()
+        )
+        return redirect('projects:notification_list')
+
+
+class ProjectNotificationSettingsView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/notification_settings.html'
+
+    def event_choices(self):
+        user, project = self.request.user, self.project
+        allowed = {
+            NotificationPreference.Event.MESSAGES: can_use_project_messaging(user, project),
+            NotificationPreference.Event.DAILY_LOGS: can_use_daily_logs(user, project),
+            NotificationPreference.Event.DOCUMENTS: can_use_project_documents(user, project),
+            NotificationPreference.Event.ESTIMATES: can_use_estimates(user, project),
+            NotificationPreference.Event.CHANGE_ORDERS: can_use_change_orders(user, project),
+            NotificationPreference.Event.SELECTIONS: can_use_selections(user, project),
+            NotificationPreference.Event.PUNCH_LIST: can_use_project_messaging(user, project),
+            NotificationPreference.Event.SCHEDULE: can_use_schedule(user, project),
+            NotificationPreference.Event.INVOICES: can_use_invoices(user, project),
+            NotificationPreference.Event.PROJECT_ASSIGNMENTS: bool(
+                user.is_superuser or internal_organizations_for_user(user).filter(pk=project.organization_id).exists()
+            ),
+        }
+        return [(value, label) for value, label in NotificationPreference.Event.choices if allowed[value]]
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_object_or_404(
+            projects_for_user(request.user).select_related('organization'),
+            pk=kwargs['pk'],
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        existing = {
+            preference.event_type: preference
+            for preference in NotificationPreference.objects.filter(
+                user=self.request.user,
+                project=self.project,
+            )
+        }
+        context['project'] = self.project
+        context['preference_rows'] = [
+            {
+                'value': value,
+                'label': label,
+                'email_enabled': existing.get(value).email_enabled if value in existing else True,
+                'in_app_enabled': existing.get(value).in_app_enabled if value in existing else True,
+            }
+            for value, label in self.event_choices()
+        ]
+        return context
+
+    def post(self, request, *args, **kwargs):
+        for value, _label in self.event_choices():
+            NotificationPreference.objects.update_or_create(
+                user=request.user,
+                project=self.project,
+                event_type=value,
+                defaults={
+                    'email_enabled': request.POST.get(f'{value}_email') == 'on',
+                    'in_app_enabled': request.POST.get(f'{value}_in_app') == 'on',
+                },
+            )
+        messages.success(request, 'Notification preferences were saved.')
+        return redirect('projects:notification_settings', pk=self.project.pk)
+
+
+class OrganizationDisclosureListView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/disclosure_list.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.organization = get_object_or_404(Organization, slug=kwargs['slug'])
+        if not can_manage_organization(request.user, self.organization):
+            raise PermissionDenied('You cannot manage disclosures for this company.')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'organization': self.organization,
+                'disclosures': self.organization.disclosures.all(),
+                'form': kwargs.get('form') or OrganizationDisclosureForm(),
+            }
+        )
+        return context
+
+    def post(self, request, *args, **kwargs):
+        form = OrganizationDisclosureForm(request.POST)
+        if not form.is_valid():
+            return self.render_to_response(self.get_context_data(form=form))
+        disclosure = form.save(commit=False)
+        disclosure.organization = self.organization
+        disclosure.full_clean()
+        disclosure.save()
+        messages.success(request, 'Disclosure added.')
+        return redirect('projects:disclosure_list', slug=self.organization.slug)
+
+
+class OrganizationDisclosureUpdateView(LoginRequiredMixin, FormView):
+    form_class = OrganizationDisclosureForm
+    template_name = 'projects/disclosure_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.organization = get_object_or_404(Organization, slug=kwargs['slug'])
+        if not can_manage_organization(request.user, self.organization):
+            raise PermissionDenied('You cannot manage disclosures for this company.')
+        self.disclosure = get_object_or_404(
+            OrganizationDisclosure,
+            pk=kwargs['disclosure_pk'],
+            organization=self.organization,
+        )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['instance'] = self.disclosure
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({'organization': self.organization, 'disclosure': self.disclosure})
+        return context
+
+    def form_valid(self, form):
+        form.save()
+        messages.success(self.request, 'Disclosure updated.')
+        return redirect('projects:disclosure_list', slug=self.organization.slug)
 
 
 class CompanyTeamView(LoginRequiredMixin, TemplateView):
@@ -4872,12 +5195,24 @@ class CompanyTeamView(LoginRequiredMixin, TemplateView):
                 ).select_related('actor')[:20],
             }
         )
+        for membership in context['team_memberships']:
+            membership.access_form = TeamMembershipForm(instance=membership, auto_id=f'member_{membership.pk}_%s')
+        from projects.access import accounting_organizations_for_user
+        context['can_view_accounting_setup'] = accounting_organizations_for_user(
+            self.request.user).filter(pk=self.organization.pk).exists()
         return context
 
 
 class TeamInviteView(LoginRequiredMixin, FormView):
     form_class = TeamInvitationForm
     template_name = 'projects/invite_team_member.html'
+
+    def get_initial(self):
+        initial = super().get_initial()
+        if self.request.GET.get('purpose') == 'accounting':
+            initial.update(role='accountant', accounting_view=True, accounting_edit=True,
+                           project_budget_view=False)
+        return initial
 
     def dispatch(self, request, *args, **kwargs):
         self.organization = managed_organization_or_404(
@@ -5049,6 +5384,12 @@ class TeamInvitationResendView(LoginRequiredMixin, View):
                 organization=organization,
                 email=old_invitation.email,
                 role=old_invitation.role,
+                mfa_required=old_invitation.mfa_required,
+                accounting_view=old_invitation.accounting_view,
+                accounting_edit=old_invitation.accounting_edit,
+                desktop_manage=old_invitation.desktop_manage,
+                desktop_check=old_invitation.desktop_check,
+                project_budget_view=old_invitation.project_budget_view,
                 invited_by=request.user,
             )
             record_activity(
@@ -5096,11 +5437,42 @@ class TeamInvitationRevokeView(LoginRequiredMixin, View):
         return redirect('projects:company_team', slug=organization.slug)
 
 
+class OwnMFARequirementUpdateView(LoginRequiredMixin, View):
+    http_method_names = ('post',)
+
+    @transaction.atomic
+    def post(self, request, slug):
+        from .forms import MFARequirementForm
+        organization = managed_organization_or_404(request.user, slug)
+        Organization.objects.select_for_update().get(pk=organization.pk)
+        if not can_manage_organization(request.user, organization):
+            raise PermissionDenied('Only company administrators can manage this requirement.')
+        get_user_model().objects.select_for_update().get(pk=request.user.pk)
+        membership = get_object_or_404(OrganizationMembership, organization=organization,
+            user=request.user, is_active=True, role__in=OrganizationMembership.INTERNAL_ROLES)
+        form = MFARequirementForm(request.POST)
+        if form.is_valid():
+            before = membership.mfa_required
+            membership.mfa_required = form.cleaned_data['mfa_required']
+            membership.save(update_fields=['mfa_required'])
+            if before != membership.mfa_required:
+                record_activity(organization=organization, actor=request.user,
+                    event_type=ActivityEvent.Type.TEAM_ACCESS_CHANGED,
+                    summary=f'{request.user.email} changed their two-step verification requirement.',
+                    metadata={'before': {'mfa_required': before}, 'after': {'mfa_required': membership.mfa_required}})
+            messages.success(request, 'Two-step verification requirement saved. Existing authenticator settings are unchanged.')
+        return redirect('projects:company_team', slug=slug)
+
+
 class TeamMembershipUpdateView(LoginRequiredMixin, View):
     http_method_names = ('post',)
 
+    @transaction.atomic
     def post(self, request, slug, membership_pk):
         organization = managed_organization_or_404(request.user, slug)
+        Organization.objects.select_for_update().get(pk=organization.pk)
+        if not can_manage_organization(request.user, organization):
+            raise PermissionDenied('Only company administrators can manage the team.')
         membership = get_object_or_404(
             OrganizationMembership.objects.select_related('user'),
             pk=membership_pk,
@@ -5111,11 +5483,15 @@ class TeamMembershipUpdateView(LoginRequiredMixin, View):
             messages.error(request, 'You cannot change your own role or access.')
             return redirect('projects:company_team', slug=organization.slug)
 
+        get_user_model().objects.select_for_update().get(pk=membership.user_id)
         old_role = membership.role
         old_active = membership.is_active
+        old_features = {name: membership.feature_allowed(name) for name in
+                        ('accounting_view', 'accounting_edit', 'project_budget_view', 'desktop_manage', 'desktop_check', 'mfa_required')}
         form = TeamMembershipForm(request.POST, instance=membership)
         if not form.is_valid():
-            messages.error(request, 'Choose a valid team role and access status.')
+            messages.error(request, 'Changes were not saved. ' + ' '.join(
+                str(error) for errors in form.errors.values() for error in errors))
             return redirect('projects:company_team', slug=organization.slug)
 
         new_role = form.cleaned_data['role']
@@ -5133,6 +5509,14 @@ class TeamMembershipUpdateView(LoginRequiredMixin, View):
                 return redirect('projects:company_team', slug=organization.slug)
 
         membership = form.save()
+        new_features = {name: membership.feature_allowed(name) for name in old_features}
+        if old_features != new_features:
+            record_activity(
+                organization=organization, actor=request.user,
+                event_type=ActivityEvent.Type.TEAM_ACCESS_CHANGED,
+                summary=f'{request.user.email} updated feature permissions for {membership.user.email}.',
+                metadata={'email': membership.user.email, 'before': old_features, 'after': new_features},
+            )
         if old_role != membership.role:
             record_activity(
                 organization=organization,
@@ -5300,6 +5684,9 @@ class TeamInvitationAcceptView(View):
                 request, invitation, error=error, status=409
             )
         messages.success(request, f'You joined {organization.name}.')
+        from projects.access import accounting_organizations_for_user
+        if accounting_organizations_for_user(request.user).filter(pk=organization.pk).exists():
+            return redirect(reverse('integrations:quickbooks_setup') + '?' + urlencode({'organization': organization.slug}))
         return redirect('projects:company_team', slug=organization.slug)
 
     def get(self, request, token):
@@ -5361,4 +5748,7 @@ class TeamInvitationAcceptView(View):
         organization = accept_organization_invitation(invitation, user)
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         messages.success(request, f'Welcome to {organization.name}.')
+        from projects.access import accounting_organizations_for_user
+        if accounting_organizations_for_user(user).filter(pk=organization.pk).exists():
+            return redirect(reverse('integrations:quickbooks_setup') + '?' + urlencode({'organization': organization.slug}))
         return redirect('projects:company_team', slug=organization.slug)

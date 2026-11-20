@@ -1,10 +1,12 @@
 {% extends 'base.html' %}
+{% load static %}
 
-{% block title %}Log in | Construction Manager{% endblock %}
+{% block title %}Log in | {{ app_name }}{% endblock %}
 
 {% block content %}
 <div class="auth-shell">
     <section class="auth-card">
+        <img class="auth-card__logo" src="{% static 'images/heritage-realty-logo.png' %}" alt="Heritage Realty &amp; Custom Homes" width="240" height="171">
         <p class="eyebrow">Secure project access</p>
         <h1>Log in</h1>
         <p class="text-secondary">Use the email address associated with your account.</p>

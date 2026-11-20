@@ -1,0 +1,14 @@
+{% if form.gallery_fields %}
+<section class="choice-gallery-editor" aria-label="Additional photo captions and order">
+<h2>Additional photos</h2><p>Caption each view or accessory. Lower display numbers appear first. Check Remove to delete an image when you save.</p>
+<div class="choice-gallery-edit-grid">
+{% for item in form.gallery_fields %}
+<fieldset class="choice-gallery-edit-item"><legend>Photo {{ forloop.counter }}</legend>
+<a href="{{ item.photo.get_absolute_url }}" target="_blank" rel="noopener"><img src="{{ item.photo.get_absolute_url }}" alt="{{ item.photo.caption|default:'Additional product view' }}" loading="lazy"></a>
+<label for="{{ item.caption.id_for_label }}">Caption</label>{{ item.caption }}{{ item.caption.errors }}
+<label for="{{ item.order.id_for_label }}">Display order</label>{{ item.order }}{{ item.order.errors }}
+<label>{{ item.remove }} Remove this image</label>{{ item.remove.errors }}
+</fieldset>
+{% endfor %}
+</div></section>
+{% endif %}

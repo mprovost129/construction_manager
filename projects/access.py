@@ -5,6 +5,7 @@ from .models import (
     OrganizationMembership,
     Project,
     ProjectInternalAccess,
+    ProjectMembership,
 )
 
 MANAGEMENT_ROLES = (
@@ -15,6 +16,8 @@ MANAGEMENT_ROLES = (
 
 
 def projects_for_user(user):
+    if getattr(user, '_client_preview_project_id', None):
+        return Project.objects.filter(pk=user._client_preview_project_id)
     if not user.is_authenticated:
         return Project.objects.none()
     if user.is_superuser:
@@ -42,6 +45,8 @@ def projects_for_user(user):
 
 
 def organization_membership_for(user, organization):
+    if getattr(user, '_client_preview_project_id', None):
+        return None
     if not user.is_authenticated:
         return None
     return user.organization_memberships.filter(
@@ -51,6 +56,8 @@ def organization_membership_for(user, organization):
 
 
 def internal_organizations_for_user(user, *, management_only=False):
+    if getattr(user, '_client_preview_project_id', None):
+        return Organization.objects.none()
     if not user.is_authenticated:
         return Organization.objects.none()
     if user.is_superuser:
@@ -117,29 +124,45 @@ def can_use_project_messaging(user, project):
         and organization_membership.role != OrganizationMembership.Role.ACCOUNTANT
     ):
         return projects_for_user(user).filter(pk=project.pk).exists()
-    return project.project_memberships.filter(
-        user=user,
-        is_active=True,
-        role=OrganizationMembership.Role.CLIENT,
-    ).exists()
+    return is_project_client(user, project)
 
 
 def is_project_client(user, project):
+    if getattr(user, '_client_preview_project_id', None):
+        return user._client_preview_project_id == project.pk
     if not user.is_authenticated:
         return False
     return project.project_memberships.filter(
         user=user,
         is_active=True,
         role=OrganizationMembership.Role.CLIENT,
+        client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
     ).exists()
 
 
+def is_project_signer(user, project):
+    if getattr(user, '_client_preview_project_id', None):
+        return False
+    if not user.is_authenticated:
+        return False
+    return project.project_memberships.filter(
+        user=user,
+        is_active=True,
+        role=OrganizationMembership.Role.CLIENT,
+        client_access_type=ProjectMembership.ClientAccessType.SIGNER,
+    ).exists()
+
+
+def can_approve_for_project(user, project):
+    return is_project_client(user, project) or is_project_signer(user, project)
+
+
 def can_use_project_documents(user, project):
-    return can_use_project_messaging(user, project)
+    return can_use_project_messaging(user, project) or is_project_signer(user, project)
 
 
 def can_use_change_orders(user, project):
-    return can_use_project_messaging(user, project)
+    return can_use_project_messaging(user, project) or is_project_signer(user, project)
 
 
 def can_use_selections(user, project):
@@ -149,7 +172,7 @@ def can_use_selections(user, project):
 def can_use_estimates(user, project):
     if not user.is_authenticated:
         return False
-    if user.is_superuser or is_project_client(user, project):
+    if user.is_superuser or can_approve_for_project(user, project):
         return True
     membership = organization_membership_for(user, project.organization)
     return bool(
@@ -163,9 +186,8 @@ def can_use_estimates(user, project):
 def can_view_project_budget(user, project):
     """Internal cost, budget, committed/actual cost, and profitability visibility.
 
-    Deliberately narrower than can_view_project_financials (which includes every
-    internal role): budget and margin data is restricted to company administrators,
-    management roles, and accountants, never clients.
+    Defaults to administrators, management and accountants. Administrators can
+    override this for an internal member; project assignment is still required.
     """
     if not user.is_authenticated:
         return False
@@ -174,7 +196,7 @@ def can_view_project_budget(user, project):
     membership = organization_membership_for(user, project.organization)
     return bool(
         membership
-        and membership.role in (*MANAGEMENT_ROLES, OrganizationMembership.Role.ACCOUNTANT)
+        and membership.can_view_budget
         and projects_for_user(user).filter(pk=project.pk).exists()
     )
 
@@ -217,3 +239,27 @@ def can_use_daily_logs(user, project):
 
 def can_manage_daily_logs(user, project):
     return can_manage_project(user, project)
+
+
+def accounting_organizations_for_user(user, *, edit=False):
+    if getattr(user, '_client_preview_project_id', None):
+        return Organization.objects.none()
+    if not user.is_authenticated or not user.is_active:
+        return Organization.objects.none()
+    if user.is_superuser:
+        return Organization.objects.all()
+    memberships = user.organization_memberships.filter(is_active=True)
+    ids = [m.organization_id for m in memberships
+           if (m.can_edit_accounting if edit else m.can_view_accounting)]
+    return Organization.objects.filter(pk__in=ids)
+
+
+def can_view_reconciliation(user, project):
+    if not user.is_authenticated:
+        return False
+    if not projects_for_user(user).filter(pk=project.pk).exists():
+        return False
+    if user.is_superuser or is_project_client(user, project):
+        return True
+    membership = organization_membership_for(user, project.organization)
+    return bool(membership and membership.is_internal and membership.can_view_project_financials)

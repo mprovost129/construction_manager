@@ -1,7 +1,6 @@
 from collections import defaultdict
 
 from django.db.models import Count, Prefetch
-from django.utils import timezone
 
 from .access import is_project_client
 from .models import (
@@ -38,11 +37,6 @@ def build_project_action_center(user, project):
             status=FinishSelection.Status.OPEN
         ).select_related('chosen_option')
     )
-    today = timezone.localdate()
-    for selection in open_selections:
-        selection.is_overdue = bool(
-            selection.due_date and selection.due_date < today
-        )
     draft_selections = []
     if not viewer_is_client:
         draft_selections = list(

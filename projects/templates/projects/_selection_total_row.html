@@ -1,0 +1,6 @@
+<tr class="selection-total-row">
+  <th colspan="4" scope="row">{{ total_label }}{% if total_label != 'Grand total' %} subtotal{% endif %}<small>{{ summary.priced_count }} priced · {{ summary.pending_count }} unpriced</small></th>
+  <td class="selection-money"><strong>${{ summary.price|floatformat:'2g' }}</strong><small>Selected prices</small></td>
+  <td class="selection-money">{% if summary.priced_count %}<strong class="{% if summary.remaining < 0 %}selection-negative{% elif summary.remaining > 0 %}selection-positive{% endif %}">${{ summary.remaining|floatformat:'2g' }}</strong><small>{% if summary.remaining < 0 %}Over allowance{% elif summary.remaining > 0 %}Under allowance{% else %}On allowance{% endif %}</small><small>of ${{ summary.priced_allowance|floatformat:'2g' }}</small>{% else %}—<small>No prices recorded</small>{% endif %}</td>
+  <td colspan="3"><small>Total allowance: ${{ summary.allowance|floatformat:'2g' }}</small><small>Unpriced allowance: ${{ summary.pending_allowance|floatformat:'2g' }}</small></td>
+</tr>

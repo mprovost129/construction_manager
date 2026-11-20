@@ -70,7 +70,12 @@ class ProjectMessagingTests(TestCase):
             user=cls.subcontractor,
             role=OrganizationMembership.Role.SUBCONTRACTOR,
         )
-        grant_internal_access(cls.staff_user, cls.project, cls.other_project)
+        grant_internal_access(
+            cls.staff_user,
+            cls.project,
+            cls.other_project,
+            is_project_manager=True,
+        )
         grant_internal_access(
             cls.accountant,
             cls.project,
@@ -241,7 +246,7 @@ class ProjectMessagingTests(TestCase):
             'Your update was saved, but the notification email could not be sent.',
         )
 
-    def test_client_reply_notifies_admin_and_staff_but_not_accountant(self):
+    def test_client_reply_notifies_assigned_project_manager_only(self):
         thread = self.create_thread()
         self.client.force_login(self.client_user)
         response = self.client.post(
@@ -255,10 +260,8 @@ class ProjectMessagingTests(TestCase):
         reply = thread.messages.order_by('-pk').first()
         self.assertEqual(reply.author, self.client_user)
         self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(
-            mail.outbox[0].to,
-            ['admin@example.com', 'staff@example.com'],
-        )
+        self.assertEqual(mail.outbox[0].to, ['staff@example.com'])
+        self.assertNotIn('admin@example.com', mail.outbox[0].to)
         self.assertNotIn('accountant@example.com', mail.outbox[0].to)
         self.assertTrue(
             ActivityEvent.objects.filter(

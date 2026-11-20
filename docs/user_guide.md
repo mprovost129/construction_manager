@@ -1,8 +1,8 @@
-# Construction Manager First Time User Guide
+# Heritage 360 First Time User Guide
 
 Version 1.0 · September 2026
 
-Construction Manager gives a construction company and its clients one project workspace for approvals, finish selections, documents, messages, estimates, change orders, invoices, and financial status. This guide covers the first setup steps for company users and the normal portal experience for clients.
+Heritage 360 gives Heritage and its clients one project workspace for approvals, finish selections, documents, messages, estimates, change orders, invoices, and financial status. This guide covers the first setup steps for company users and the normal portal experience for clients.
 
 The recommended starting sequence is simple. A company administrator completes company settings and team roles. A project manager creates a project, assigns staff, and invites the client. Staff then prepare and publish the information the client should see. Both sides use the Action center to find work that needs attention.
 
@@ -28,7 +28,7 @@ The recommended starting sequence is simple. A company administrator completes c
 
 ## Signing In
 
-Open Construction Manager and select **Log in**. Use the email address connected to your account. Select **Forgot your password** if you need a reset link.
+Open Heritage 360 and select **Log in**. Use the email address connected to your account. Select **Forgot your password** if you need a reset link.
 
 New team members and clients normally join through an email invitation. The invitation must be opened by the person who owns the invited email address. Invitations expire after seven days. A company user with permission can resend an expired invitation.
 
@@ -40,7 +40,7 @@ Company administrators should complete these steps before a client begins using 
 
 ### Confirm the company workspace
 
-Open **Company** from the main navigation and select the company. This screen contains team roles, invitations, company settings, subscription access, and links to cost codes and tax settings.
+Open **Company** from the main navigation and select the company. This screen contains team roles, invitations, company settings, links to cost codes and tax settings.
 
 ### Set the default tax rate
 
@@ -107,7 +107,7 @@ Review the client-visible setting on each document. Draft estimates, draft chang
 
 | Role | Typical access |
 | --- | --- |
-| Admin | All company projects, company and team settings, QuickBooks, cost codes, tax settings, and subscription controls |
+| Admin | All company projects, company and team settings, QuickBooks, cost codes, tax settings |
 | Manager | Assigned projects and management workflows; can create projects |
 | Project manager | Assigned projects and day-to-day project workflows; can create projects |
 | Staff | Assigned projects; available actions depend on project permissions |
@@ -153,7 +153,7 @@ If more than one client approval is required, set the required approval count be
 
 ### Replace a document with a new version
 
-Open the document and upload a new version instead of creating a separate document. Construction Manager retains the version history and records client decisions against the version that was reviewed.
+Open the document and upload a new version instead of creating a separate document. Heritage 360 retains the version history and records client decisions against the version that was reviewed.
 
 ### Request an electronic signature
 
@@ -201,7 +201,7 @@ Use Selections for finishes, materials, allowances, and client choices.
 
 ### After the client chooses
 
-Construction Manager compares the selected price with the allowance.
+Heritage 360 compares the selected price with the allowance.
 
 - An overage is flagged for staff and includes a shortcut to prepare a change order.
 - An unused credit is flagged for staff. The company can apply it elsewhere, return it at closing, or retain it as margin according to the project decision.
@@ -230,7 +230,7 @@ Invoices can begin as manual drafts or can be created from approved project work
 2. Add or review the client, due date, notes, tax rate, and line items.
 3. Issue the invoice when the totals are correct. Issuing assigns the permanent invoice number and makes the invoice visible to the client.
 4. Download the invoice PDF when a printable copy is needed.
-5. Record a manual payment or import payments from QuickBooks.
+5. Record payments manually while the Desktop integration is being prepared.
 
 Issued invoice totals and line items are intentionally locked. Correct an issued invoice through the supported void and reissue process rather than changing its history.
 
@@ -254,28 +254,19 @@ Each milestone can include a start date, end date, status, description, internal
 
 ## QuickBooks
 
-QuickBooks is the accounting source of truth. Company administrators control the connection and synchronization actions.
+Heritage uses QuickBooks Desktop. Administrators can open **QuickBooks** in the
+navigation or **QuickBooks setup** from Company to save onboarding details.
+Save partial information now and complete it as details are confirmed.
 
-### Connect the company
+Collect the edition and year, Windows computer or hosting provider, number of
+company files, setup contact, customer/job structure, invoice items, tax handling,
+invoice numbering, and credit workflow. Do not enter passwords or company-file paths.
 
-1. Open **QuickBooks** from the main navigation.
-2. Select the connection action and sign in to Intuit.
-3. Choose the correct QuickBooks company.
-4. Confirm the company name, environment, connection status, and available capabilities shown after connection.
-
-### Map the project and cost codes
-
-Each Construction Manager project maps to a QuickBooks Customer. The integration does not depend on QuickBooks Jobs. Match an existing customer when appropriate or create one through the supported sync action.
-
-Each cost code used on an invoice line must map to a QuickBooks Product or Service item. Matching an existing QuickBooks item is the most reliable setup path.
-
-### Synchronize invoices and payments
-
-Issue the invoice in Construction Manager first. On the invoice detail page, use **Sync to QuickBooks**. The app blocks the sync if a required project customer or cost-code item mapping is missing.
-
-Use **Sync payments from QuickBooks** on the invoice detail page to import and recheck payments and supported QuickBooks credit memos linked to that invoice. Review possible duplicates instead of recording the same payment twice.
-
-Use the QuickBooks screen to review failed attempts. Correct the mapping or accounting issue before retrying or marking an exception resolved.
+The setup screen does not connect to QuickBooks or transfer accounting records.
+The Desktop adapter still requires development and validation with a test company
+file before an accounting administrator approves the first live transfer. Intuit
+Web Connector is the planned Windows connection method. QuickBooks Online
+connection controls remain unavailable in Heritage.
 
 ## Client Portal Walkthrough
 
@@ -309,7 +300,7 @@ The invitation may be expired, revoked, already accepted, or opened while signed
 
 ### Why will an invoice not synchronize
 
-Confirm the QuickBooks company is connected, the project has a customer mapping, every invoice cost code has an active item mapping, and the QuickBooks company allows the requested action. Review the synchronization error before retrying.
+Heritage’s Desktop connection is not active yet. Open QuickBooks setup to review the details still needed. Do not use the separate QuickBooks Online connection flow for a Desktop company file.
 
 ### Why can the invoice no longer be edited
 
@@ -321,6 +312,69 @@ Start on Projects. Open the project with the highest attention count, then use A
 
 ## Pilot Feature Notes
 
-The current pilot includes the core client portal, project access, messaging, documents and uploads, approvals, estimates, finish selections, change orders, invoices, financial summaries, internal schedule milestones, audit history, and administrator-controlled QuickBooks integration.
+The current pilot includes the core client portal, project access, messaging, documents and uploads, approvals, estimates, finish selections, change orders, invoices, financial summaries, internal schedule milestones, audit history, and administrator-only QuickBooks Desktop setup preparation.
 
-The current release does not include online invoice payment, tasks and punch lists, two-factor authentication, schedule dependencies, recurring schedule items, or external calendar synchronization. Production use also requires verified persistent file storage, database backups, email delivery, monitoring, legal details, and live QuickBooks and subscription configuration.
+The current release does not include online invoice payment, tasks and punch lists, two-factor authentication, schedule dependencies, recurring schedule items, or external calendar synchronization. Production use also requires verified persistent file storage, database backups, email delivery, monitoring, legal details, and verified accounting setup.
+
+
+## Punch lists and selection deadlines
+
+Open a project and choose **Punch list**. Staff with project management access
+can add an item, choose its location and due date, and assign an active project
+team member. Items start internal. Check **Share this item and its photos with
+clients** only when the description, photos and captions are ready for the client.
+Internal notes and assignment details stay private. Clients can view shared
+items but cannot change them.
+
+The assignee can start work and mark it **Ready for verification**. A staff member
+with management access then selects **Verify complete** after checking the work.
+Use **Reopen** for further work or **Cancel item** to retain a record without
+keeping it on the active list. Filter by status or **Assigned to me**. Open the
+item to add up to 20 photos, one at a time; staff managers can remove individual
+photos. Photos use the item's sharing setting.
+
+On a pending selection, staff can use **Selection deadline** to change its due
+date or pause scheduled reminders. Punch-list items have the same reminder
+checkbox in their edit form. When the daily reminder service is enabled,
+reminders are sent 3 days before, 1 day before, on the due date, 1 day overdue,
+and weekly after that. Selection reminders go to primary clients; punch-list
+reminders go to the assignee. Ready-for-verification, verified and cancelled
+punch items do not generate deadline reminders. Projects on hold or completed
+also stop scheduled reminders.
+
+Use each project's **Notification settings** to choose email and/or in-app
+alerts. The selection **Send reminder** button remains available to staff;
+repeated clicks do not send multiple reminders to the same person that day.
+
+## Internal staff messages
+
+Open **Staff messages** in the navigation bar, then **New conversation**. Choose
+the company and either a project or **General conversation — no project**.
+Select the staff recipients, enter a subject and message, and send. The project's
+**Staff messages** card opens conversations for that project.
+
+Only the selected participants can read and reply. Clients and subcontractors
+cannot use this inbox. Project conversations also require current internal access
+to that project. Administrators are not automatically included in conversations.
+The existing client/project Messages area remains separate.
+
+Recipients receive an in-app alert and an email containing the message and a link
+to open the conversation. Sign in to reply in Heritage; replying to the email
+does not post a message. Email delivery normally takes up to five minutes. Use
+the inbox search, **General**, project context, and **Unread only** filters to
+find conversations. Opening the newest messages marks their alerts as read.
+
+Uncheck **Email me about new replies** and save to mute email for one
+conversation. In-app alerts remain enabled. Removing someone's company or
+project access also prevents further access and stops queued email to them.
+
+
+## Allowances and project totals
+
+Open **Allowances & project totals** from the project dashboard or Selections. Primary clients see only their own project’s published customer-facing information. Staff with project financial access can also use the sheet. It is available in staff’s client preview.
+
+The sheet itemizes approved change orders and shows each priced selection category’s selected price, allowance, overage/credit, amount already in linked approved change orders, and remaining adjustment. Categories with no priced amount are omitted; an unselected allowance is never treated as savings. Draft and pending change orders stay outside the total, and clients never see drafts. Internal costs, margins, vendor details, and staff notes are not included.
+
+**Original contract price + net adjustment = new project total.** Net adjustment combines approved change orders with selection overages/credits not already in linked approved change orders. Existing manually entered overages may not be linked: review overlap before final billing. This is a working price reconciliation, not the invoice balance. It does not deduct payments or applied credit memos, issue invoices, approve change orders, or transfer records to QuickBooks. Credits remain subject to the contract’s terms and project review.
+
+Use **Print / save PDF** or **Download spreadsheet** (CSV) to retain a copy. The same access rules apply to the download. The Selections list and card views also include category/location subtotals and a grand total for the visible filtered selections, with unpriced allowances separate. Remaining allowance is green under, red over, and neutral at zero.

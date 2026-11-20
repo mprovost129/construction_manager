@@ -1,6 +1,12 @@
 # Construction Manager Implementation Roadmap
 
-Last updated: November 11, 2026
+Last updated: November 20, 2026
+
+November 20 stability update: bounded database/cache/storage waits, eight threaded
+request slots, and privacy-safe slow-response/stream-close logging are implemented.
+See [Operations](operations.md#stability-update--november-20-2026) for the incident
+evidence, verification procedure, and limits. These changes mitigate a plausible
+request-contention risk; they do not establish the exact cause of the two restarts.
 
 This is the authoritative implementation-status document for Construction Manager.
 It translates the answers in [Construction Manager.md](./Construction%20Manager.md)
@@ -33,7 +39,8 @@ implemented and verified.
 | Notifications | Partial | Transactional email exists with project-level recipient preferences; per-event settings, reminders, and digest delivery do not. |
 | Project pricing and financials | Partial | An organization-scoped cost-code catalog (now also mappable to a QuickBooks Item), an estimate/proposal workflow (with a revision chain) and client approval that sets a project's fixed, tax-inclusive contract amount, an organization-level tax-rate engine applied to invoices and estimates, a staff+client-safe financial rollup view (contract, change orders, selection overage/credit, invoicing, payments), a role-gated budget/committed/actual-cost/profitability view backed by a staff-recorded job-costing ledger, and a manual invoice payment ledger exist. Every confirmed APP-1 item is now delivered; remaining accounting integration work (live sandbox verification) lives under QB-3. |
 | Invoices and payment visibility | Partial | Local drafts, approved-change-order conversion, immutable company numbering, line items, totals, client-visible issued invoices, authenticated PDF downloads, balances, status fields, notification, questions, unpaid voiding, a manual payment ledger (status transitions from issued to partially paid to paid), outbound QuickBooks Invoice create/void synchronization (wiring mapped Item IDs into outbound `Line` payloads, admin-triggered from the invoice detail page), QuickBooks payment import/reconciliation (per-invoice scan, soft duplicate detection against manually-recorded payments, admin-triggered), a local `CreditMemo` document bridging an approved selection credit to a real invoice (applying one creates an ordinary `Payment` tagged `method=credit_memo`, reusing the existing balance/status machine unchanged), selected-finish invoice origination (an approved selection bills its allowance amount directly, additive with the change-order-based overage/credit path), and QuickBooks-sourced credit memo import (folded into the existing per-invoice payment scan — a QuickBooks credit memo becomes an ordinary `Payment` the same way a QuickBooks payment does) exist. Online payment is deferred. |
-| QuickBooks Online | Partial | Company-scoped OAuth, encrypted tokens, capability/subscription discovery, stable customer/invoice/item/payment mappings, customer sync, cost-code item sync, tested Invoice API primitives, Invoice sync orchestration (create/void, retry/backoff, admin error queue), read-only Payment/Credit-Memo import and reconciliation (per-invoice scan discovers both QuickBooks payments and QuickBooks credit memos in one pass, re-verify, retry/backoff, admin error queue), and a local Credit Memo document bridging an approved selection credit to a real invoice exist. Live sandbox acceptance, an Automated-Sales-Tax compatibility check, and change-detection work remain. |
+| QuickBooks Online foundation | Dormant | Company-scoped OAuth, mappings, and synchronization primitives exist but are disabled for Heritage because Heritage uses QuickBooks Desktop. |
+| QuickBooks Desktop | Planned | Web Connector/qbXML transport for invoices and credits is documented but intentionally deferred until after launch and confirmation of the company-file workflow. |
 | SaaS subscription billing | Deferred | Stripe subscription infrastructure exists but is not part of the Heritage MVP and subscription enforcement remains disabled. Heritage is purchasing a custom implementation, not subscribing to the platform. |
 | Tasks and punch lists | Not started | Confirmed as required, but no models or workflow exist. |
 | Two-factor authentication | Not started | Confirmed as optional per user/admin policy, but not implemented. |
@@ -44,21 +51,33 @@ implemented and verified.
 
 These decisions govern remaining implementation work:
 
-- QuickBooks is the accounting source of truth.
+- QuickBooks Desktop is the accounting source of truth. Only invoices and
+  credits are in scope for the future synchronization adapter.
 - Heritage does not subscribe to the platform. Existing Stripe subscription code remains disabled and outside the Heritage MVP.
 - Homeowner invoices and payments do not flow through the platform Stripe account.
-- Exchange customers, invoices, credit memos, and payments in both directions.
+- Exchange invoices and credit memos with QuickBooks Desktop. Exact direction
+  and conflict ownership remain to be confirmed before development.
 - Invoices may originate in Construction Manager.
 - An approved change order is sent or marked ready for QuickBooks when invoiced, not merely when approved.
 - Admins resolve synchronization errors and conflicts.
-- Construction projects map to QuickBooks customers; do not depend on QuickBooks Jobs.
-- Begin with active projects and new transactions; no historical migration is required.
-- QuickBooks sandbox credentials are strictly for development. Production must use production credentials and companies.
+- QuickBooks Desktop integration will use Web Connector/qbXML and a test company
+  file before any production company file is connected.
 - Clients may view/download invoices, balances, and payment status, but cannot pay online in the first release.
-- One authenticated client approval is sufficient for change orders by default; the required
-  approval count is configurable per change order (and per document) for cases that need more.
+- One primary client account is designated per project. Additional authorized
+  signers use separate accounts so approvals remain attributable. Approval counts
+  remain configurable per change order and document.
 - Clients can upload project files and photos; assigned internal users are notified.
-- Email is sufficient for initial notifications.
+- Every notification category supports independently configurable email and
+  in-app delivery.
+- Projects support one or multiple assigned project managers. Client messages
+  route to those managers, with administrator fallback if no manager is assigned.
+- Punch-list sign-off is not required in the current workflow and remains deferred.
+- The product name is Heritage 360; the group support email remains undecided.
+- Developer Operations provides restricted health checks, operational event counts,
+  setup visibility, and a switch back to the app. See [Operations](operations.md)
+  for measured signals and pending connections.
+- Hosting direction: Render application/PostgreSQL plus Cloudflare R2 files;
+  avoid direct AWS administration. Confirm existing hosting before migration.
 - Internal users see only assigned projects, except company administrators who retain company-wide control.
 - Supported internal roles are Admin, Manager, Project Manager, Staff, Office Manager, Real Estate Agent, and Accountant.
 - Clients do not use the project schedule. Admins, managers, and project managers operate it.

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#123d2d">
-    <title>Offline | Construction Manager</title>
+    <title>Offline | {{ app_name }}</title>
     <style>
         * { box-sizing: border-box; }
         body { display: grid; min-height: 100vh; margin: 0; place-items: center; padding: 1.5rem; color: #17231d; background: #f3f5f2; font-family: Inter, system-ui, sans-serif; }
@@ -19,7 +19,7 @@
     <main>
         <div class="mark" aria-hidden="true">CM</div>
         <h1>You are offline</h1>
-        <p>Construction Manager cannot load project information without an internet connection. Reconnect and try again.</p>
+        <p>{{ app_name }} cannot load project information without an internet connection. Reconnect and try again.</p>
         <button type="button" onclick="window.location.reload()">Try again</button>
     </main>
 </body>

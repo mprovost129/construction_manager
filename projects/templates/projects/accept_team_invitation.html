@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Accept team invitation | Construction Manager{% endblock %}
+{% block title %}Accept team invitation | {{ app_name }}{% endblock %}
 {% block content %}<div class="auth-shell"><section class="auth-card auth-card--wide"><p class="eyebrow">{{ invitation.organization.name }}</p><h1>Join the company team</h1><p>You were invited as <strong>{{ invitation.get_role_display }}</strong>.</p>
 {% if authenticated_match %}<p>You are logged in as <strong>{{ user.email }}</strong>.</p><form method="post">{% csrf_token %}<button class="btn btn-primary w-100" type="submit">Accept team invitation</button></form>
 {% elif existing_user %}<p>An account already exists for <strong>{{ invitation.email }}</strong>.</p><a class="btn btn-primary w-100" href="{% url 'login' %}?next={% url 'projects:accept_team_invitation' invitation.token %}">Log in and continue</a>
