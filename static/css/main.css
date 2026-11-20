@@ -224,7 +224,35 @@ a:hover { color: var(--color-primary-dark); }
 .app-nav__link {
     color: rgba(255, 255, 255, 0.82);
     text-decoration: none;
+    white-space: nowrap;
 }
+
+.app-nav__account { display: flex; align-items: center; gap: 1rem; margin-left: auto; }
+.app-nav__dropdown { position: relative; flex-shrink: 0; }
+.app-nav__dropdown > summary { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; list-style: none; }
+.app-nav__dropdown > summary::-webkit-details-marker { display: none; }
+.app-nav__dropdown > summary .bi-chevron-down { font-size: 0.65rem; transition: transform 0.15s; }
+.app-nav__dropdown[open] > summary .bi-chevron-down { transform: rotate(180deg); }
+.app-nav__dropdown-panel {
+    position: absolute;
+    top: calc(100% + 0.75rem);
+    left: 0;
+    z-index: 1050;
+    min-width: 190px;
+    padding: 0.4rem;
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+    color: var(--color-ink);
+}
+.app-nav__dropdown-panel a { display: block; padding: 0.6rem 0.75rem; border-radius: 6px; color: var(--color-ink); text-decoration: none; white-space: nowrap; }
+.app-nav__dropdown-panel a:hover, .app-nav__dropdown-panel a:focus-visible { color: var(--color-primary); background: #eaf2ed; }
+.app-nav__dropdown > summary:focus-visible { outline: 2px solid white; outline-offset: 5px; border-radius: 3px; }
+.app-nav__dropdown--profile .app-nav__dropdown-panel { left: auto; right: 0; width: min(300px, calc(100vw - 2rem)); }
+.app-nav__profile-identity { padding: 0.6rem 0.75rem; margin-bottom: 0.25rem; border-bottom: 1px solid var(--color-border); overflow-wrap: anywhere; }
+.app-nav__profile-identity span { display: block; color: var(--color-muted); font-size: 0.75rem; }
+.app-nav__profile-identity strong { display: block; color: var(--color-ink); font-size: 0.875rem; }
 
 .app-nav__identity {
     margin-left: auto;
@@ -232,7 +260,8 @@ a:hover { color: var(--color-primary-dark); }
     font-size: 0.875rem;
 }
 
-.app-nav__logout { margin: 0; }
+.app-nav__logout { margin: 0; flex-shrink: 0; }
+.app-nav__logout .btn { white-space: nowrap; }
 
 .app-main {
     min-height: calc(100vh - 136px);
@@ -1804,7 +1833,7 @@ select {
 .action-row h3 { margin: 0 0 0.2rem; font-size: 0.95rem; }
 .action-row p { margin: 0; color: var(--color-muted); font-size: 0.78rem; }
 
-@media (max-width: 1100px) {
+@media (max-width: 1200px) {
     .app-nav { gap: 0.55rem; flex-wrap: wrap; padding: 0.65rem 1rem; }
     .app-brand { margin-right: 0.15rem; padding: 0; }
     .app-nav__toggle:not([hidden]) { display: grid; place-items: center; margin-left: auto; }
@@ -1819,6 +1848,11 @@ select {
     .app-nav__menu[data-collapsible][data-open] { display: flex; }
     .app-nav__link { padding: 0.6rem 0.2rem; font-size: 0.95rem; }
     .app-nav__identity { margin: 0.4rem 0 0; }
+    .app-nav__account { flex-wrap: wrap; margin-left: 0; gap: 0.5rem 1rem; }
+    .app-nav__dropdown-panel { position: static; margin: 0.2rem 0 0.5rem; box-shadow: none; }
+    .app-nav__dropdown--profile { flex: 1 0 100%; order: 1; }
+    .app-nav__dropdown--profile .app-nav__dropdown-panel { width: 100%; }
+    .app-nav__logout { order: 2; }
     .app-nav__logout, .app-nav__logout .btn, .app-nav__login { width: 100%; }
 }
 

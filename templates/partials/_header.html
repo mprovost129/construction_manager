@@ -6,13 +6,25 @@
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
         </button>
         <div class="app-nav__menu" id="primary-nav-menu">
-            <a class="app-nav__link" href="{% url 'core:home' %}">Projects</a>
             {% if can_manage_templates %}
-                <a class="app-nav__link" href="{% url 'projects:selection_template_home' %}"{% if 'selection_template' in request.resolver_match.url_name %} aria-current="page"{% endif %}>Templates</a>
+                <details class="app-nav__dropdown">
+                    <summary class="app-nav__link">Projects <i class="bi bi-chevron-down" aria-hidden="true"></i></summary>
+                    <div class="app-nav__dropdown-panel">
+                        <a href="{% url 'core:home' %}">Projects</a>
+                        <a href="{% url 'projects:selection_template_home' %}"{% if 'selection_template' in request.resolver_match.url_name %} aria-current="page"{% endif %}>Templates</a>
+                    </div>
+                </details>
+            {% else %}
+                <a class="app-nav__link" href="{% url 'core:home' %}">Projects</a>
             {% endif %}
             {% if has_internal_access %}
-                <a class="app-nav__link" href="{% url 'projects:staff_message_inbox' %}">Staff messages</a>
-                <a class="app-nav__link" href="{% url 'projects:company_list' %}">Company</a>
+                <details class="app-nav__dropdown">
+                    <summary class="app-nav__link">Company <i class="bi bi-chevron-down" aria-hidden="true"></i></summary>
+                    <div class="app-nav__dropdown-panel">
+                        <a href="{% url 'projects:company_list' %}">Company</a>
+                        <a href="{% url 'projects:staff_message_inbox' %}">Staff messages</a>
+                    </div>
+                </details>
             {% endif %}
             {% if can_manage_integrations %}
                 <a class="app-nav__link" href="{% if quickbooks_integration_enabled %}{% url 'integrations:quickbooks_connect' %}{% else %}{% url 'integrations:quickbooks_setup' %}{% endif %}">QuickBooks</a>
@@ -21,14 +33,18 @@
             {% if can_view_operations %}
                 <a class="app-nav__link" href="{% url 'core:operations' %}"><i class="bi bi-activity" aria-hidden="true"></i> Operations</a>
             {% endif %}
-            {% if user.is_authenticated and not client_preview_active %}
-                <a class="app-nav__link" href="{% url 'users:security' %}">Account security</a>
-            {% endif %}
+            <div class="app-nav__account">
             <a class="app-nav__link" href="{% url 'core:help' %}" aria-label="Help" title="Help"><i class="bi bi-question-circle" aria-hidden="true"></i></a>
             {% if user.is_authenticated %}
                 {% if not client_preview_active %}
                 <a class="app-nav__link" href="{% url 'projects:notification_list' %}" aria-label="Notifications{% if unread_notification_count %}, {{ unread_notification_count }} unread{% endif %}"><i class="bi bi-bell"></i>{% if unread_notification_count %} <span class="notification-count">{{ unread_notification_count }}</span>{% endif %}</a>
-                <span class="app-nav__identity">{{ user.email }}</span>
+                <details class="app-nav__dropdown app-nav__dropdown--profile">
+                    <summary class="app-nav__link"><i class="bi bi-person-circle" aria-hidden="true"></i> Profile <i class="bi bi-chevron-down" aria-hidden="true"></i></summary>
+                    <div class="app-nav__dropdown-panel">
+                        <div class="app-nav__profile-identity"><span>Signed in as</span><strong>{{ user.email }}</strong></div>
+                        <a href="{% url 'users:security' %}">Account security</a>
+                    </div>
+                </details>
                 {% else %}<span class="app-nav__identity">Client preview</span>{% endif %}
                 <form method="post" action="{% url 'logout' %}" class="app-nav__logout" data-preview-control>
                     {% csrf_token %}
@@ -37,6 +53,7 @@
             {% else %}
                 <a class="btn btn-sm btn-light app-nav__login" href="{% url 'login' %}">Log in</a>
             {% endif %}
+            </div>
         </div>
     </nav>
 </header>

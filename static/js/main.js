@@ -17,6 +17,29 @@
 
     const navigationToggle = document.querySelector('.app-nav__toggle');
     const navigationMenu = document.querySelector('.app-nav__menu');
+    const navigationDropdowns = [...document.querySelectorAll('.app-nav__dropdown')];
+    function closeNavigationDropdowns(except) {
+        navigationDropdowns.forEach((dropdown) => {
+            if (dropdown !== except) dropdown.open = false;
+        });
+    }
+    navigationDropdowns.forEach((dropdown) => {
+        dropdown.addEventListener('toggle', () => {
+            if (dropdown.open) closeNavigationDropdowns(dropdown);
+        });
+    });
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('.app-nav__dropdown')) closeNavigationDropdowns();
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        const openDropdown = navigationDropdowns.find((dropdown) => dropdown.open);
+        if (openDropdown) {
+            closeNavigationDropdowns();
+            openDropdown.querySelector('summary').focus();
+            event.preventDefault();
+        }
+    });
     if (navigationToggle && navigationMenu) {
         navigationMenu.setAttribute('data-collapsible', '');
         navigationToggle.hidden = false;
