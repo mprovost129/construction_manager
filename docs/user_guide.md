@@ -367,3 +367,14 @@ find conversations. Opening the newest messages marks their alerts as read.
 Uncheck **Email me about new replies** and save to mute email for one
 conversation. In-app alerts remain enabled. Removing someone's company or
 project access also prevents further access and stops queued email to them.
+
+
+## Allowances and project totals
+
+Open **Allowances & project totals** from the project dashboard or Selections. Primary clients see only their own project’s published customer-facing information. Staff with project financial access can also use the sheet. It is available in staff’s client preview.
+
+The sheet itemizes approved change orders and shows each priced selection category’s selected price, allowance, overage/credit, amount already in linked approved change orders, and remaining adjustment. Categories with no priced amount are omitted; an unselected allowance is never treated as savings. Draft and pending change orders stay outside the total, and clients never see drafts. Internal costs, margins, vendor details, and staff notes are not included.
+
+**Original contract price + net adjustment = new project total.** Net adjustment combines approved change orders with selection overages/credits not already in linked approved change orders. Existing manually entered overages may not be linked: review overlap before final billing. This is a working price reconciliation, not the invoice balance. It does not deduct payments or applied credit memos, issue invoices, approve change orders, or transfer records to QuickBooks. Credits remain subject to the contract’s terms and project review.
+
+Use **Print / save PDF** or **Download spreadsheet** (CSV) to retain a copy. The same access rules apply to the download. The Selections list and card views also include category/location subtotals and a grand total for the visible filtered selections, with unpriced allowances separate. Remaining allowance is green under, red over, and neutral at zero.

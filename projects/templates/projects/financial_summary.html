@@ -7,6 +7,7 @@
 
 <section class="page-heading">
     <div><p class="eyebrow">Project financials</p><h1>{{ project.name }}</h1><p class="text-secondary mb-0">Contract amount, change orders, selections, and invoicing at a glance.</p></div>
+    <a class="btn btn-outline-secondary" href="{% url 'projects:reconciliation' project.pk %}"><i class="bi bi-table" aria-hidden="true"></i> Reconciliation sheet</a>
 </section>
 
 <section class="summary-strip" aria-label="Contract totals">

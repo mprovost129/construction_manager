@@ -1,0 +1,7 @@
+<section class="selection-total-cards" aria-label="{{ total_label }} totals"><h3>{{ total_label }}{% if total_label != 'Grand total' %} subtotal{% endif %}</h3><dl>
+<div><dt>Selected prices</dt><dd>${{ summary.price|floatformat:'2g' }}</dd></div>
+<div><dt>Allowance for priced selections</dt><dd>${{ summary.priced_allowance|floatformat:'2g' }}</dd></div>
+<div><dt>Net remaining</dt><dd class="{% if summary.remaining < 0 %}selection-negative{% elif summary.remaining > 0 %}selection-positive{% endif %}">{% if summary.priced_count %}${{ summary.remaining|floatformat:'2g' }} <small>{% if summary.remaining < 0 %}over allowance{% elif summary.remaining > 0 %}under allowance{% else %}on allowance{% endif %}</small>{% else %}—{% endif %}</dd></div>
+<div><dt>Unpriced allowance</dt><dd>${{ summary.pending_allowance|floatformat:'2g' }}</dd></div>
+<div><dt>Total allowance</dt><dd>${{ summary.allowance|floatformat:'2g' }}</dd></div>
+</dl><p>{{ summary.priced_count }} priced · {{ summary.pending_count }} unpriced</p></section>

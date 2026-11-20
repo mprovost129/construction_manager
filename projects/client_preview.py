@@ -13,7 +13,7 @@ from .services import record_activity
 SESSION_KEY = 'client_preview_project'
 
 # Only reviewed, read-only client pages are available. New routes fail closed.
-PROJECT_PAGES = frozenset('''detail action_center message_list message_thread message_create
+PROJECT_PAGES = frozenset('''detail reconciliation action_center message_list message_thread message_create
 document_list document_detail document_download client_upload document_signature_review
 document_signature_certificate change_order_list change_order_detail estimate_list estimate_detail
 selection_list selection_detail selection_package_detail selection_option_image selection_option_attachment

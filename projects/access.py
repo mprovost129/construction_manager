@@ -252,3 +252,14 @@ def accounting_organizations_for_user(user, *, edit=False):
     ids = [m.organization_id for m in memberships
            if (m.can_edit_accounting if edit else m.can_view_accounting)]
     return Organization.objects.filter(pk__in=ids)
+
+
+def can_view_reconciliation(user, project):
+    if not user.is_authenticated:
+        return False
+    if not projects_for_user(user).filter(pk=project.pk).exists():
+        return False
+    if user.is_superuser or is_project_client(user, project):
+        return True
+    membership = organization_membership_for(user, project.organization)
+    return bool(membership and membership.is_internal and membership.can_view_project_financials)

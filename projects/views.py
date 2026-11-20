@@ -39,6 +39,7 @@ from .access import (
     can_use_schedule,
     can_use_selections,
     can_view_project_budget,
+    can_view_reconciliation,
     internal_organizations_for_user,
     is_project_client,
     organization_membership_for,
@@ -438,6 +439,7 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
                 'action_count': (
                     action_center['action_count'] if action_center else 0
                 ),
+                'can_view_reconciliation': can_view_reconciliation(self.request.user, self.object),
                 'can_view_project_financials': bool(
                     self.request.user.is_superuser
                     or (
@@ -486,6 +488,39 @@ class ProjectFinancialSummaryView(LoginRequiredMixin, TemplateView):
             }
         )
         return context
+
+
+class ProjectReconciliationView(LoginRequiredMixin, TemplateView):
+    template_name = 'projects/reconciliation.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        self.project = get_object_or_404(projects_for_user(request.user).select_related('organization'), pk=kwargs['pk'])
+        if not can_view_reconciliation(request.user, self.project):
+            raise PermissionDenied('You cannot access this project reconciliation.')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        from .reconciliation import project_reconciliation
+        context = super().get_context_data(**kwargs)
+        context.update(project=self.project, report=project_reconciliation(self.project, client_view=is_project_client(self.request.user, self.project)),
+                       viewer_is_client=is_project_client(self.request.user, self.project),
+                       generated_at=timezone.now())
+        return context
+
+    def get(self, request, *args, **kwargs):
+        context = self.get_context_data(**kwargs)
+        if request.GET.get('download') == 'csv':
+            from .reconciliation_export import reconciliation_csv
+            response = HttpResponse(reconciliation_csv(context['project'], context['report']),
+                                    content_type='text/csv; charset=utf-8')
+            response['Content-Disposition'] = f'attachment; filename="project-{self.project.pk}-reconciliation.csv"'
+            response['Cache-Control'] = 'private, no-store'
+            return response
+        response = self.render_to_response(context)
+        response['Cache-Control'] = 'private, no-store'
+        return response
 
 
 class ProjectCostEntryCreateView(LoginRequiredMixin, FormView):

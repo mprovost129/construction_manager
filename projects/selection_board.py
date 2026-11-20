@@ -1,8 +1,23 @@
 from collections import OrderedDict
+from decimal import Decimal
 from django.db.models import Q
-from .access import can_manage_project, is_project_client
+from .access import can_manage_project, is_project_client, can_view_reconciliation
 from .models import FinishSelection
 from .selection_templates import can_use_templates
+
+
+def selection_totals(rows):
+    """Sum only visible active rows; undecided allowances are not savings."""
+    active = [row for row in rows if row.status != FinishSelection.Status.VOIDED]
+    priced = [row for row in active if row.board_price is not None]
+    unpriced = [row for row in active if row.board_price is None]
+    price = sum((row.board_price for row in priced), Decimal('0'))
+    priced_allowance = sum((row.allowance_amount for row in priced), Decimal('0'))
+    pending_allowance = sum((row.allowance_amount for row in unpriced), Decimal('0'))
+    return dict(price=price, priced_allowance=priced_allowance,
+                remaining=priced_allowance-price, pending_allowance=pending_allowance,
+                allowance=priced_allowance+pending_allowance, priced_count=len(priced),
+                pending_count=len(unpriced), excluded_count=len(rows)-len(active))
 
 
 def board_context(project, user, params):
@@ -42,7 +57,9 @@ def board_context(project, user, params):
             packages.setdefault(selection.package, []).append(selection)
         else:
             standalone.append(selection)
-    return {'project': project, 'selections': selections, 'board_groups': list(groups.items()),
+    return {'can_view_reconciliation': can_view_reconciliation(user, project), 'project': project, 'selections': selections, 'board_groups': list(groups.items()),
+            'total_groups': [(label, rows, selection_totals(rows)) for label, rows in groups.items()],
+            'board_totals': selection_totals(selections), 'totals_filtered': bool(query or status),
             'package_groups': list(packages.items()), 'standalone_selections': standalone,
             'can_manage_project': can_manage_project(user, project),
             'can_use_templates': can_manage_project(user, project) and can_use_templates(user, project.organization),

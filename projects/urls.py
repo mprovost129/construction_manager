@@ -281,6 +281,7 @@ urlpatterns = [
         views.EstimateLineItemDeleteView.as_view(),
         name='estimate_line_item_delete',
     ),
+    path('projects/<int:pk>/financials/reconciliation/', views.ProjectReconciliationView.as_view(), name='reconciliation'),
     path(
         'projects/<int:pk>/financials/',
         views.ProjectFinancialSummaryView.as_view(),

@@ -98,6 +98,9 @@
         <div><h2>Notification settings</h2><p>Choose email and in-app alerts for this project.</p></div>
         <span>Manage alerts <i class="bi bi-arrow-right"></i></span>
     </a>
+    {% if can_view_reconciliation %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:reconciliation' project.pk %}">
+        <i class="bi bi-table"></i><div><h2>Allowances &amp; project totals</h2><p>Selection allowances, overages, credits, and change-order totals.</p></div><span>Open project totals <i class="bi bi-arrow-right"></i></span>
+    </a>{% endif %}
     {% if can_view_project_financials %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:financial_summary' project.pk %}">
         <i class="bi bi-graph-up-arrow"></i>
         <div><h2>Project financials</h2><p>Contract amount, change orders, selections, and invoicing.</p></div>
