@@ -520,9 +520,11 @@ class InAppNotification(models.Model):
     )
     project = models.ForeignKey(
         Project,
+        null=True, blank=True,
         on_delete=models.CASCADE,
         related_name='in_app_notifications',
     )
+    staff_thread = models.ForeignKey('StaffThread', on_delete=models.CASCADE, null=True, blank=True, related_name='notifications')
     event_type = models.CharField(max_length=30, choices=NotificationPreference.Event.choices)
     title = models.CharField(max_length=200)
     message = models.TextField(blank=True)
@@ -757,6 +759,7 @@ class ActivityEvent(models.Model):
             'Selection reminder sent',
         )
         SELECTION_DEADLINE_UPDATED = 'selection_deadline_updated', 'Selection deadline updated'
+        STAFF_MESSAGE_SENT = 'staff_message_sent', 'Internal staff message sent'
         PUNCH_UPDATED = 'punch_updated', 'Punch-list item updated'
         SCHEDULE_MILESTONE_CREATED = (
             'schedule_milestone_created',
@@ -2837,3 +2840,55 @@ class DeadlineReminder(models.Model):
             models.UniqueConstraint(fields=('selection', 'recipient', 'reminder_date'), name='deadline_selection_daily'),
             models.UniqueConstraint(fields=('punch_item', 'recipient', 'reminder_date'), name='deadline_punch_daily'),
         ]
+
+
+
+class StaffThread(models.Model):
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='staff_threads')
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, null=True, blank=True, related_name='staff_threads')
+    subject = models.CharField(max_length=200)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='staff_threads_started')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-updated_at', '-pk')
+
+    def clean(self):
+        if self.project_id and self.project.organization_id != self.organization_id:
+            raise ValidationError({'project': 'Project must belong to this company.'})
+
+
+class StaffParticipant(models.Model):
+    thread = models.ForeignKey(StaffThread, on_delete=models.CASCADE, related_name='participants')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='staff_conversations')
+    email_enabled = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=('thread', 'user'), name='staff_unique_participant')]
+
+
+class StaffMessage(models.Model):
+    thread = models.ForeignKey(StaffThread, on_delete=models.CASCADE, related_name='messages')
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='staff_messages_sent')
+    body = models.TextField(max_length=10000)
+    submission_id = models.UUIDField(default=uuid.uuid4)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('created_at', 'pk')
+        constraints = [models.UniqueConstraint(fields=('author', 'submission_id'), name='staff_unique_submission')]
+
+
+class StaffMessageDelivery(models.Model):
+    message = models.ForeignKey(StaffMessage, on_delete=models.CASCADE, related_name='deliveries')
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    email_status = models.CharField(max_length=12, default='pending', choices=(
+        ('pending', 'Pending'), ('sending', 'Sending'), ('skipped', 'No longer eligible'), ('accepted', 'Accepted by mail service'),
+        ('failed', 'Delivery not confirmed'), ('disabled', 'Email disabled')))
+    created_at = models.DateTimeField(auto_now_add=True)
+    attempted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=('message', 'recipient'), name='staff_unique_delivery')]
+        indexes = [models.Index(fields=('email_status', 'id'), name='staff_email_queue_idx')]

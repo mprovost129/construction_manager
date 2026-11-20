@@ -2,7 +2,7 @@
 {% block title %}Notifications | {{ app_name }}{% endblock %}
 {% block content %}
 <section class="page-heading">
-    <div><p class="eyebrow">Updates</p><h1>Notifications</h1><p class="text-secondary mb-0">Project activity delivered inside {{ app_name }}.</p></div>
+    <div><p class="eyebrow">Updates</p><h1>Notifications</h1><p class="text-secondary mb-0">Messages and project activity delivered inside {{ app_name }}.</p></div>
     <form method="post" action="{% url 'projects:notification_mark_all_read' %}">{% csrf_token %}<button class="btn btn-outline-secondary" type="submit">Mark all read</button></form>
 </section>
 <section class="admin-panel">

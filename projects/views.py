@@ -45,8 +45,8 @@ from .access import (
     projects_for_user,
 )
 from .action_center import build_project_action_center
-from .financials import project_financial_summary
 from .choice_images import saved_choice_files
+from .financials import project_financial_summary
 from .forms import (
     ChangeOrderDecisionForm,
     ChangeOrderForm,
@@ -157,6 +157,7 @@ from .services import (
     send_selection_voided_notification,
     send_team_invitation,
 )
+from .staff_access import staff_projects, visible_notifications
 
 
 def managed_project_or_404(user, pk):
@@ -401,6 +402,7 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
                 'project_membership': project_membership,
                 'internal_access': internal_access,
                 'viewer_is_internal': is_internal,
+                'can_use_staff_messages': staff_projects(self.request.user).filter(pk=self.object.pk).exists(),
                 'can_manage_project': can_manage_project(
                     self.request.user, self.object
                 ),
@@ -4965,8 +4967,8 @@ class NotificationListView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['notifications'] = self.request.user.in_app_notifications.select_related(
-            'project'
+        context['notifications'] = visible_notifications(self.request.user).select_related(
+            'project', 'staff_thread'
         )[:100]
         context['projects'] = projects_for_user(self.request.user).order_by('name')
         return context
@@ -4977,7 +4979,7 @@ class NotificationMarkReadView(LoginRequiredMixin, View):
 
     def post(self, request, notification_pk):
         notification = get_object_or_404(
-            InAppNotification,
+            visible_notifications(request.user),
             pk=notification_pk,
             user=request.user,
         )
@@ -4994,7 +4996,7 @@ class NotificationMarkAllReadView(LoginRequiredMixin, View):
     http_method_names = ('post',)
 
     def post(self, request):
-        request.user.in_app_notifications.filter(read_at__isnull=True).update(
+        visible_notifications(request.user).filter(read_at__isnull=True).update(
             read_at=timezone.now()
         )
         return redirect('projects:notification_list')

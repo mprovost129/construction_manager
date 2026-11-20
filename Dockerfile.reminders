@@ -6,4 +6,4 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 # No web listener, migrations, bootstrap accounts, or document-storage access.
-CMD ["sh", "-c", "python manage.py migrate --check && python manage.py send_deadline_reminders"]
+CMD ["sh", "-c", "python manage.py migrate --check && python manage.py process_notifications"]

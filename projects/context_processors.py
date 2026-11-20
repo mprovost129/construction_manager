@@ -2,6 +2,7 @@ from django.conf import settings
 
 from .access import accounting_organizations_for_user, internal_organizations_for_user
 from .selection_templates import template_organizations
+from .staff_access import visible_notifications
 
 
 def application_identity(request):
@@ -35,7 +36,7 @@ def workspace_navigation(request):
         'can_create_projects': can_create_projects,
         'can_manage_templates': template_organizations(user).exists(),
         'can_manage_integrations': accounting_organizations_for_user(user).exists(),
-        'unread_notification_count': 0 if getattr(request, 'client_preview_active', False) else user.in_app_notifications.filter(
+        'unread_notification_count': 0 if getattr(request, 'client_preview_active', False) else visible_notifications(user).filter(
             read_at__isnull=True
         ).count(),
     }

@@ -345,3 +345,25 @@ also stop scheduled reminders.
 Use each project's **Notification settings** to choose email and/or in-app
 alerts. The selection **Send reminder** button remains available to staff;
 repeated clicks do not send multiple reminders to the same person that day.
+
+## Internal staff messages
+
+Open **Staff messages** in the navigation bar, then **New conversation**. Choose
+the company and either a project or **General conversation — no project**.
+Select the staff recipients, enter a subject and message, and send. The project's
+**Staff messages** card opens conversations for that project.
+
+Only the selected participants can read and reply. Clients and subcontractors
+cannot use this inbox. Project conversations also require current internal access
+to that project. Administrators are not automatically included in conversations.
+The existing client/project Messages area remains separate.
+
+Recipients receive an in-app alert and an email containing the message and a link
+to open the conversation. Sign in to reply in Heritage; replying to the email
+does not post a message. Email delivery normally takes up to five minutes. Use
+the inbox search, **General**, project context, and **Unread only** filters to
+find conversations. Opening the newest messages marks their alerts as read.
+
+Uncheck **Email me about new replies** and save to mute email for one
+conversation. In-app alerts remain enabled. Removing someone's company or
+project access also prevents further access and stops queued email to them.

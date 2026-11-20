@@ -1,10 +1,22 @@
 from django.urls import path
 
-from . import views, selection_photos, client_preview, punch, selection_deadline
+from . import (
+    client_preview,
+    punch,
+    selection_deadline,
+    selection_photos,
+    staff_messaging,
+    views,
+)
 
 app_name = 'projects'
 
 urlpatterns = [
+    path('staff/messages/', staff_messaging.inbox, name='staff_message_inbox'),
+    path('staff/messages/new/', staff_messaging.start, name='staff_message_start'),
+    path('staff/messages/compose/', staff_messaging.compose, name='staff_message_compose'),
+    path('staff/messages/<int:thread_pk>/', staff_messaging.conversation, name='staff_message_thread'),
+    path('staff/messages/<int:thread_pk>/preferences/', staff_messaging.preferences, name='staff_message_preferences'),
     path('projects/<int:pk>/selections/<int:selection_pk>/deadline/', selection_deadline.update, name='selection_deadline'),
     path('projects/<int:pk>/punch-list/', punch.listing, name='punch_list'),
     path('projects/<int:pk>/punch-list/new/', punch.edit, name='punch_create'),
@@ -520,4 +532,5 @@ urlpatterns = [
 ]
 
 from .selection_template_urls import urlpatterns as selection_template_patterns
+
 urlpatterns += selection_template_patterns

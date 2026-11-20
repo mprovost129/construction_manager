@@ -1,0 +1,5 @@
+{% extends 'base.html' %}
+{% block title %}New staff conversation | {{ app_name }}{% endblock %}
+{% block content %}
+<div class="form-shell form-shell--top"><section class="form-card"><p class="eyebrow">Staff messages</p><h1>Start a conversation</h1><p>Choose a project, or leave it blank for a general question or discussion.</p><form method="get" action="{% url 'projects:staff_message_compose' %}" class="stacked-form">{% for field in form %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}<div class="form-actions"><a href="{% url 'projects:staff_message_inbox' %}" class="btn btn-outline-secondary">Cancel</a><button class="btn btn-primary">Choose recipients</button></div></form></section></div>
+{% endblock %}

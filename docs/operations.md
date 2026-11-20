@@ -214,3 +214,36 @@ mail-provider acceptance and receipt counts. The feature is not automatically
 scheduled merely because the web release is deployed. Rollback the web code if
 needed without reversing additive migrations or deleting punch-list data;
 suspend the reminder cron separately to stop scheduled delivery.
+
+## Staff messaging delivery
+
+StaffThread/Participant/Message are separate from client conversations. Every
+request checks active internal company membership, participation and (when
+linked) internal project access. Client preview cannot enter this area. In-app
+notification queries recheck that access; queued email rechecks immediately
+before sending. Audit events contain no subject or message text.
+
+Messages, in-app alerts and StaffMessageDelivery rows commit atomically. UUID
+submission keys prevent repeated form submissions from duplicating a message.
+SMTP never runs in the web request. `process_notifications` claims up to 50 pending
+deliveries per run and sends separate plain-text emails with authenticated links.
+Per-thread email opt-outs apply to pending and future mail. SMTP acceptance is
+recorded as accepted, which does not guarantee final inbox delivery.
+
+Deploy web migrations 0046/0047 first. Then deploy the existing reminder cron with
+Dockerfile.reminders and change its schedule to `*/5 * * * *`. This reuses the
+approved service and existing database/mail references; no new worker is needed.
+The command processes staff email each tick and checks daily deadline reminders
+after 14:00 UTC. Existing daily claims suppress duplicate deadline notifications.
+Do not add a second deadline schedule. Inspect the first combined run and verify
+its counts; logs must not contain message bodies, recipients or credentials.
+
+Failed SMTP attempts and sending claims older than 15 minutes become failed and
+raise an operations email-failure signal plus a failed cron run. They are not
+automatically retried because SMTP may already have accepted the message. Inspect
+the provider's delivery history before any operator recovery; never blindly
+reset failed/sending rows. A crash before claiming leaves mail pending for the
+next run. In-app messages remain available regardless of email delivery status.
+Queue size over 50 per tick can delay email; monitor pending counts and oldest
+created_at when investigating delays. Suspend the cron to stop background mail;
+retain additive migrations and conversation data during a code rollback.

@@ -11,6 +11,7 @@
                 <a class="app-nav__link" href="{% url 'projects:selection_template_home' %}"{% if 'selection_template' in request.resolver_match.url_name %} aria-current="page"{% endif %}>Templates</a>
             {% endif %}
             {% if has_internal_access %}
+                <a class="app-nav__link" href="{% url 'projects:staff_message_inbox' %}">Staff messages</a>
                 <a class="app-nav__link" href="{% url 'projects:company_list' %}">Company</a>
             {% endif %}
             {% if can_manage_integrations %}

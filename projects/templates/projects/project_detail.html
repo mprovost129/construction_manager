@@ -44,6 +44,7 @@
 </div>
 
 <section class="module-grid" aria-label="Project modules">
+    {% if can_use_staff_messages %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:staff_message_inbox' %}?project={{ project.pk }}"><i class="bi bi-chat-left-text"></i><div><h2>Staff messages</h2><p>Private conversations with selected staff about this project.</p></div><span>Open staff messages <i class="bi bi-arrow-right"></i></span></a>{% endif %}
     {% if can_use_action_center %}<a class="module-card module-card--ready module-card--link module-card--featured" href="{% url 'projects:action_center' project.pk %}">
         <i class="bi bi-inbox"></i>
         <div><h2>Action center</h2><p>{% if viewer_is_internal %}Decisions, drafts, delays, and active conversations.{% else %}Your pending decisions and project conversations.{% endif %}</p></div>
