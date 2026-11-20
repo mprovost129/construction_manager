@@ -18,7 +18,7 @@ document_list document_detail document_download client_upload document_signature
 document_signature_certificate change_order_list change_order_detail estimate_list estimate_detail
 selection_list selection_detail selection_package_detail selection_option_image selection_option_attachment
 selection_choice_image selection_reference_image selection_custom_request_create
-daily_log_list daily_log_detail daily_log_photo notification_settings'''.split())
+daily_log_list daily_log_detail daily_log_photo notification_settings punch_list punch_detail punch_photo'''.split())
 BILLING_PAGES = frozenset(('invoice_list', 'invoice_detail', 'invoice_pdf', 'credit_memo_detail'))
 CONTROL_PAGES = frozenset(('projects:client_preview_start', 'projects:client_preview_stop', 'logout'))
 

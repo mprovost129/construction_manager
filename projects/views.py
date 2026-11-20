@@ -123,6 +123,7 @@ from .schedule_calendar import (
     choose_calendar_month,
     shift_month,
 )
+from .selection_deadline import DeadlineForm
 from .services import (
     DOCUMENT_SIGNATURE_CONSENT,
     accept_organization_invitation,
@@ -3263,6 +3264,7 @@ class FinishSelectionDetailView(LoginRequiredMixin, TemplateView):
             {
                 'project': self.project,
                 'selection': self.selection,
+                'deadline_form': DeadlineForm(instance=self.selection),
                 'selection_options': self.selection.options.prefetch_related('gallery_images'),
                 'reference_photos': self.selection.reference_photos.all() if can_manage else self.selection.reference_photos.filter(client_visible=True),
                 'can_manage_project': can_manage,
@@ -4030,7 +4032,7 @@ class FinishSelectionReminderView(LoginRequiredMixin, View):
                 ),
                 metadata={'selection_id': selection.pk},
             )
-        messages.success(request, 'A reminder was sent to the client.')
+        messages.success(request, 'Reminder processed. Each client receives at most one reminder per day through their enabled channels.' if delivery_result else 'No new reminder: clients may already have been reminded today or have alerts disabled.')
         return redirect(
             'projects:selection_detail', pk=project.pk, selection_pk=selection.pk
         )
@@ -5010,6 +5012,7 @@ class ProjectNotificationSettingsView(LoginRequiredMixin, TemplateView):
             NotificationPreference.Event.ESTIMATES: can_use_estimates(user, project),
             NotificationPreference.Event.CHANGE_ORDERS: can_use_change_orders(user, project),
             NotificationPreference.Event.SELECTIONS: can_use_selections(user, project),
+            NotificationPreference.Event.PUNCH_LIST: can_use_project_messaging(user, project),
             NotificationPreference.Event.SCHEDULE: can_use_schedule(user, project),
             NotificationPreference.Event.INVOICES: can_use_invoices(user, project),
             NotificationPreference.Event.PROJECT_ASSIGNMENTS: bool(

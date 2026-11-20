@@ -165,3 +165,52 @@ the export and map original IDs, relationships, attachments, and history. Test
 one representative project before a wider import. Add reconciliation counts,
 duplicate detection, and missing-attachment reporting to Operations with the
 importer. Do not report imports or backups as complete without recorded evidence.
+
+
+## Deadline reminders and punch lists (2026-11-20)
+
+Punch lists are project-scoped and internal by default. Project managers with
+management access create/edit/share/cancel items and verify completed work.
+Assigned active staff can start work, submit it for verification, and add photos.
+Primary clients can read only explicitly shared items/photos; internal notes,
+assignees and verifier identities are omitted. Client preview uses the same
+visibility checks and remains read-only. Photo removal revokes access but retains
+stored bytes under the existing backup retention policy. The document backup
+inventories the whole private bucket, including the new punch_photos prefix.
+
+Selection deadlines can be adjusted on draft/open selections without changing
+prices or choices. Both selections and punch items have an opt-out checkbox for
+scheduled reminders. Paused/completed projects and closed items are skipped.
+Selection reminders go to active primary clients; punch reminders go only to the
+currently assigned active staff member with project access. Their existing
+email/in-app preferences apply. Each email has a single recipient.
+
+Run `python manage.py send_deadline_reminders --dry-run` to count eligible
+recipient reminders without writes or emails. The real command schedules 3 days
+before, 1 day before, due day, 1 day overdue, then weekly. A durable unique
+recipient/item/date claim suppresses duplicate manual/scheduled attempts, even
+across concurrent runs. In-app alerts and the claim commit together before email.
+An unconfirmed SMTP attempt is not automatically retried that day (acceptance
+may be ambiguous); in-app alerts remain. A failed email causes the scheduled
+command to exit nonzero and records the existing email-failure operations signal.
+A crash between claiming and email submission leaves a pending record; inspect
+DeadlineReminder status before any manual recovery to avoid duplicate mail.
+The legacy `send_overdue_selection_reminders` command remains overdue-only and
+shares the same daily deduplication; do not schedule both commands.
+
+Optional deployment: `render-reminders.yaml` creates only
+`heritage360-deadline-reminders`, using the existing private database and SMTP
+credentials through Render references. It uses no R2, QuickBooks, or web-session
+secret. `Dockerfile.reminders` has no HTTP listener or migration/bootstrap step;
+startup checks that migrations are current. Apply only after web migrations are
+live, and deploy the scheduler with future reminder/model changes. Schedule:
+14:00 UTC daily (9am EST / 10am EDT). Cost: minimum $1/month plus usage, confirmed
+in Render documentation on 2026-11-20. Obtain approval for this new recurring
+service before creating it. Keep the existing backup cron unchanged.
+
+Before activation, run the dry-run against production and verify delivery
+settings without exposing credentials. After activation, inspect the first run,
+mail-provider acceptance and receipt counts. The feature is not automatically
+scheduled merely because the web release is deployed. Rollback the web code if
+needed without reversing additive migrations or deleting punch-list data;
+suspend the reminder cron separately to stop scheduled delivery.

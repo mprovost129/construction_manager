@@ -827,28 +827,8 @@ def send_selection_custom_request_notification(request, custom_request):
 
 
 def send_selection_overdue_reminder(selection, request=None):
-    recipients = document_client_recipients(selection.project)
-    if not recipients:
-        return 0
-    detail_path = reverse(
-        'projects:selection_detail', args=(selection.project_id, selection.pk)
-    )
-    return deliver_project_notification(
-        request=request,
-        project=selection.project,
-        event_type=NotificationPreference.Event.SELECTIONS,
-        title=(
-            f'Reminder: finish selection overdue - {selection.project.name}: '
-            f'{selection.display_number}'
-        ),
-        message=(
-            f'{selection.display_number} - {selection.title} was due on '
-            f'{selection.due_date:%B %d, %Y} and still needs your selection for '
-            f'{selection.project.name}.'
-        ),
-        url_path=detail_path,
-        recipient_list=recipients,
-    )
+    from .deadlines import send_deadline
+    return send_deadline(selection)
 
 
 def send_schedule_milestone_notification(request, milestone, *, withdrawn=False):

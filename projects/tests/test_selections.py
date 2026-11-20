@@ -815,7 +815,7 @@ class FinishSelectionTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertEqual(
-            mail.outbox[0].to, ['client@example.com', 'second-client@example.com']
+            sorted(message.to[0] for message in mail.outbox), ['client@example.com', 'second-client@example.com']
         )
         self.assertTrue(
             ActivityEvent.objects.filter(
@@ -838,7 +838,7 @@ class FinishSelectionTests(TestCase):
 
         call_command('send_overdue_selection_reminders')
 
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox), 2)
         self.assertIn(overdue_selection.display_number, mail.outbox[0].body)
         reminder_events = ActivityEvent.objects.filter(
             event_type=ActivityEvent.Type.SELECTION_REMINDER_SENT

@@ -1,10 +1,16 @@
 from django.urls import path
 
-from . import views, selection_photos, client_preview
+from . import views, selection_photos, client_preview, punch, selection_deadline
 
 app_name = 'projects'
 
 urlpatterns = [
+    path('projects/<int:pk>/selections/<int:selection_pk>/deadline/', selection_deadline.update, name='selection_deadline'),
+    path('projects/<int:pk>/punch-list/', punch.listing, name='punch_list'),
+    path('projects/<int:pk>/punch-list/new/', punch.edit, name='punch_create'),
+    path('projects/<int:pk>/punch-list/<int:item_pk>/', punch.detail, name='punch_detail'),
+    path('projects/<int:pk>/punch-list/<int:item_pk>/edit/', punch.edit, name='punch_edit'),
+    path('projects/<int:pk>/punch-list/<int:item_pk>/photos/<int:photo_pk>/', punch.photo, name='punch_photo'),
     path('client-preview/', client_preview.start, name='client_preview_start'),
     path('client-preview/stop/', client_preview.stop, name='client_preview_stop'),
     path('projects/<int:pk>/selections/photos/', selection_photos.photo_import, name='selection_photo_import'),

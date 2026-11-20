@@ -12,6 +12,8 @@
 
 <section class="change-order-summary"><article><span>Client allowance</span><strong>${{ selection.allowance_amount|floatformat:2 }}</strong></article><article><span>Decision due</span><strong>{% if selection.due_date %}{{ selection.due_date|date:"M j, Y" }}{% else %}Not set{% endif %}</strong></article><article><span>Options</span><strong>{{ selection_options|length }}</strong></article>{% if selection.chosen_option %}<article><span>Selected variance</span><strong>{% if selection.selected_variance > 0 %}+{% endif %}${{ selection.selected_variance|floatformat:2 }}</strong></article>{% endif %}</section>
 
+{% if can_manage_project and selection.status == 'open' or can_manage_project and selection.status == 'draft' %}<section class="admin-panel"><div><h2>Selection deadline</h2><p>Reminders go to active primary clients 3 days before, 1 day before, on the due date, and 1 day overdue, then weekly. Their notification preferences apply. Remove the checkmark to pause scheduled reminders.</p><form method="post" class="stacked-form" action="{% url 'projects:selection_deadline' project.pk selection.pk %}">{% csrf_token %}{{ deadline_form.as_p }}<button class="btn btn-outline-secondary">Save deadline settings</button></form></div></section>{% endif %}
+
 {% if selection.description %}<section class="admin-panel change-order-scope"><div><p class="eyebrow">Selection details</p><div>{{ selection.description|linebreaks }}</div></div></section>{% endif %}
 
 {% if can_choose %}<form method="post" action="{% url 'projects:selection_choose' project.pk selection.pk %}">{% csrf_token %}{% endif %}

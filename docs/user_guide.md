@@ -315,3 +315,33 @@ Start on Projects. Open the project with the highest attention count, then use A
 The current pilot includes the core client portal, project access, messaging, documents and uploads, approvals, estimates, finish selections, change orders, invoices, financial summaries, internal schedule milestones, audit history, and administrator-only QuickBooks Desktop setup preparation.
 
 The current release does not include online invoice payment, tasks and punch lists, two-factor authentication, schedule dependencies, recurring schedule items, or external calendar synchronization. Production use also requires verified persistent file storage, database backups, email delivery, monitoring, legal details, and verified accounting setup.
+
+
+## Punch lists and selection deadlines
+
+Open a project and choose **Punch list**. Staff with project management access
+can add an item, choose its location and due date, and assign an active project
+team member. Items start internal. Check **Share this item and its photos with
+clients** only when the description, photos and captions are ready for the client.
+Internal notes and assignment details stay private. Clients can view shared
+items but cannot change them.
+
+The assignee can start work and mark it **Ready for verification**. A staff member
+with management access then selects **Verify complete** after checking the work.
+Use **Reopen** for further work or **Cancel item** to retain a record without
+keeping it on the active list. Filter by status or **Assigned to me**. Open the
+item to add up to 20 photos, one at a time; staff managers can remove individual
+photos. Photos use the item's sharing setting.
+
+On a pending selection, staff can use **Selection deadline** to change its due
+date or pause scheduled reminders. Punch-list items have the same reminder
+checkbox in their edit form. When the daily reminder service is enabled,
+reminders are sent 3 days before, 1 day before, on the due date, 1 day overdue,
+and weekly after that. Selection reminders go to primary clients; punch-list
+reminders go to the assignee. Ready-for-verification, verified and cancelled
+punch items do not generate deadline reminders. Projects on hold or completed
+also stop scheduled reminders.
+
+Use each project's **Notification settings** to choose email and/or in-app
+alerts. The selection **Send reminder** button remains available to staff;
+repeated clicks do not send multiple reminders to the same person that day.

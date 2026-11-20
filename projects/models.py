@@ -482,6 +482,7 @@ class NotificationPreference(models.Model):
         ESTIMATES = 'estimates', 'Estimates and proposals'
         CHANGE_ORDERS = 'change_orders', 'Change orders'
         SELECTIONS = 'selections', 'Selections'
+        PUNCH_LIST = 'punch_list', 'Punch-list deadlines'
         SCHEDULE = 'schedule', 'Schedule changes'
         INVOICES = 'invoices', 'Invoices and payments'
         PROJECT_ASSIGNMENTS = 'project_assignments', 'Project assignments'
@@ -755,6 +756,8 @@ class ActivityEvent(models.Model):
             'selection_reminder_sent',
             'Selection reminder sent',
         )
+        SELECTION_DEADLINE_UPDATED = 'selection_deadline_updated', 'Selection deadline updated'
+        PUNCH_UPDATED = 'punch_updated', 'Punch-list item updated'
         SCHEDULE_MILESTONE_CREATED = (
             'schedule_milestone_created',
             'Schedule milestone created',
@@ -2203,6 +2206,7 @@ class FinishSelection(models.Model):
         default=0,
     )
     due_date = models.DateField(blank=True, null=True)
+    deadline_reminders_enabled = models.BooleanField(default=True)
     status = models.CharField(
         max_length=10,
         choices=Status.choices,
@@ -2757,3 +2761,79 @@ class ScheduleMilestone(models.Model):
 
     def __str__(self):
         return f'{self.project}: {self.title}'
+
+
+class PunchItem(models.Model):
+    class Status(models.TextChoices):
+        OPEN = 'open', 'Open'
+        IN_PROGRESS = 'in_progress', 'In progress'
+        READY = 'ready', 'Ready for verification'
+        VERIFIED = 'verified', 'Verified complete'
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='punch_items')
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    location = models.CharField(max_length=200, blank=True)
+    internal_notes = models.TextField(blank=True)
+    client_visible = models.BooleanField(default=False)
+    assigned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True, blank=True, related_name='assigned_punch_items')
+    due_date = models.DateField(null=True, blank=True)
+    deadline_reminders_enabled = models.BooleanField(default=True)
+    priority = models.CharField(max_length=10, choices=(('normal', 'Normal'), ('high', 'High')), default='normal')
+    status = models.CharField(max_length=15, choices=Status.choices, default=Status.OPEN)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='created_punch_items')
+    verified_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name='verified_punch_items')
+    verified_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = (F('due_date').asc(nulls_last=True), 'pk')
+        indexes = [models.Index(fields=('project', 'status', 'due_date'), name='punch_project_status_due')]
+        constraints = [models.CheckConstraint(
+            condition=(models.Q(status='verified', verified_by__isnull=False, verified_at__isnull=False)
+                       | (~models.Q(status='verified') & models.Q(verified_by__isnull=True, verified_at__isnull=True))),
+            name='punch_verification_matches_status')]
+
+    @property
+    def is_overdue(self):
+        return bool(self.due_date and self.due_date < timezone.localdate()
+                    and self.status in ('open', 'in_progress'))
+
+
+class PunchPhoto(models.Model):
+    item = models.ForeignKey(PunchItem, on_delete=models.CASCADE, related_name='photos')
+    image = models.FileField(storage=private_document_storage, upload_to='punch_photos/%Y/%m/')
+    caption = models.CharField(max_length=200, blank=True)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('pk',)
+
+
+class DeadlineReminder(models.Model):
+    """Durable per-recipient daily claim, shared by manual and scheduled reminders.
+
+    Email is at-most-once attempted per day: ambiguous transport failures must not
+    cause repeated email. In-app delivery remains available when email fails.
+    """
+    selection = models.ForeignKey(FinishSelection, on_delete=models.CASCADE, null=True, blank=True)
+    punch_item = models.ForeignKey(PunchItem, on_delete=models.CASCADE, null=True, blank=True)
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    reminder_date = models.DateField()
+    email_status = models.CharField(max_length=12, default='pending', choices=(
+        ('pending', 'Pending'), ('accepted', 'Accepted by mail service'),
+        ('failed', 'Delivery not confirmed'), ('disabled', 'Email disabled')))
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=(models.Q(selection__isnull=False, punch_item__isnull=True)
+                                              | models.Q(selection__isnull=True, punch_item__isnull=False)),
+                                   name='deadline_exactly_one_target'),
+            models.UniqueConstraint(fields=('selection', 'recipient', 'reminder_date'), name='deadline_selection_daily'),
+            models.UniqueConstraint(fields=('punch_item', 'recipient', 'reminder_date'), name='deadline_punch_daily'),
+        ]

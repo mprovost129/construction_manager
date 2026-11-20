@@ -84,6 +84,9 @@
         <div><h2>Invoices</h2><p>Invoice details, balances, and payment status.</p></div>
         <span>Open invoices <i class="bi bi-arrow-right"></i></span>
     </a>{% endif %}
+    {% if can_use_project_messaging %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:punch_list' project.pk %}">
+        <i class="bi bi-list-check"></i><div><h2>Punch list</h2><p>{% if viewer_is_internal %}Assignments, deadlines, photos, and completion checks.{% else %}Review finishing items shared with you.{% endif %}</p></div><span>Open punch list <i class="bi bi-arrow-right"></i></span>
+    </a>{% endif %}
     {% if can_use_schedule %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:schedule' project.pk %}">
         <i class="bi bi-calendar3"></i>
         <div><h2>Schedule</h2><p>Internal milestones and project dates.</p></div>
