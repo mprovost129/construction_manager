@@ -1,21 +1,45 @@
 """Company-scoped selection blueprints; never copy a client's decisions or ledger."""
+import re
 from contextlib import contextmanager
 from pathlib import Path
 
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import Max, Q
-from django.utils import timezone
+from django.db.models import Q
 
-from .access import can_manage_project, can_manage_organization
-from .models import (ActivityEvent, FinishSelection, Organization, Project,
-                     SelectionTemplate, SelectionTemplateRow, SelectionTemplateOption,
-                     SelectionOption, SelectionPackage, ChoiceImage)
+from .access import can_manage_project
+from .models import (
+    ActivityEvent,
+    ChoiceImage,
+    Organization,
+    Project,
+    SelectionOption,
+    SelectionTemplate,
+    SelectionTemplateOption,
+    SelectionTemplateRow,
+)
 from .services import record_activity
 
 ROW_FIELDS = ('title', 'description', 'location', 'allowance_amount')
 OPTION_FIELDS = ('name', 'description', 'price', 'is_recommended', 'sort_order',
                  'vendor_name', 'product_url', 'specification', 'lead_time', 'image_caption')
+
+
+def contains_export_history(text):
+    """Recognize our raw Buildertrend selection-report blocks, not ordinary prose."""
+    return bool(re.search(r'Selection\s+Total\s*:', text, re.I)
+                and re.search(r'Remaining\s+from\s+Allowance\s*:', text, re.I)
+                and 'Status/Alerts' in text)
+
+
+def reusable_description(text, title):
+    if not contains_export_history(text):
+        return text
+    prefix = re.split(r'Selection\s+Total\s*:', text, maxsplit=1, flags=re.I)[0].strip()
+    lines = prefix.splitlines()
+    if lines and lines[0].strip().casefold() == title.strip().casefold():
+        lines = lines[1:]
+    return '\n'.join(lines).strip()
 
 
 def template_organizations(user):
@@ -91,7 +115,8 @@ def save_project_template(project, user, name, description, selections):
                 raise PermissionDenied
             row = SelectionTemplateRow.objects.create(template=template, sort_order=index,
                 category=selection.package.title if selection.package_id else '',
-                **{field: getattr(selection, field) for field in ROW_FIELDS})
+                **{field: reusable_description(selection.description, selection.title) if field == 'description'
+                   else getattr(selection, field) for field in ROW_FIELDS})
             copy_options(selection.options.all(), row, saved)
         audit(template, user, 'saved', project)
     return template
@@ -117,35 +142,7 @@ def row_identity(title, location, category):
 
 
 def load_template(template, project, user, rows, due_date=None):
-    if template.organization_id != project.organization_id or not can_manage_project(user, project) or not can_use_templates(user, template.organization):
-        raise PermissionDenied
-    added = skipped = 0
-    with copied_files() as saved:
-        Project.objects.select_for_update().get(pk=project.pk)
-        template = SelectionTemplate.objects.select_for_update().get(pk=template.pk, deleted_at__isnull=True)
-        existing = list(project.finish_selections.select_related('package'))
-        keys = {s.template_row_key for s in existing if s.template_row_key}
-        identities = {row_identity(s.title, s.location, s.package.title if s.package_id else '') for s in existing}
-        number = project.finish_selections.aggregate(value=Max('number'))['value'] or 0
-        for row in rows.prefetch_related('options__gallery_images'):
-            if row.template_id != template.pk:
-                raise PermissionDenied
-            identity = row_identity(row.title, row.location, row.category)
-            if row.key in keys or identity in identities:
-                skipped += 1
-                continue
-            package = None
-            if row.category:
-                package = project.selection_packages.filter(title__iexact=row.category).first()
-                if not package:
-                    package = SelectionPackage.objects.create(project=project, title=row.category, created_by=user)
-            number += 1
-            selection = FinishSelection.objects.create(project=project, package=package, created_by=user,
-                number=number, template_row_key=row.key, due_date=due_date,
-                **{field: getattr(row, field) for field in ROW_FIELDS})
-            copy_options(row.options.all(), selection, saved)
-            identities.add(identity)
-            keys.add(row.key)
-            added += 1
-        audit(template, user, 'loaded', project, added=added, skipped=skipped)
-    return added, skipped
+    """Legacy add-only API; interactive loads use the explicit transfer modes."""
+    from .selection_template_updates import apply_template
+    result = apply_template(template, project, user, rows, due_date, mode='add')
+    return result.added, result.skipped

@@ -1,8 +1,14 @@
 from django.urls import path
 from . import selection_template_views as v
 from . import choice_images as gallery
+from . import selection_actions as actions
 
 urlpatterns = [
+    path('projects/<int:pk>/selections/<int:selection_pk>/copy/', actions.copy_selection, name='selection_copy'),
+    path('projects/<int:pk>/selections/<int:selection_pk>/delete/', actions.delete_selection, name='selection_delete'),
+    path('projects/<int:pk>/selections/delete-template/', actions.delete_project_template, name='selection_delete_template'),
+    path('projects/<int:pk>/selections/deleted/', actions.deleted_selections, name='selection_deleted'),
+    path('projects/<int:pk>/selections/template-replacements/', v.replacement_history, name='selection_template_replacements'),
     path('projects/<int:pk>/selections/<int:selection_pk>/options/<int:option_pk>/photos/<int:image_pk>/', gallery.project_image, name='selection_choice_image'),
     path('companies/<slug:slug>/selection-templates/<int:template_pk>/rows/<int:row_pk>/choices/<int:option_pk>/photos/<int:image_pk>/', gallery.template_image, name='selection_template_choice_image'),
     path('templates/', v.home, name='selection_template_home'),

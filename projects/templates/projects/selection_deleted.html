@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block title %}Deleted selections | {{ project.name }}{% endblock %}
+{% block content %}<nav class="breadcrumb-nav"><a href="{% url 'projects:selection_list' project.pk %}">{{ project.name }} selections</a></nav>
+<section class="page-heading"><div><p class="eyebrow">{{ project.name }}</p><h1>Deleted selections</h1><p>Restore an unreleased selection with its choices, photos, and costs. Shared saved templates are unaffected.</p></div></section>
+{% for selection in page_obj %}<section class="admin-panel"><div><h2>{{ selection.title }}</h2><p>{{ selection.location }} · {{ selection.options.count }} choices · Deleted {{ selection.archived_at|date:"M j, Y g:i A" }}</p><form method="post">{% csrf_token %}<input type="hidden" name="selection" value="{{ selection.pk }}"><button class="btn btn-outline-secondary">Restore selection</button></form></div></section>{% empty %}<p>No deleted selections.</p>{% endfor %}
+{% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}{% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}">Next</a>{% endif %}{% endblock %}

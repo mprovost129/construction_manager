@@ -3,7 +3,7 @@ from pathlib import Path
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Q
@@ -14,12 +14,21 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
+from .access import can_manage_project, projects_for_user
 from .choice_images import saved_choice_files
 from .forms import SelectionOptionForm
-from .access import projects_for_user, can_manage_project
-from .models import SelectionTemplate, SelectionTemplateRow, SelectionTemplateOption
-from .selection_templates import (template_organizations, save_project_template, copy_template,
-                                  load_template, audit)
+from .models import SelectionTemplate, SelectionTemplateOption, SelectionTemplateRow
+from .selection_template_updates import (
+    apply_template,
+    project_revision,
+    undo_replacement,
+)
+from .selection_templates import (
+    audit,
+    copy_template,
+    save_project_template,
+    template_organizations,
+)
 from .views import managed_project_or_404
 
 
@@ -66,13 +75,32 @@ class SelectionSaveForm(TemplateForm):
 
 
 class TemplateLoadForm(forms.Form):
+    mode = forms.ChoiceField(required=False, label='How should this project be updated?', widget=forms.RadioSelect,
+        choices=(('amend', 'Amend — add new rows and missing choices; keep existing details and choices'),
+                 ('replace', 'Replace — overwrite matching unreleased rows and their choices; add new rows'),
+                 ('add', 'Add only — add new rows; skip existing rows entirely')))
     rows = forms.ModelMultipleChoiceField(queryset=None, widget=forms.CheckboxSelectMultiple)
     due_date = forms.DateField(required=False, label='New deadline (optional)', widget=forms.DateInput(attrs={'type': 'date'}))
+    confirm_replace = forms.BooleanField(required=False,
+        label='For Replace: I understand matching unreleased rows and choices will be overwritten, including prices and photos. Their internal costs reset to zero.',
+        help_text='An undo record preserves the replaced data and files. Project-only rows, existing deadlines, and released or selected rows stay unchanged.')
+    project_version = forms.CharField(required=False, widget=forms.HiddenInput)
+    template_version = forms.CharField(required=False, widget=forms.HiddenInput)
 
     def __init__(self, *args, template, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['rows'].queryset = template.rows.all()
-        self.fields['rows'].label_from_instance = lambda row: f'{row.category + " / " if row.category else ""}{row.title} — {row.location or "No location"}'
+        self.fields['rows'].queryset = template.rows.annotate(choice_count=Count('options'))
+        self.fields['rows'].label_from_instance = lambda row: f'{row.category + " / " if row.category else ""}{row.title} — {row.location or "No location"} ({row.choice_count} choices)'
+        self.fields['due_date'].help_text = 'Applies to newly added rows only.'
+
+    def clean(self):
+        data = super().clean()
+        if data.get('mode') == 'replace':
+            if not data.get('confirm_replace'):
+                self.add_error('confirm_replace', 'Confirm replacement, or choose Amend to preserve existing choices.')
+            if not data.get('project_version') or not data.get('template_version'):
+                raise forms.ValidationError('Reload the page to review the current selections before replacing them.')
+        return data
 
 
 def organization_for(user, slug):
@@ -109,7 +137,7 @@ def home(request):
 @require_http_methods(['GET'])
 def library(request, slug):
     organization = organization_for(request.user, slug)
-    templates = organization.selection_templates.filter(deleted_at__isnull=request.GET.get('deleted') != '1').annotate(row_count=Count('rows'))
+    templates = organization.selection_templates.filter(deleted_at__isnull=request.GET.get('deleted') != '1').annotate(row_count=Count('rows', distinct=True), choice_count=Count('rows__options', distinct=True))
     query = request.GET.get('q', '').strip()[:200]
     if query:
         templates = templates.filter(Q(name__icontains=query) | Q(description__icontains=query))
@@ -307,13 +335,49 @@ def load(request, pk, template_pk):
     project = managed_project_or_404(request.user, pk)
     template = template_for(request.user, project.organization.slug, template_pk)
     form = TemplateLoadForm(request.POST or None, template=template,
-                            initial={'rows': template.rows.values_list('pk', flat=True)})
+                            initial={'rows': template.rows.values_list('pk', flat=True), 'mode': 'amend',
+                                     'template_version': template.updated_at.isoformat(),
+                                     'project_version': project_revision(project)})
     if request.method == 'POST' and form.is_valid():
-        added, skipped = load_template(template, project, request.user, form.cleaned_data['rows'], form.cleaned_data['due_date'])
-        messages.success(request, f'{added} unreleased selections added; {skipped} existing rows skipped. Review prices and add internal costs before publishing.')
-        return redirect('projects:selection_list', pk=pk)
+        try:
+            result = apply_template(template, project, request.user, form.cleaned_data['rows'], form.cleaned_data['due_date'],
+                mode=form.cleaned_data['mode'] or 'add', expected_revision=form.cleaned_data['project_version'],
+                expected_template_version=form.cleaned_data['template_version'])
+        except ValidationError as error:
+            form.add_error(None, error)
+        else:
+            messages.success(request, f'{result.added} new rows added; {result.updated} existing rows updated; {result.choices_added} choices copied; {result.skipped} rows unchanged. Review new prices and internal costs before publishing.')
+            if result.protected:
+                messages.info(request, f'{result.protected} released or selected rows were protected.')
+            if result.ambiguous:
+                messages.warning(request, f'{result.ambiguous} rows had ambiguous matches and were left unchanged. Check duplicate titles, locations, and categories.')
+            if result.backup_id:
+                messages.info(request, 'An undo record was saved for replaced rows or historical-note cleanup. Open Template replacement history to undo before making further edits.')
+            return redirect('projects:selection_list', pk=pk)
     return editor(request, form, f'Load {template.name} into {project.name}', reverse('projects:selection_list', args=[pk]),
-                  'Existing selections are kept. Rows already loaded, or with the same title, location, and category, are skipped. New rows start unreleased and need review before clients see them.')
+                  f'This saved template contains {template.rows.count()} rows and {sum(r.choice_count for r in form.fields["rows"].queryset)} choices. Choose how to update this project, then select rows below. Choices include cover photos, galleries, captions, and files. Only unreleased rows can be amended or replaced; project-only rows stay unchanged. New rows start unreleased with no previous approvals. Amend also replaces recognized old export approval notes with the saved template description.',
+                  project=project)
+
+
+@login_required
+@require_http_methods(['GET', 'POST'])
+def replacement_history(request, pk):
+    project = managed_project_or_404(request.user, pk)
+    organization_for(request.user, project.organization.slug)
+    if request.method == 'POST':
+        backup = get_object_or_404(project.template_replacements, pk=request.POST.get('replacement'))
+        if request.POST.get('confirm') != 'on':
+            messages.error(request, 'Confirm undo before restoring replaced rows.')
+        else:
+            try:
+                count = undo_replacement(backup, request.user)
+            except ValidationError as error:
+                messages.error(request, ' '.join(error.messages))
+            else:
+                messages.success(request, f'{count} replaced rows restored, including original choices, photos, and internal costs. Newly added rows were kept.')
+        return redirect('projects:selection_template_replacements', pk=pk)
+    page = Paginator(project.template_replacements.all(), 25).get_page(request.GET.get('page'))
+    return render(request, 'projects/selection_template_replacements.html', {'project': project, 'page_obj': page})
 
 
 @login_required

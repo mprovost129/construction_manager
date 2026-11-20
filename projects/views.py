@@ -3139,7 +3139,7 @@ class FinishSelectionCreateView(LoginRequiredMixin, FormView):
     def form_valid(self, form):
         with transaction.atomic():
             Project.objects.select_for_update().get(pk=self.project.pk)
-            current_number = self.project.finish_selections.aggregate(
+            current_number = FinishSelection.all_objects.filter(project=self.project).aggregate(
                 maximum=Max('number')
             )['maximum']
             selection = form.save(commit=False)

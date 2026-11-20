@@ -7,5 +7,5 @@
 <form method="post" enctype="multipart/form-data" class="stacked-form">{% csrf_token %}{{ form.non_field_errors }}
 {% for field in form.main_fields|default:form %}{% if field.is_hidden %}{{ field }}{% else %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}{% if field.help_text %}<p class="help-text">{{ field.help_text }}</p>{% endif %}</div>{% endif %}{% endfor %}
 {% include "projects/_choice_gallery_editor.html" %}
-<div class="form-actions"><a class="btn btn-outline-secondary" href="{{ back_url }}">Cancel</a><button class="btn btn-primary" type="submit">{% if 'Load ' in title %}Load selections{% else %}Save{% endif %}</button></div></form></section></div>
+<div class="form-actions"><a class="btn btn-outline-secondary" href="{{ back_url }}">Cancel</a><button class="btn btn-primary" type="submit">{% if submit_label %}{{ submit_label }}{% elif 'Load ' in title %}Apply template{% else %}Save{% endif %}</button></div></form></section></div>
 {% endblock %}

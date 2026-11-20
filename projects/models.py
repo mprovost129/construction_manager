@@ -2110,6 +2110,20 @@ class SelectionTemplateRow(models.Model):
         return self.title
 
 
+class SelectionTemplateReplacement(models.Model):
+    """Private undo record; retained file names remain owned by this snapshot."""
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='template_replacements')
+    template_name = models.CharField(max_length=200)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    before = models.JSONField(default=list)
+    after_revision = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    restored_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ('-created_at', '-pk')
+
+
 class SelectionTemplateOption(models.Model):
     row = models.ForeignKey(SelectionTemplateRow, on_delete=models.CASCADE, related_name='options')
     name = models.CharField(max_length=200)
@@ -2169,7 +2183,17 @@ class SelectionPackage(models.Model):
         return f'{self.project}: {self.title}'
 
 
+class ActiveSelectionManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(archived_at__isnull=True)
+
+
 class FinishSelection(models.Model):
+    objects = ActiveSelectionManager()
+    all_objects = models.Manager()
+    archived_at = models.DateTimeField(null=True, blank=True, editable=False)
+    archived_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        null=True, blank=True, editable=False, related_name='selections_archived')
     template_row_key = models.UUIDField(null=True, blank=True, editable=False)
     class Status(models.TextChoices):
         IMPORTED = 'imported', 'Selected (Buildertrend)'
@@ -2270,6 +2294,8 @@ class FinishSelection(models.Model):
 
     class Meta:
         ordering = ('-number', '-pk')
+        base_manager_name = 'all_objects'
+        default_manager_name = 'objects'
         constraints = [
             models.CheckConstraint(
                 condition=(models.Q(status='imported', imported_total__isnull=False) & ~models.Q(import_source={}))
