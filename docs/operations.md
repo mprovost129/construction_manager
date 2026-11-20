@@ -204,7 +204,8 @@ credentials through Render references. It uses no R2, QuickBooks, or web-session
 secret. `Dockerfile.reminders` has no HTTP listener or migration/bootstrap step;
 startup checks that migrations are current. Apply only after web migrations are
 live, and deploy the scheduler with future reminder/model changes. Schedule:
-14:00 UTC daily (9am EST / 10am EDT). Cost: minimum $1/month plus usage, confirmed
+every five minutes for staff mail; daily deadlines start at 14:00 UTC (9am EST /
+10am EDT) with duplicate suppression. Cost: minimum $1/month plus usage, confirmed
 in Render documentation on 2026-11-20. Obtain approval for this new recurring
 service before creating it. Keep the existing backup cron unchanged.
 

@@ -10,7 +10,7 @@ services:
     region: ohio
     plan: 0.5c-512mb
     autoDeployTrigger: "off"
-    schedule: "0 14 * * *"
+    schedule: "*/5 * * * *" # Staff mail every five minutes; daily deadlines after 14:00 UTC.
     envVars:
       - key: DJANGO_SETTINGS_MODULE
         value: config.settings.prod
