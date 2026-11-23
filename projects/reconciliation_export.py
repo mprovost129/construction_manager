@@ -36,6 +36,8 @@ def reconciliation_csv(project, report):
     row(
         "Review amounts also included in manually entered change orders before final billing."
     )
+    for warning in report.get("review_warnings", []):
+        row("Review needed", warning)
     for title, entries, total in [
         ("Approved change orders", report["approved_orders"], report["approved_total"]),
         (
@@ -95,6 +97,29 @@ def reconciliation_csv(project, report):
         report["linked_total"],
         report["selection_total"],
     )
+    row()
+    row(
+        "Supporting selections",
+        "Selection",
+        "Selected price",
+        "Allowance",
+        "Over / under",
+        "Already in change orders",
+        "Net adjustment",
+        "Linked change orders",
+    )
+    for section in report["sections"]:
+        for item in section["details"]:
+            row(
+                section["label"],
+                item["selection"].title,
+                item["price"],
+                item["allowance"],
+                item["variance"],
+                item["covered"],
+                item["net"],
+                ", ".join(order.display_number for order in item["orders"]),
+            )
     row(
         "Unpriced selections - excluded from savings",
         report["unpriced_count"],

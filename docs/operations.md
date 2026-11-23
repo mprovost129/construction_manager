@@ -227,7 +227,7 @@ before sending. Audit events contain no subject or message text.
 Messages, in-app alerts and StaffMessageDelivery rows commit atomically. UUID
 submission keys prevent repeated form submissions from duplicating a message.
 SMTP never runs in the web request. `process_notifications` claims up to 50 pending
-deliveries per run and sends separate plain-text emails with authenticated links.
+deliveries per run and sends separate multipart plain-text/HTML emails with authenticated links.
 Per-thread email opt-outs apply to pending and future mail. SMTP acceptance is
 recorded as accepted, which does not guarantee final inbox delivery.
 
@@ -248,3 +248,32 @@ next run. In-app messages remain available regardless of email delivery status.
 Queue size over 50 per tick can delay email; monitor pending counts and oldest
 created_at when investigating delays. Suspend the cron to stop background mail;
 retain additive migrations and conversation data during a code rollback.
+
+
+## Usability release (November 2026)
+
+Deploy web first to apply additive migration projects.0050 (optional sanitized HTML
+and nullable project-message submission UUIDs with author/UUID uniqueness). Then
+redeploy the existing notification/reminder cron to enable formatted staff emails;
+keep its schedule and existing permissions unchanged. Older code can continue to
+read plain-text message bodies; retain the additive columns during a rollback.
+
+The bundled Quill 2.0.3 editor is served locally with its BSD license and upstream
+integrity record. nh3 allowlists message tags/links before persistence and again on
+render. Images, scripts, embeds, arbitrary styles and relative links are excluded.
+Plain text is derived from the cleaned HTML. Drafts use only tab-local sessionStorage,
+scoped by user and conversation/project; no server autosave or CAPTCHA exemption.
+Every send continues through existing CSRF/Turnstile and audience authorization.
+
+Permission-checked private image routes accept thumb=1 (480px) or preview=1 (960px).
+They cache JPEG bytes on the server for 15 minutes using unique immutable storage
+names, preserve originals and send private,no-store responses. Every request checks
+current object visibility before consulting the cache. Decode limits protect worker
+memory; unsupported/oversized images fall back to the original. Preview creation
+failure never grants access. A local synthetic 2400x1800 image measured 3,356,987
+original bytes versus 34,973 preview bytes; this is not a production latency claim.
+
+Financial detail and CSV output expose customer price fields only. Linked credit
+consistency checks flag sign, amount, duplicate links and missing visible sources
+without guessing whether similar manual descriptions represent the same charge or
+modifying historical records. No new accounting transfers or billing writes occur.

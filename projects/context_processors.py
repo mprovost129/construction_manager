@@ -10,6 +10,7 @@ def application_identity(request):
 
     return {
         'can_view_operations': not getattr(request, 'client_preview_active', False) and can_view_operations(request.user),
+        'sent_message_tokens': request.session.pop('sent_message_tokens', []) if request.user.is_authenticated else [],
         'app_name': settings.APP_NAME,
         'support_email': settings.SUPPORT_EMAIL,
         'quickbooks_integration_enabled': settings.QUICKBOOKS_INTEGRATION_ENABLED,

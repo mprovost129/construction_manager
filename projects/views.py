@@ -85,6 +85,7 @@ from .forms import (
     TeamInvitationForm,
     TeamMembershipForm,
 )
+from .message_content import mark_message_sent
 from .models import (
     ActivityEvent,
     ChangeOrder,
@@ -101,7 +102,6 @@ from .models import (
     EstimateDecision,
     EstimateLineItem,
     FinishSelection,
-    InAppNotification,
     NotificationPreference,
     Organization,
     OrganizationDisclosure,
@@ -682,6 +682,13 @@ class ProjectMessageCreateView(LoginRequiredMixin, FormView):
 
     def form_valid(self, form):
         with transaction.atomic():
+            get_user_model().objects.select_for_update().get(pk=self.request.user.pk)
+            existing = ConversationMessage.objects.filter(author=self.request.user, submission_id=form.cleaned_data['submission_id']).select_related('thread').first()
+            if existing:
+                if existing.thread.project_id != self.project.pk:
+                    raise PermissionDenied('This message was already sent in another project.')
+                mark_message_sent(self.request, form.cleaned_data['submission_id'])
+                return redirect('projects:message_thread', pk=self.project.pk, thread_pk=existing.thread_id)
             thread = ConversationThread.objects.create(
                 project=self.project,
                 subject=form.cleaned_data['subject'].strip(),
@@ -691,6 +698,8 @@ class ProjectMessageCreateView(LoginRequiredMixin, FormView):
                 thread=thread,
                 author=self.request.user,
                 body=form.cleaned_data['body'],
+                body_html=form.cleaned_data['body_html'],
+                submission_id=form.cleaned_data['submission_id'],
             )
             message.full_clean()
             message.save()
@@ -711,6 +720,7 @@ class ProjectMessageCreateView(LoginRequiredMixin, FormView):
             new_thread=True,
         )
         warn_if_notification_failed(self.request, delivery_result)
+        mark_message_sent(self.request, form.cleaned_data['submission_id'])
         messages.success(self.request, 'Conversation started.')
         return redirect(
             'projects:message_thread', pk=self.project.pk, thread_pk=thread.pk
@@ -758,6 +768,17 @@ class ProjectMessageThreadView(LoginRequiredMixin, View):
         if not form.is_valid():
             return self.render_thread(request, project, thread, form=form)
         with transaction.atomic():
+            get_user_model().objects.select_for_update().get(pk=request.user.pk)
+            thread = get_object_or_404(ConversationThread.objects.select_for_update(), pk=thread.pk, project=project)
+            if thread.status == ConversationThread.Status.CLOSED:
+                messages.error(request, 'This conversation was closed. Your reply was not sent.')
+                return self.render_thread(request, project, thread, form=form)
+            existing = ConversationMessage.objects.filter(author=request.user, submission_id=form.cleaned_data['submission_id']).first()
+            if existing:
+                if existing.thread_id != thread.pk:
+                    raise PermissionDenied('This message was already sent in another conversation.')
+                mark_message_sent(request, form.cleaned_data['submission_id'])
+                return redirect('projects:message_thread', pk=project.pk, thread_pk=thread.pk)
             message = form.save(commit=False)
             message.thread = thread
             message.author = request.user
@@ -776,6 +797,7 @@ class ProjectMessageThreadView(LoginRequiredMixin, View):
             )
         delivery_result = send_message_notifications(request, message)
         warn_if_notification_failed(request, delivery_result)
+        mark_message_sent(request, form.cleaned_data['submission_id'])
         messages.success(request, 'Reply sent.')
         return redirect(
             'projects:message_thread', pk=project.pk, thread_pk=thread.pk
@@ -3141,8 +3163,8 @@ class FinishSelectionListView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        from .selection_board import board_context
-        context.update(board_context(self.project, self.request.user, self.request.GET))
+        from .selection_board import board_context, remembered_view
+        context.update(board_context(self.project, self.request.user, remembered_view(self.request, self.project)))
         return context
 
 
@@ -3849,14 +3871,8 @@ class SelectionOptionImageView(LoginRequiredMixin, View):
         option = get_object_or_404(SelectionOption, selection=selection, pk=option_pk)
         if not option.image:
             raise Http404
-        filename = Path(option.image.name).name
-        content_type, _ = mimetypes.guess_type(filename)
-        return FileResponse(
-            option.image.open('rb'),
-            as_attachment=False,
-            filename=filename,
-            content_type=content_type or 'application/octet-stream',
-        )
+        from .image_previews import private_image_response
+        return private_image_response(request, option.image)
 
 
 class SelectionOptionAttachmentView(LoginRequiredMixin, View):

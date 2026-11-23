@@ -15,9 +15,11 @@
     <link rel="apple-touch-icon" href="{% static 'images/app-icon-180.png' %}">
     <title>{% block title %}{{ app_name }}{% endblock %}</title>
     {% include 'partials/_styles.html' %}
+    <link rel="stylesheet" href="{% static 'css/messages.css' %}">
+    <link rel="stylesheet" href="{% static 'css/photo-viewer.css' %}">
     {% block extra_css %}{% endblock %}
 </head>
-<body class="app-body" data-service-worker-url="{% url 'core:service_worker' %}">
+<body data-user-id="{{ request.user.pk|default:'anonymous' }}" data-client-preview="{{ request.client_preview_active|yesno:'true,false' }}" class="app-body" data-service-worker-url="{% url 'core:service_worker' %}">
     {% block header %}{% include 'partials/_header.html' %}{% endblock %}
 
     <main class="app-main container-xl">
@@ -29,6 +31,9 @@
     {% block footer %}{% include 'partials/_footer.html' %}{% endblock %}
     {% include 'partials/_scripts.html' %}
     {% include 'partials/_form_security.html' %}
+    {{ sent_message_tokens|json_script:'sent-message-tokens' }}
+    <script src="{% static 'js/message-drafts.js' %}" defer></script>
+    <script src="{% static 'js/photo-viewer.js' %}" defer></script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

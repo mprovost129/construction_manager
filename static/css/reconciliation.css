@@ -31,3 +31,7 @@
   .report-equation { grid-template-columns: repeat(3, 1fr); }
   a { color: inherit; text-decoration: none; }
 }
+
+.report-selection-detail { margin-top: 1rem; border-top: 1px solid #c3d2cb; padding-top: .8rem; }
+.report-selection-detail summary { cursor: pointer; font-weight: 600; padding: .5rem 0; }
+.report-selection-detail small { display: block; margin-top: .25rem; }

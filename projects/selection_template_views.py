@@ -307,6 +307,9 @@ def media(request, slug, template_pk, row_pk, option_pk, kind):
     file = getattr(option, kind)
     if not file:
         raise Http404
+    if kind == 'image':
+        from .image_previews import private_image_response
+        return private_image_response(request, file)
     response = FileResponse(file.open('rb'), as_attachment=kind != 'image', filename=Path(file.name).name)
     response['Cache-Control'] = 'private, no-store'
     response['X-Content-Type-Options'] = 'nosniff'

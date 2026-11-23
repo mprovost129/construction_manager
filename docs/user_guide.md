@@ -378,3 +378,32 @@ The sheet itemizes approved change orders and shows each priced selection catego
 **Original contract price + net adjustment = new project total.** Net adjustment combines approved change orders with selection overages/credits not already in linked approved change orders. Existing manually entered overages may not be linked: review overlap before final billing. This is a working price reconciliation, not the invoice balance. It does not deduct payments or applied credit memos, issue invoices, approve change orders, or transfer records to QuickBooks. Credits remain subject to the contract’s terms and project review.
 
 Use **Print / save PDF** or **Download spreadsheet** (CSV) to retain a copy. The same access rules apply to the download. The Selections list and card views also include category/location subtotals and a grand total for the visible filtered selections, with unpriced allowances separate. Remaining allowance is green under, red over, and neutral at zero.
+
+
+## Message and selection usability improvements
+
+Staff and project message composers support bold, italic, bulleted/numbered lists,
+and links. Email notifications include the same safe formatting plus a plain-text
+version. The audience notice identifies staff-only conversations and client-visible
+project conversations before sending.
+
+Unfinished messages save privately in the current browser tab for up to 24 hours.
+They recover after refresh or returning to the conversation in that tab. They are
+cleared after successful sending, signing out, or switching accounts. Closing the
+tab may discard them; drafts do not synchronize between devices. Use **Discard
+draft** to remove an unfinished message. If storage is unavailable, the composer
+says so. A retry of the same submission does not create a second message.
+
+Selections remember grouping, sort order, status and list/card view for the current
+signed-in session and project. Client preview has separate preferences. Search text
+is temporary; **Reset** clears remembered settings. List headings stay visible
+inside the scrolling table. Click a product photo to browse its cover and additional
+views with Previous/Next, arrow keys or a swipe on a phone. Escape or Close returns
+to the selection. Full-size originals are retained.
+
+Click a section name in **Allowances & project totals** to expand the underlying
+customer prices and allowances. Linked change-order credits include direct links.
+The spreadsheet and printed report include supporting selections. A review warning
+identifies inconsistent linked credits or an unavailable source selection; recorded
+amounts remain unchanged. Manually entered, unlinked change orders still need the
+project manager's overlap check before billing.

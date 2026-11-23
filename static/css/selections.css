@@ -32,3 +32,6 @@ details.selection-options{display:block}.selection-choice{align-items:flex-start
 .selection-total-cards h3{font-size:1rem;margin:0 0 .8rem}.selection-total-cards dl{display:flex;flex-wrap:wrap;gap:1rem 2rem;margin:0}.selection-total-cards dt{font-size:.8rem;font-weight:400}.selection-total-cards dd{font-weight:700;margin:.3rem 0}.selection-total-cards p{font-size:.8rem;margin:.5rem 0 0}
 
 @media print{.selection-grid tfoot{display:table-row-group}.selection-total-row{break-inside:avoid}}
+
+.selection-board-scroll{max-height:75vh;overscroll-behavior:contain;scroll-padding-top:4rem}.selection-board-scroll thead th{position:sticky;top:0;z-index:3;box-shadow:0 1px 0 #b9c8bf}.selection-board-scroll .selection-title{min-width:290px;max-width:420px;overflow-wrap:anywhere;white-space:normal}.selection-board-scroll .selection-title>a{display:block;line-height:1.5}.selection-board-scroll:focus-visible{outline:3px solid #2b7455;outline-offset:3px}
+@media print{.selection-board-scroll{max-height:none;overflow:visible}.selection-board-scroll thead th{position:static}.selection-board-scroll thead{display:table-header-group}}

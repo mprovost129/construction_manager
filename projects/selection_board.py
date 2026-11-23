@@ -66,3 +66,20 @@ def board_context(project, user, params):
             'query': query, 'status_filter': status, 'group_filter': group, 'sort_filter': order,
             'status_choices': [(key, label) for key, label in FinishSelection.Status.choices if key != 'draft' or not is_project_client(user, project)],
             'view_mode': 'cards' if params.get('view') == 'cards' else 'list'}
+
+
+def remembered_view(request, project):
+    """Keep display preferences in the authenticated session, separate for preview."""
+    key = f'selection-view:{request.user.pk}:{project.pk}:{bool(getattr(request, "client_preview_active", False))}'
+    if request.GET.get('reset') == '1':
+        request.session.pop(key, None)
+        return {}
+    allowed = {'group': ('category', 'location', 'none'), 'sort': ('title', '-title', 'due_date', 'status', 'number'),
+               'view': ('list', 'cards'), 'status': ('', 'overdue', *FinishSelection.Status.values)}
+    if request.GET:
+        prefs = {k: request.GET[k] for k, values in allowed.items() if request.GET.get(k) in values}
+        if prefs.get('status') == 'draft' and is_project_client(request.user, project):
+            prefs.pop('status')
+        request.session[key] = prefs
+        return request.GET
+    return request.session.get(key, {})

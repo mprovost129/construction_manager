@@ -13,7 +13,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.db import transaction
-from django.http import FileResponse, Http404
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 from PIL import Image, UnidentifiedImageError
@@ -150,11 +150,8 @@ def photo_image(request, pk, selection_pk, photo_pk):
     photo = get_object_or_404(SelectionReferencePhoto, selection=selection, pk=photo_pk)
     if not photo.client_visible and not can_manage_project(request.user, project):
         raise Http404
-    response = FileResponse(photo.image.open('rb'), content_type={'jpg': 'image/jpeg', 'png': 'image/png',
-                            'webp': 'image/webp'}[photo.image.name.rsplit('.', 1)[-1]])
-    response['Cache-Control'] = 'private, no-store'
-    response['X-Content-Type-Options'] = 'nosniff'
-    return response
+    from .image_previews import private_image_response
+    return private_image_response(request, photo.image)
 
 
 @login_required

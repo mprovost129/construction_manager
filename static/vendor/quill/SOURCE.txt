@@ -1,0 +1,3 @@
+Quill 2.0.3, BSD-3-Clause
+https://registry.npmjs.org/quill/2.0.3
+sha512-xEYQBqfYx/sfb33VJiKnSJp8ehloavImQ2A6564GAbqG55PGw1dAWUn1MUbQB62t0azawUS2CZZhWCjO8gRvTw==

@@ -20,6 +20,7 @@ from core.models import OperationalEvent
 from core.operations import record_operational_event
 
 from .access import internal_organizations_for_user
+from .message_content import MessageFormMixin, mark_message_sent, message_email
 from .models import (
     ActivityEvent,
     InAppNotification,
@@ -72,7 +73,7 @@ class RecipientField(forms.ModelMultipleChoiceField):
         return f'{user.get_full_name() or user.email} ({user.email})' if user.get_full_name() else user.email
 
 
-class ComposeForm(forms.Form):
+class ComposeForm(MessageFormMixin, forms.Form):
     recipients = RecipientField(queryset=None, widget=forms.CheckboxSelectMultiple,
         help_text='Only the selected people and you can read this conversation. Choose up to 20 recipients.')
     subject = forms.CharField(max_length=200)
@@ -97,7 +98,7 @@ class ComposeForm(forms.Form):
         return recipients
 
 
-class ReplyForm(forms.Form):
+class ReplyForm(MessageFormMixin, forms.Form):
     body = forms.CharField(max_length=10000, label='Reply', widget=forms.Textarea(attrs={'rows': 5}))
     submission_id = forms.UUIDField(widget=forms.HiddenInput)
 
@@ -153,7 +154,8 @@ def process_email_queue(*, limit=50):
             message=(f'{message.author.get_full_name() or message.author.email} wrote in {context}:\n'
                      f'{thread.subject}\n\n{message.body}\n\nOpen the conversation to respond:\n{url}\n\n'
                      'This is an internal staff conversation. Reply in Heritage 360; replying to this email does not post to the conversation.'),
-            recipient_list=[user.email])
+            recipient_list=[user.email],
+            html_message=message_email(message, heading=f'{message.author.get_full_name() or message.author.email} - {context}: {thread.subject}', url=url, audience='Staff only. Reply in Heritage 360; email replies do not post to the conversation.'))
         StaffMessageDelivery.objects.filter(pk=delivery_id).update(email_status='accepted' if result else 'failed')
         if not result:
             failed += 1
@@ -220,6 +222,7 @@ def compose(request):
         existing = StaffMessage.objects.filter(author=request.user, submission_id=form.cleaned_data['submission_id']).first()
         if existing:
             get_object_or_404(staff_threads(request.user), pk=existing.thread_id)
+            mark_message_sent(request, form.cleaned_data['submission_id'])
             return redirect('projects:staff_message_thread', thread_pk=existing.thread_id)
         try:
             with transaction.atomic():
@@ -228,7 +231,7 @@ def compose(request):
                 StaffParticipant.objects.bulk_create([StaffParticipant(thread=thread, user=user)
                     for user in [request.user, *form.cleaned_data['recipients']]])
                 message = StaffMessage.objects.create(thread=thread, author=request.user,
-                    body=form.cleaned_data['body'], submission_id=form.cleaned_data['submission_id'])
+                    body=form.cleaned_data['body'], body_html=form.cleaned_data['body_html'], submission_id=form.cleaned_data['submission_id'])
                 queue_notifications(message)
                 audit_message(message)
         except IntegrityError:
@@ -236,6 +239,7 @@ def compose(request):
             if not existing:
                 raise
             thread = get_object_or_404(staff_threads(request.user), pk=existing.thread_id)
+        mark_message_sent(request, form.cleaned_data['submission_id'])
         messages.success(request, 'Message sent. Email alerts are queued and usually arrive within five minutes.')
         return redirect('projects:staff_message_thread', thread_pk=thread.pk)
     return render(request, 'projects/staff_compose.html', {'form': form, 'organization': organization, 'project': project})
@@ -252,7 +256,7 @@ def conversation(request, thread_pk):
             thread = get_object_or_404(staff_threads(request.user).select_for_update(), pk=thread_pk)
             message, created = StaffMessage.objects.get_or_create(
                 author=request.user, submission_id=form.cleaned_data['submission_id'],
-                defaults={'thread': thread, 'body': form.cleaned_data['body']})
+                defaults={'thread': thread, 'body': form.cleaned_data['body'], 'body_html': form.cleaned_data['body_html']})
             if message.thread_id != thread.pk:
                 form.add_error(None, 'This reply was already submitted in another conversation. Reload and try again.')
             elif created:
@@ -260,6 +264,8 @@ def conversation(request, thread_pk):
                 queue_notifications(message)
                 audit_message(message)
         if not form.errors:
+            mark_message_sent(request, form.cleaned_data['submission_id'])
+            messages.success(request, 'Reply sent. Email alerts are queued.')
             return redirect('projects:staff_message_thread', thread_pk=thread.pk)
     read_before = timezone.now()
     page = Paginator(thread.messages.select_related('author').order_by('-created_at', '-pk'), 50).get_page(request.GET.get('page'))

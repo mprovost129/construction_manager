@@ -5,8 +5,9 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import UserCreationForm
 from django.utils import timezone
-from .choice_images import ChoiceGalleryMixin
 
+from .choice_images import ChoiceGalleryMixin
+from .message_content import MessageFormMixin
 from .models import (
     ChangeOrder,
     ChangeOrderLineItem,
@@ -722,7 +723,7 @@ class DailyLogPhotoForm(forms.ModelForm):
         return validate_image_file(self.cleaned_data['image'])
 
 
-class ConversationThreadForm(forms.Form):
+class ConversationThreadForm(MessageFormMixin, forms.Form):
     subject = forms.CharField(max_length=200)
     body = forms.CharField(
         label='Message',
@@ -730,17 +731,15 @@ class ConversationThreadForm(forms.Form):
     )
 
 
-class ConversationReplyForm(forms.ModelForm):
+class ConversationReplyForm(MessageFormMixin, forms.ModelForm):
     class Meta:
         model = ConversationMessage
-        fields = ('body',)
+        fields = ('body', 'body_html', 'submission_id')
         labels = {'body': 'Reply'}
         widgets = {'body': forms.Textarea(attrs={'rows': 5})}
 
     def clean_body(self):
         body = self.cleaned_data['body'].strip()
-        if not body:
-            raise forms.ValidationError('Reply cannot be blank.')
         return body
 
 

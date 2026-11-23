@@ -7,7 +7,7 @@ from django import forms
 from django.core.exceptions import PermissionDenied
 from django.db.models import Max
 from django.contrib.auth.decorators import login_required
-from django.http import FileResponse
+from .image_previews import private_image_response
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.views.decorators.http import require_GET
@@ -160,13 +160,6 @@ def saved_choice_files(form):
         raise
 
 
-def image_response(photo):
-    response = FileResponse(photo.image.open('rb'), as_attachment=False)
-    response['Cache-Control'] = 'private, no-store'
-    response['X-Content-Type-Options'] = 'nosniff'
-    return response
-
-
 @login_required
 @require_GET
 def project_image(request, pk, selection_pk, option_pk, image_pk):
@@ -174,7 +167,7 @@ def project_image(request, pk, selection_pk, option_pk, image_pk):
     project = selections_project_or_404(request.user, pk)
     selection = visible_selection_or_404(request.user, project, selection_pk)
     photo = get_object_or_404(ChoiceImage, option__selection=selection, option_id=option_pk, pk=image_pk)
-    return image_response(photo)
+    return private_image_response(request, photo.image)
 
 
 @login_required
@@ -184,4 +177,4 @@ def template_image(request, slug, template_pk, row_pk, option_pk, image_pk):
     template = template_for(request.user, slug, template_pk)
     photo = get_object_or_404(ChoiceImage, template_option__row__template=template,
         template_option__row_id=row_pk, template_option_id=option_pk, pk=image_pk)
-    return image_response(photo)
+    return private_image_response(request, photo.image)

@@ -1000,16 +1000,23 @@ class ConversationMessage(models.Model):
         related_name='conversation_messages',
     )
     body = models.TextField()
+    body_html = models.TextField(blank=True)
+    submission_id = models.UUIDField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ('created_at', 'pk')
+        constraints = [models.UniqueConstraint(fields=('author', 'submission_id'), name='conversation_unique_submission')]
 
     def clean(self):
         super().clean()
-        self.body = self.body.strip()
-        if not self.body:
-            raise ValidationError({'body': 'Message cannot be blank.'})
+        from .message_content import normalize_message
+        self.body, self.body_html = normalize_message(self.body, self.body_html)
+
+    def save(self, *args, **kwargs):
+        from .message_content import normalize_message
+        self.body, self.body_html = normalize_message(self.body, self.body_html)
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.author.email} on {self.thread.subject}'
@@ -2898,12 +2905,19 @@ class StaffMessage(models.Model):
     thread = models.ForeignKey(StaffThread, on_delete=models.CASCADE, related_name='messages')
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='staff_messages_sent')
     body = models.TextField(max_length=10000)
+    body_html = models.TextField(blank=True)
     submission_id = models.UUIDField(default=uuid.uuid4)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ('created_at', 'pk')
         constraints = [models.UniqueConstraint(fields=('author', 'submission_id'), name='staff_unique_submission')]
+
+
+    def save(self, *args, **kwargs):
+        from .message_content import normalize_message
+        self.body, self.body_html = normalize_message(self.body, self.body_html)
+        return super().save(*args, **kwargs)
 
 
 class StaffMessageDelivery(models.Model):

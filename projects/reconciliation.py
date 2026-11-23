@@ -24,6 +24,9 @@ def project_reconciliation(project, *, client_view=True):
     orders = list(order_query.order_by("number", "pk").prefetch_related("line_items"))
     approved, pending = [], []
     linked = defaultdict(lambda: ZERO)
+    linked_orders = defaultdict(list)
+    review_warnings = []
+    reviewed_selection_ids = set()
     approved_total, pending_total = ZERO, ZERO
     excluded_orders = 0
     for order in orders:
@@ -61,6 +64,7 @@ def project_reconciliation(project, *, client_view=True):
             approved_total += order.price_delta
             if order.source_selection_id:
                 linked[order.source_selection_id] += order.price_delta
+                linked_orders[order.source_selection_id].append(order)
         else:
             pending.append(item)
             pending_total += order.price_delta
@@ -98,10 +102,31 @@ def project_reconciliation(project, *, client_view=True):
                 "net": ZERO,
                 "count": 0,
                 "has_amount": False,
+                "details": [],
             },
         )
         variance = price - selection.allowance_amount
         covered = linked.get(selection.pk, ZERO)
+        sources = linked_orders.get(selection.pk, [])
+        reviewed_selection_ids.add(selection.pk)
+        if sources and (
+            len(sources) > 1
+            or not (variance < 0 and covered < 0 and abs(covered) <= abs(variance))
+        ):
+            review_warnings.append(
+                f"{selection.display_number}: linked change-order credit needs review against the current selection amount."
+            )
+        group["details"].append(
+            {
+                "selection": selection,
+                "price": price,
+                "allowance": selection.allowance_amount,
+                "variance": variance,
+                "covered": covered,
+                "net": variance - covered,
+                "orders": sources,
+            }
+        )
         # A linked partial credit consumes only that amount, not the entire credit.
         group["price"] += price
         group["allowance"] += selection.allowance_amount
@@ -115,9 +140,15 @@ def project_reconciliation(project, *, client_view=True):
         for label in sorted(groups, key=category_key)
         if groups[label]["has_amount"]
     ]
+    for selection_id, sources in linked_orders.items():
+        if selection_id not in reviewed_selection_ids:
+            review_warnings.append(
+                f"{sources[0].display_number}: linked selection is not included in this report. Ask the project manager to review the recorded credit."
+            )
     selection_total = money(sum((section["net"] for section in sections), ZERO))
     adjustment = money(approved_total + selection_total)
     return {
+        "review_warnings": review_warnings,
         "approved_orders": approved,
         "pending_orders": pending,
         "sections": sections,

@@ -8,6 +8,7 @@ from django.core.mail import send_mail
 from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import format_html
 
 from core.models import OperationalEvent
 from core.operations import record_operational_event
@@ -100,11 +101,12 @@ def evaluate_approval_progress(decisions, required_approvals):
     }
 
 
-def send_notification_email(*, subject, message, recipient_list):
+def send_notification_email(*, subject, message, recipient_list, html_message=None):
     try:
         sent_count = send_mail(
             subject=subject,
             message=message,
+            html_message=html_message,
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=recipient_list,
         )
@@ -130,7 +132,7 @@ def send_notification_email(*, subject, message, recipient_list):
 
 
 def deliver_project_notification(
-    *, request, project, event_type, title, message, url_path, recipient_list
+    *, request, project, event_type, title, message, url_path, recipient_list, html_message=None
 ):
     """Deliver a project event through each recipient's selected channels."""
     normalized_emails = {email.strip().casefold() for email in recipient_list if email}
@@ -180,6 +182,7 @@ def deliver_project_notification(
         subject=title,
         message=f'{message}\n\nView in {settings.APP_NAME}: {absolute_url}',
         recipient_list=sorted(set(email_recipients)),
+        html_message=(str(html_message) + str(format_html('<p><a href="{}">Open the conversation to respond</a></p>', absolute_url))) if html_message else None,
     )
 
 
@@ -269,12 +272,14 @@ def send_message_notifications(request, message, *, new_thread=False):
         'projects:message_thread',
         args=(thread.project_id, thread.pk),
     )
+    from .message_content import rendered_message
     action = 'New conversation' if new_thread else 'New reply'
     return deliver_project_notification(
         request=request,
         project=thread.project,
         event_type=NotificationPreference.Event.MESSAGES,
         title=f'{action} - {thread.project.name}: {thread.subject}',
+        html_message=format_html('<p>{} posted in {} for {}.</p><div>{}</div><p>Shared with the client and assigned project team.</p>', message.author.email, thread.subject, thread.project.name, rendered_message(message)),
         message=(
             f'{message.author.email} posted in "{thread.subject}" for '
             f'{thread.project.name}.\n\n{message.body}'
