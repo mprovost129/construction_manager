@@ -297,6 +297,18 @@ class Project(models.Model):
         return f'{self.organization}: {self.name}'
 
 
+class JobSiteShare(models.Model):
+    """Explicit, revocable publication of reviewed field materials only."""
+
+    project = models.OneToOneField(Project, on_delete=models.CASCADE, related_name='job_site_share')
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    enabled = models.BooleanField(default=False)
+    manifest = models.JSONField(default=dict, blank=True, editable=False)
+    revision = models.PositiveIntegerField(default=0)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 class ProjectInternalAccess(models.Model):
     project = models.ForeignKey(
         Project,

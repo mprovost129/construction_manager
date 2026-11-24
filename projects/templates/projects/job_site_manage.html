@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}Job-site QR | {{ project.name }}{% endblock %}
+{% block content %}
+<nav class="breadcrumb-nav"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a> / Job-site QR</nav>
+<h1>Job-site QR</h1>
+<p>One printed code opens the materials you choose here. Subcontractors do not need a Heritage account.</p>
+<div class="alert alert-warning">Anyone with the QR code or its link can open the shared materials. Review file contents and product photos before sharing: prices embedded in a PDF or image cannot be hidden automatically. Downloaded copies cannot be recalled.</div>
+<section class="card p-4 mb-4">
+<h2>{% if share.enabled %}Job-site access is on{% else %}Job-site access is off{% endif %}</h2>
+{% if share.enabled and withheld %}<p role="status" class="alert alert-warning">{{ withheld }} previously shared material{{ withheld|pluralize }} {{ withheld|pluralize:'is,are' }} currently withheld because {{ withheld|pluralize:'it changed or is,they changed or are' }} no longer eligible. Review the current materials below and save to publish your updated choices.</p>{% endif %}
+{% if share.enabled %}<div class="button-row"><a class="btn btn-primary" href="{% url 'projects:job_site_sign' project.pk %}">Print sign</a><a class="btn btn-outline-secondary" href="{% url 'projects:job_site_qr' project.pk %}?download=1">Download QR image</a><a class="btn btn-outline-secondary" href="{{ public_url }}" target="_blank" rel="noopener noreferrer">Preview job-site page</a></div>{% endif %}
+</section>
+<form method="post" class="card p-4">
+{% csrf_token %}{{ form.revision }}
+{{ form.non_field_errors }}
+<h2>Choose job-site materials</h2>
+<p>Only client-visible, current documents are listed. Documents requiring client approval must be approved. Contracts, change orders and spreadsheets are excluded. Approved selections share only the chosen product, location, specification and product photos—no prices, allowances, comments or messages.</p>
+<p>A new plan version or changed selection is withheld until you review and save it again. The printed code stays the same.</p>
+<h3>Plans &amp; documents</h3>
+{{ form.documents.errors }}{{ form.documents }}
+{% if documents %}<details class="mb-3"><summary>Review available documents before sharing</summary><ul>{% for row in documents %}<li><a href="{% url 'projects:document_download' project.pk row.version.document_id row.id %}">{{ row.title }} — download version {{ row.number }}</a></li>{% endfor %}</ul></details>{% endif %}
+{% if not documents %}<p>No eligible documents yet. Add a client-visible PDF or image in Documents, and finish any required approvals.</p>{% endif %}
+<h3>Approved selections</h3>
+{{ form.selections.errors }}{{ form.selections }}
+{% if not selections %}<p>No approved selections yet. Unreleased, pending, expired and imported historical selections are excluded.</p>{% endif %}
+<details class="mb-3"><summary>Review the selection details that will be shared</summary>{% for row in selections %}<article class="border-bottom py-3"><h4>{{ row.title }} — {{ row.choice }}</h4><p>{{ row.location }}</p><p>{{ row.specification|linebreaksbr }}</p><a href="{% url 'projects:selection_detail' project.pk row.id %}" target="_blank" rel="noopener noreferrer">Review chosen product photos</a></article>{% endfor %}</details>
+<p>{{ form.enabled }} {{ form.enabled.label_tag }}</p>
+<p>{{ form.reviewed }} {{ form.reviewed.label_tag }} {{ form.reviewed.errors }}</p>
+<button class="btn btn-primary" name="action" value="save">Save job-site materials</button>
+</form>
+{% if share.enabled %}<section class="card p-4 mt-4"><h2>Stop or replace access</h2><p>Disable access immediately, or replace a lost or forwarded link. Both actions invalidate the old QR code. Replacing the link requires printing a new sign.</p><form method="post">{% csrf_token %}<input type="hidden" name="revision" value="{{ form.revision.value }}"><div class="button-row"><button class="btn btn-outline-danger" name="action" value="disable">Disable job-site access</button><button class="btn btn-outline-secondary" name="action" value="rotate">Replace link &amp; QR code</button></div></form></section>{% endif %}
+{% endblock %}

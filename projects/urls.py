@@ -2,6 +2,7 @@ from django.urls import path
 
 from . import (
     client_preview,
+    job_site,
     project_lifecycle,
     punch,
     selection_deadline,
@@ -13,6 +14,13 @@ from . import (
 app_name = 'projects'
 
 urlpatterns = [
+    path('projects/<int:pk>/job-site/', job_site.manage, name='job_site_manage'),
+    path('projects/<int:pk>/job-site/sign/', job_site.sign, name='job_site_sign'),
+    path('projects/<int:pk>/job-site/qr.png', job_site.qr, name='job_site_qr'),
+    path('job-site/<uuid:token>/', job_site.public, name='job_site_public'),
+    path('job-site/<uuid:token>/documents/<int:version_pk>/', job_site.document, name='job_site_document'),
+    path('job-site/<uuid:token>/selections/<int:selection_pk>/image/', job_site.photo, name='job_site_photo'),
+    path('job-site/<uuid:token>/selections/<int:selection_pk>/images/<int:photo_pk>/', job_site.photo, name='job_site_gallery'),
     path('staff/messages/', staff_messaging.inbox, name='staff_message_inbox'),
     path('staff/messages/new/', staff_messaging.start, name='staff_message_start'),
     path('staff/messages/compose/', staff_messaging.compose, name='staff_message_compose'),

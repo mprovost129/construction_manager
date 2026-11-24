@@ -46,6 +46,7 @@
 </div>
 
 <section class="module-grid" aria-label="Project modules">
+    {% if can_manage_project %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:job_site_manage' project.pk %}"><i class="bi bi-qr-code"></i><div><h2>Job-site QR</h2><p>Choose approved selections and documents to share with subcontractors.</p></div><span>Manage materials &amp; print sign <i class="bi bi-arrow-right"></i></span></a>{% endif %}
     {% if can_use_staff_messages %}<a class="module-card module-card--ready module-card--link" href="{% url 'projects:staff_message_inbox' %}?project={{ project.pk }}"><i class="bi bi-chat-left-text"></i><div><h2>Staff messages</h2><p>Private conversations with selected staff about this project.</p></div><span>Open staff messages <i class="bi bi-arrow-right"></i></span></a>{% endif %}
     {% if can_use_action_center %}<a class="module-card module-card--ready module-card--link module-card--featured" href="{% url 'projects:action_center' project.pk %}">
         <i class="bi bi-inbox"></i>

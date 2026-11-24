@@ -1,6 +1,7 @@
 """Recoverable project deletion and deliberate copying of reusable setup."""
 
 from django import forms
+import uuid
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
@@ -19,6 +20,7 @@ from .access import (
 from .models import (
     ActivityEvent,
     FinishSelection,
+    JobSiteShare,
     Organization,
     OrganizationMembership,
     Project,
@@ -153,6 +155,7 @@ def delete_project(request, pk):
             project.deleted_at = timezone.now()
             project.deleted_by = request.user
             project.save(update_fields=["deleted_at", "deleted_by", "updated_at"])
+            JobSiteShare.objects.filter(project=project).update(enabled=False, token=uuid.uuid4())
             # Old invitation links must not become valid again after restoration.
             project.invitations.filter(
                 accepted_at__isnull=True, revoked_at__isnull=True

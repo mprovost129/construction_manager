@@ -67,7 +67,8 @@ class BrowserSecurityMiddleware:
         # caching. Static assets are served earlier by WhiteNoise in production.
         if 'no-store' not in response.get('Cache-Control', ''):
             add_never_cache_headers(response)
-        response['Referrer-Policy'] = 'same-origin'
+        if 'Referrer-Policy' not in response:
+            response['Referrer-Policy'] = 'same-origin'
         return response
 
     def process_view(self, request, view_func, view_args, view_kwargs):

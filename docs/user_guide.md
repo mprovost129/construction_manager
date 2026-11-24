@@ -447,3 +447,15 @@ For each covered selection, choose **Use section allowance**, then pick its **Al
 Example: Windows allowance $25,000 and selected prices $27,000; Doors allowance $15,000 and selected prices $14,000. Group balances are $2,000 over and $1,000 under. Combined section allowance is $40,000 against $41,000 spent: $1,000 over. Group balances appear with the section totals and in the client-safe Allowances & project totals details, print view, and spreadsheet export.
 
 Rename groups in the same screen. To remove a group, reassign its selections first. Saving rejects missing assignments, duplicate names, and negative budgets. Amounts can be zero; selected prices can be negative credits. An unfinished group cannot generate a final unused-budget credit. Templates and project copies preserve groups; partial copies bring only the named budgets used by the copied rows. Existing destination budgets are preserved when loading templates; configure matching groups first if needed.
+
+## Job-site QR codes for subcontractors
+
+Project managers and administrators with project management access can open **Project → Job-site QR**. Choose current, client-visible PDFs or images and approved selections, review their contents, confirm the sharing checkbox, enable access, and save. Download the QR image or open **Print sign / Save as PDF** to hang it at the job site.
+
+No account is needed to scan the code. Anyone who receives the link or a photo of the sign can view the selected materials. The page contains only the chosen product names, specifications, locations and product photos, plus the explicitly selected document versions. It does not expose application prices, allowances, messages, clients, internal descriptions or financial records. Staff must inspect file contents and product images: the app cannot redact private information embedded inside a file. Only share materials intended for this audience.
+
+Contracts, change-order documents, spreadsheets, pending or declined documents, and unapproved selections are excluded. Documents that do not require a client decision can be explicitly reviewed and published by staff. Imported historical selections are excluded because they do not have a current approved product choice.
+
+A replacement document version, changed product specification/photo, withdrawn approval, hidden document or archived selection is withheld until eligible and reviewed again. The management screen identifies withheld materials. Save the reviewed choices to update the page without changing the printed code.
+
+**Disable job-site access** immediately stops the page and its downloads/photos; **Replace link & QR code** invalidates the old link and requires a new printed sign. Deleting a project revokes access permanently until staff explicitly publish again, even if the project is later restored. Downloaded copies cannot be recalled. New and copied projects start without public job-site access. Changes are recorded in the project audit trail.
