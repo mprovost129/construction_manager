@@ -26,6 +26,17 @@ class AllowanceGroupTests(TestCase):
     setUp = ReconciliationTests.setUp
     selection = ReconciliationTests.selection
 
+    def test_imported_item_without_price_keeps_group_credit_provisional(self):
+        windows, doors = self.grouped()
+        imported = self.selection(
+            "Imported item without price", "0", "0", status="imported"
+        )
+        imported.package, imported.allowance_mode = doors.package, "section"
+        imported.allowance_group = doors.allowance_group
+        imported.imported_total = None
+        imported.save()
+        self.assertEqual(project_reconciliation(self.project)["selection_total"], 2000)
+
     def grouped(self):
         windows = self.selection("Windows", "27000", "0")
         doors = self.selection("Doors", "14000", "0")

@@ -80,11 +80,13 @@ def project_reconciliation(project, *, client_view=True):
         selection_query = selection_query.exclude(status=FinishSelection.Status.DRAFT)
     visible = list(selection_query.select_related("package", "chosen_option"))
     # Pending hidden rows block a final pooled credit without exposing their details.
-    unfinished_pools = set(
-        project.finish_selections.filter(allowance_mode="section")
-        .exclude(status__in=["selected", "imported", "voided"])
-        .values_list("package_id", "allowance_group")
-    )
+    unfinished_pools = {
+        pool_key(row)
+        for row in project.finish_selections.filter(allowance_mode="section")
+        .exclude(status="voided")
+        .select_related("chosen_option")
+        if recorded_price(row) is None
+    }
     for selection in visible:
         price = recorded_price(selection)
         label = selection.package.title if selection.package_id else "Uncategorized"
