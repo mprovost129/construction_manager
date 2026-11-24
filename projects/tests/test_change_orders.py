@@ -70,7 +70,7 @@ class ChangeOrderTests(TestCase):
             ProjectMembership.objects.create(
                 project=cls.project, user=user, role=role
             )
-        grant_internal_access(cls.staff_user, cls.project, cls.other_project)
+        grant_internal_access(cls.staff_user, cls.project, cls.other_project, is_project_manager=True)
         grant_internal_access(
             cls.accountant,
             cls.project,
@@ -253,7 +253,7 @@ class ChangeOrderTests(TestCase):
         self.assertEqual(change_order.decided_by, self.client_user)
         self.assertEqual(change_order.client_comment, 'Proceed.')
         self.assertEqual(
-            mail.outbox[0].to, ['admin@example.com', 'staff@example.com']
+            mail.outbox[0].to, ['staff@example.com']
         )
         self.assertTrue(
             ActivityEvent.objects.filter(

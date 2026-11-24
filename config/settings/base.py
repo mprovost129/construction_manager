@@ -65,6 +65,7 @@ AUTHENTICATION_BACKENDS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'core.request_timing.RequestTimingMiddleware',
+    'core.request_memory.RequestMemoryMiddleware',
     'core.operations.OperationalFailureMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -179,6 +180,11 @@ LOGGING = {
         },
     },
     'loggers': {
+        'heritage.request_memory': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
         'heritage.request_timing': {
             'handlers': ['console'],
             'level': 'WARNING',

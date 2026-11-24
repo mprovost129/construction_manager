@@ -6,6 +6,12 @@ Heritage 360 gives Heritage and its clients one project workspace for approvals,
 
 The recommended starting sequence is simple. A company administrator completes company settings and team roles. A project manager creates a project, assigns staff, and invites the client. Staff then prepare and publish the information the client should see. Both sides use the Action center to find work that needs attention.
 
+Internal project message, document, and selection notifications go to the active
+project managers assigned under **People & access**. Administrators do not receive
+every project's notifications automatically; assign an administrator as a project
+manager if they should receive them. Assign at least one PM to each active project.
+Private staff messages still notify the people explicitly included in that conversation.
+
 ## Contents
 
 1. Signing in

@@ -3,11 +3,43 @@
 import warnings
 from hashlib import sha256
 from io import BytesIO
+from threading import BoundedSemaphore
 
 from django.conf import settings
 from django.core.cache import cache
 from django.http import FileResponse, HttpResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
+
+# At most one decoder per web worker. Requests that miss this slot still get
+# their authorized original; they must not queue behind expensive image work.
+_preview_slot = BoundedSemaphore(1)
+MAX_DECODE_PIXELS = 4_000_000
+
+
+def render_preview(file, size):
+    if not _preview_slot.acquire(blocking=False):
+        return None
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with file.open("rb") as source, Image.open(source) as image:
+                # JPEG draft decoding reduces pixels BEFORE allocating them.
+                # Other large formats retain the original rather than decoding
+                # hundreds of megabytes merely to make a small thumbnail.
+                image.draft("RGB", (size, size))
+                if image.width * image.height > MAX_DECODE_PIXELS:
+                    return None
+                image.thumbnail((size, size), Image.Resampling.LANCZOS)
+                with ImageOps.exif_transpose(image) as oriented:
+                    with oriented.convert("RGBA") as rgba:
+                        with Image.new("RGB", oriented.size, "white") as result:
+                            with rgba.getchannel("A") as alpha:
+                                result.paste(rgba, mask=alpha)
+                            with BytesIO() as output:
+                                result.save(output, format="JPEG", quality=78)
+                                return output.getvalue()
+    finally:
+        _preview_slot.release()
 
 
 def private_image_response(request, file):
@@ -25,7 +57,7 @@ def private_image_response(request, file):
             getattr(settings, "PRIVATE_STORAGE_BACKEND", "local")
         )
         key = (
-            "image-preview-v1:"
+            "image-preview-v2:"
             + sha256(f"{namespace}:{file.name}:{size}".encode()).hexdigest()
         )
         try:
@@ -34,26 +66,8 @@ def private_image_response(request, file):
             data = None
         if data is None:
             try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("error", Image.DecompressionBombWarning)
-                    with file.open("rb") as source, Image.open(source) as image:
-                        if image.width * image.height > 20_000_000:
-                            raise ValueError(
-                                "Image is too large to decode in a web worker."
-                            )
-                        image = ImageOps.exif_transpose(image)
-                        image.thumbnail((size, size), Image.Resampling.LANCZOS)
-                        output = BytesIO()
-                        if "A" in image.getbands() or image.mode == "P":
-                            rgba = image.convert("RGBA")
-                            background = Image.new("RGB", image.size, "white")
-                            background.paste(rgba, mask=rgba.getchannel("A"))
-                            image = background
-                        image.convert("RGB").save(
-                            output, format="JPEG", quality=78, optimize=True
-                        )
-                        data = output.getvalue()
-                if len(data) <= 512_000:
+                data = render_preview(file, size)
+                if data is not None and len(data) <= 512_000:
                     try:
                         cache.set(key, data, timeout=900)
                     except Exception:

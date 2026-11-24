@@ -6,7 +6,7 @@ services:
     repo: https://github.com/mprovost129/construction_manager
     branch: feature/heritage-mvp-launch
     region: ohio
-    plan: 0.5c-512mb
+    plan: 1c-2g
     autoDeployTrigger: "off"
     healthCheckPath: /health/
     domains:

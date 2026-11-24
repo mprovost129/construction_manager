@@ -249,12 +249,6 @@ def message_notification_recipients(project, author):
             project,
             exclude_user=author,
         )
-        if not emails:
-            emails = project.organization.memberships.filter(
-                role=OrganizationMembership.Role.ADMIN,
-                is_active=True,
-                user__is_active=True,
-            ).exclude(user=author).values_list('user__email', flat=True)
     else:
         emails = get_user_model().objects.filter(
             pk__in=client_user_ids,
@@ -340,24 +334,9 @@ def send_daily_log_published_notification(request, daily_log):
 
 
 def document_internal_recipients(project, *, exclude_user=None):
-    admin_memberships = project.organization.memberships.filter(
-        role=OrganizationMembership.Role.ADMIN,
-        is_active=True,
-        user__is_active=True,
-    )
-    assigned_memberships = project.organization.memberships.filter(
-        project_access__project=project,
-        project_access__is_active=True,
-        is_active=True,
-        user__is_active=True,
-    ).exclude(role=OrganizationMembership.Role.ACCOUNTANT)
-    if exclude_user:
-        admin_memberships = admin_memberships.exclude(user=exclude_user)
-        assigned_memberships = assigned_memberships.exclude(user=exclude_user)
-    return sorted(
-        set(admin_memberships.values_list('user__email', flat=True))
-        | set(assigned_memberships.values_list('user__email', flat=True))
-    )
+    # Company-wide access is not a subscription to every project's activity.
+    # An administrator receives these only when explicitly assigned as a PM.
+    return assigned_project_manager_recipients(project, exclude_user=exclude_user)
 
 
 def assigned_project_manager_recipients(project, *, exclude_user=None):

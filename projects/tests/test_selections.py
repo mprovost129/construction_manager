@@ -98,7 +98,7 @@ class FinishSelectionTests(TestCase):
             ProjectMembership.objects.create(
                 project=cls.project, user=user, role=role
             )
-        grant_internal_access(cls.staff_user, cls.project, cls.other_project)
+        grant_internal_access(cls.staff_user, cls.project, cls.other_project, is_project_manager=True)
         grant_internal_access(
             cls.accountant,
             cls.project,
@@ -395,7 +395,7 @@ class FinishSelectionTests(TestCase):
         self.assertEqual(selection.chosen_option, option)
         self.assertEqual(selection.selected_by, self.client_user)
         self.assertEqual(
-            mail.outbox[0].to, ['admin@example.com', 'staff@example.com']
+            mail.outbox[0].to, ['staff@example.com']
         )
         self.assertTrue(
             ActivityEvent.objects.filter(
@@ -688,7 +688,7 @@ class FinishSelectionTests(TestCase):
             custom_request.status, SelectionCustomRequest.Status.PENDING
         )
         self.assertEqual(
-            mail.outbox[0].to, ['admin@example.com', 'staff@example.com']
+            mail.outbox[0].to, ['staff@example.com']
         )
 
         self.client.force_login(self.staff_user)

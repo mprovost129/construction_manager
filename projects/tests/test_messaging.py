@@ -9,9 +9,11 @@ from projects.models import (
     ActivityEvent,
     ConversationMessage,
     ConversationThread,
+    InAppNotification,
     Organization,
     OrganizationMembership,
     Project,
+    ProjectInternalAccess,
     ProjectMembership,
 )
 from projects.tests import grant_internal_access
@@ -19,6 +21,31 @@ from projects.tests import grant_internal_access
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
 class ProjectMessagingTests(TestCase):
+    def test_no_assigned_pm_does_not_fall_back_to_all_admins(self):
+        from projects.services import (
+            document_internal_recipients,
+            send_message_notifications,
+        )
+        ProjectInternalAccess.objects.filter(project=self.project).update(is_project_manager=False)
+        thread = self.create_thread(author=self.client_user)
+        self.assertEqual(send_message_notifications(None, thread.messages.first()), 0)
+        self.assertEqual(document_internal_recipients(self.project), [])
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertFalse(InAppNotification.objects.exists())
+
+    def test_administrator_only_receives_project_updates_when_assigned_as_pm(self):
+        from projects.services import (
+            document_internal_recipients,
+            message_notification_recipients,
+        )
+        for recipients in (message_notification_recipients(self.project, self.client_user), document_internal_recipients(self.project)):
+            self.assertEqual(recipients, ['staff@example.com'])
+        grant_internal_access(self.admin_user, self.project, is_project_manager=True)
+        self.assertEqual(document_internal_recipients(self.project), ['admin@example.com', 'staff@example.com'])
+        self.assertEqual(document_internal_recipients(self.project, exclude_user=self.admin_user), ['staff@example.com'])
+        ProjectInternalAccess.objects.filter(project=self.project, membership__user=self.staff_user).update(is_active=False)
+        self.assertEqual(message_notification_recipients(self.project, self.client_user), ['admin@example.com'])
+
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(

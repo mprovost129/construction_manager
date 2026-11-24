@@ -123,7 +123,7 @@ class ProjectDocumentTests(TestCase):
             ProjectMembership.objects.create(
                 project=cls.project, user=user, role=role
             )
-        grant_internal_access(cls.staff_user, cls.project, cls.other_project)
+        grant_internal_access(cls.staff_user, cls.project, cls.other_project, is_project_manager=True)
         grant_internal_access(
             cls.accountant,
             cls.project,
@@ -316,7 +316,7 @@ class ProjectDocumentTests(TestCase):
         self.assertEqual(document.created_by, self.client_user)
         self.assertEqual(
             mail.outbox[0].to,
-            ['admin@example.com', 'staff@example.com'],
+            ['staff@example.com'],
         )
         self.assertTrue(
             ActivityEvent.objects.filter(
@@ -406,7 +406,7 @@ class ProjectDocumentTests(TestCase):
         self.assertEqual(decision.version, version)
         self.assertEqual(decision.decided_by, self.client_user)
         self.assertEqual(
-            mail.outbox[0].to, ['admin@example.com', 'staff@example.com']
+            mail.outbox[0].to, ['staff@example.com']
         )
         self.assertTrue(
             ActivityEvent.objects.filter(
