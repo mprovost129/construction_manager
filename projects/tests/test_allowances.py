@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from billing.services import create_invoice_from_selection
-from projects.allowance_views import setup_state
+from projects.allowance_views import AllowanceSetupForm, setup_state
 from projects.client_preview import SESSION_KEY
 from projects.financials import project_financial_summary
 from projects.models import (
@@ -68,7 +68,7 @@ class SharedAllowanceTests(TestCase):
         self.assertEqual(report["new_total"], Decimal("96800"))
         total = board_context(self.project, self.customer, {})["board_totals"]
         self.assertEqual(total["allowance"], Decimal("21000"))
-        self.assertEqual(total['included_price'], Decimal('5000'))
+        self.assertEqual(total["included_price"], Decimal("5000"))
         self.assertEqual(total["remaining"], Decimal("3200"))
         self.assertEqual(total["shared"][0]["remaining"], Decimal("3000"))
         self.assertIsNone(cabinets.selected_variance)
@@ -184,6 +184,77 @@ class SharedAllowanceTests(TestCase):
         self.assertEqual(self.client.post(url, data).status_code, 200)
         row.refresh_from_db()
         self.assertEqual(row.allowance_mode, "individual")
+
+    def test_shared_budget_requires_assignment_and_corrects_reported_overage(self):
+        cabinets = self.selection("Cabinetry", "34000", "0")
+        countertops = self.selection("Countertops", "15000", "0")
+        countertops.package = cabinets.package
+        countertops.save()
+        self.client.force_login(self.admin)
+        url = reverse("projects:selection_allowances", args=[self.project.pk])
+        data = self.post_data()
+        data.update(section_0_enabled="on", section_0_amount="40000")
+        response = self.client.post(url, data)
+        self.assertContains(response, "No selections use this section allowance")
+        self.assertContains(response, "Allowances were not saved")
+        cabinets.package.refresh_from_db()
+        self.assertIsNone(cabinets.package.allowance_amount)
+        self.assertFalse(
+            ActivityEvent.objects.filter(
+                summary="Updated selection allowance settings."
+            ).exists()
+        )
+
+        data[f"row_{cabinets.pk}_mode"] = "section"
+        data[f"row_{countertops.pk}_mode"] = "section"
+        self.assertEqual(self.client.post(url, data).status_code, 302)
+        for viewer in (self.admin, self.customer):
+            totals = board_context(self.project, viewer, {})["board_totals"]
+            self.assertEqual(totals["price"], 49000)
+            self.assertEqual(totals["allowance"], 40000)
+            self.assertEqual(totals["remaining"], -9000)
+        report = project_reconciliation(self.project)
+        self.assertEqual(report["selection_total"], 9000)
+        self.assertEqual(report["new_total"], 109000)
+
+    def test_template_cannot_save_unused_shared_allowance(self):
+        self.selection("Cabinetry", "100", "50", status="draft")
+        template = save_project_template(
+            self.project,
+            self.admin,
+            "Standard",
+            "",
+            self.project.finish_selections.all(),
+        )
+        row = template.rows.get()
+        groups, version = setup_state(template, template=True)
+        form = AllowanceSetupForm(
+            {
+                "version": version,
+                "section_0_enabled": "on",
+                "section_0_amount": "40000",
+                f"row_{row.pk}_mode": "individual",
+                f"row_{row.pk}_amount": "50",
+            },
+            groups=groups,
+            version=version,
+            template=True,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("No selections use this section allowance", str(form.errors))
+
+    def test_voided_item_does_not_count_as_shared_budget_assignment(self):
+        active = self.selection("Active", "100", "0")
+        voided = self.selection("Voided", "100", "0", status="voided")
+        voided.package = active.package
+        voided.allowance_mode = "section"
+        voided.save()
+        data = self.post_data()
+        data.update(section_0_enabled="on", section_0_amount="40000")
+        groups, version = setup_state(self.project)
+        form = AllowanceSetupForm(data, groups=groups, version=version)
+        self.assertFalse(form.is_valid())
+        self.assertIn("No selections use this section allowance", str(form.errors))
 
     def test_clients_preview_and_other_project_cannot_edit_allowances(self):
         self.selection("Cabinetry", "100", "50")

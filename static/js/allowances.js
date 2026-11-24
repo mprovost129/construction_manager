@@ -1,12 +1,25 @@
 document.querySelectorAll('[data-allowance-section]').forEach(section => {
   const toggle = section.querySelector('input[type="checkbox"]');
   const amount = section.querySelector('[data-section-amount]');
-  const refresh = () => { amount.hidden = !toggle.checked; };
+  const status = section.querySelector('[data-section-status]');
+  const sources = [...section.querySelectorAll('[data-allowance-row]:not([data-inactive]) select')];
+  const refresh = () => {
+    amount.hidden = !toggle.checked;
+    if (!status) return;
+    status.hidden = !toggle.checked;
+    const shared = sources.filter(select => select.value === 'section').length;
+    status.textContent = shared
+      ? `${shared} of ${sources.length} selections draw from this shared allowance. Own allowance and No allowance items stay separate.`
+      : sources.length
+        ? 'Not applied: no selections draw from this budget yet. Choose Use section allowance below, or use the button above to assign all items.'
+        : 'Add selections to this section, then choose Use section allowance for the items this budget covers.';
+  };
   toggle.addEventListener('change', refresh);
+  sources.forEach(select => select.addEventListener('change', refresh));
   section.querySelector('[data-use-section]')?.addEventListener('click', () => {
     toggle.checked = true;
     refresh();
-    section.querySelectorAll('[data-allowance-row] select').forEach(select => {
+    sources.forEach(select => {
       select.value = 'section';
       select.dispatchEvent(new Event('change'));
     });

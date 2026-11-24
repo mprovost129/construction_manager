@@ -161,6 +161,23 @@ class AllowanceSetupForm(forms.Form):
             amount_key = f"section_{index}_amount"
             if enabled and data.get(amount_key) is None:
                 self.add_error(amount_key, "Enter the shared allowance amount.")
+            active_rows = [
+                row for row in group["rows"] if getattr(row, "status", None) != "voided"
+            ]
+            if (
+                enabled
+                and active_rows
+                and not any(
+                    data.get(f"row_{row.pk}_mode") == AllowanceMode.SECTION
+                    for row in active_rows
+                )
+            ):
+                self.add_error(
+                    f"section_{index}_enabled",
+                    "No selections use this section allowance. Choose Use section allowance "
+                    "for the items it covers, or turn off the shared allowance. "
+                    "Items with Own allowance do not draw from this budget.",
+                )
             for row in group["rows"]:
                 mode_key, own_key = f"row_{row.pk}_mode", f"row_{row.pk}_amount"
                 mode, own = data.get(mode_key), data.get(own_key)
