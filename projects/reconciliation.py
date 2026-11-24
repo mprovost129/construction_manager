@@ -4,6 +4,7 @@ import re
 from collections import defaultdict
 from decimal import Decimal
 
+from .allowances import recorded_price
 from .models import ChangeOrder, FinishSelection
 from .money import money
 
@@ -76,19 +77,16 @@ def project_reconciliation(project, *, client_view=True):
     )
     if client_view:
         selection_query = selection_query.exclude(status=FinishSelection.Status.DRAFT)
-    for selection in selection_query.select_related("package", "chosen_option"):
-        if selection.status == FinishSelection.Status.IMPORTED:
-            price = selection.imported_total
-        elif (
-            selection.status == FinishSelection.Status.SELECTED
-            and selection.chosen_option_id
-        ):
-            price = selection.chosen_option.price
-        else:
-            price = None
+    visible = list(selection_query.select_related("package", "chosen_option"))
+    # Pending hidden rows block a final pooled credit without exposing their details.
+    unfinished_pools = set(project.finish_selections.filter(allowance_mode='section').exclude(
+        status__in=['selected', 'imported', 'voided']).values_list('package_id', flat=True))
+    for selection in visible:
+        price = recorded_price(selection)
         if price is None:
             unpriced_count += 1
-            unpriced_allowance += selection.allowance_amount
+            if selection.has_individual_allowance:
+                unpriced_allowance += selection.allowance_amount
             continue
         label = selection.package.title if selection.package_id else "Uncategorized"
         group = groups.setdefault(
@@ -103,9 +101,18 @@ def project_reconciliation(project, *, client_view=True):
                 "count": 0,
                 "has_amount": False,
                 "details": [],
+                "shared_price": ZERO, "shared_allowance": None, "provisional": False,
+                "has_allowance": False, "included_price": ZERO,
             },
         )
-        variance = price - selection.allowance_amount
+        own = selection.has_individual_allowance
+        allowance = selection.allowance_amount if own else None
+        variance = price - allowance if own else ZERO
+        if selection.uses_section_allowance and selection.package_id and selection.package.allowance_amount is not None:
+            group["shared_price"] += price
+            group["shared_allowance"] = selection.package.allowance_amount
+            group["provisional"] = selection.package_id in unfinished_pools
+        group["has_allowance"] |= own or group["shared_allowance"] is not None
         covered = linked.get(selection.pk, ZERO)
         sources = linked_orders.get(selection.pk, [])
         reviewed_selection_ids.add(selection.pk)
@@ -120,21 +127,32 @@ def project_reconciliation(project, *, client_view=True):
             {
                 "selection": selection,
                 "price": price,
-                "allowance": selection.allowance_amount,
-                "variance": variance,
+                "allowance": allowance,
+                "variance": variance if own else None,
                 "covered": covered,
-                "net": variance - covered,
+                "net": variance - covered if own else None,
                 "orders": sources,
             }
         )
         # A linked partial credit consumes only that amount, not the entire credit.
+        if selection.allowance_mode == "none":
+            group["included_price"] += price
         group["price"] += price
-        group["allowance"] += selection.allowance_amount
+        group["allowance"] += allowance or ZERO
         group["variance"] += variance
         group["in_change_orders"] += covered
         group["net"] += variance - covered
         group["count"] += 1
-        group["has_amount"] |= bool(price or selection.allowance_amount or covered)
+        group["has_amount"] |= bool(price or allowance or covered)
+    for group in groups.values():
+        if group["shared_allowance"] is not None:
+            raw = group["shared_price"] - group["shared_allowance"]
+            group["shared_remaining"] = -raw
+            adjustment = max(raw, ZERO) if group["provisional"] else raw
+            group["allowance"] += group["shared_allowance"]
+            group["variance"] += adjustment
+            group["net"] += adjustment
+            group["has_amount"] |= bool(group["shared_allowance"])
     sections = [
         groups[label]
         for label in sorted(groups, key=category_key)

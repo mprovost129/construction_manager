@@ -421,3 +421,18 @@ Create or edit a project update to upload multiple progress photos before saving
 Use Edit project or Copy project on the project dashboard. Copy lets authorized project creators select individual selection rows, with optional choices/customer prices, choice photos/attachments, internal notes and dates. Copies start in Planning; copied selections are unreleased. Client/staff assignments, decisions, approvals, financial transactions and contract amounts are not copied. Assign the new project's team before publishing its selections.
 
 Company administrators can Delete project after confirming its name. This is recoverable: the project and its saved files/records remain, while normal project access and reminders stop. Pending invitations are revoked and queued staff emails skipped. Administrators can open Deleted projects from the Projects page and restore a project. Restoration resumes prior access and eligible reminders, but revoked invitations must be sent again.
+
+
+### Shared and individual selection allowances
+
+Open **Selections > Manage allowances**, or **Templates > Edit template > Manage allowances**.
+Enable a shared section allowance and enter the budget. **Use section allowance for all items here** assigns the section's rows to that budget; adjust exceptions with each row's source:
+- **Use section allowance**: the selected customer price draws from the section budget.
+- **Own allowance**: compare this row's selected price against its own amount; exclude it from the shared budget.
+- **No allowance — included in contract**: show the customer price without an allowance or an adjustment to the original contract.
+
+Existing individual amounts (including zero) are preserved. A zero individual allowance still means the full selected price is an addition or credit. No-allowance is a separate, explicit setting.
+Shared section budgets appear once in category and grand totals. A filtered/location slice containing only part of a shared section omits that section balance; use the complete category to see it. The client totals sheet treats unused shared budget as remaining funds until all active shared choices have a recorded price; an overage is shown as soon as the section exceeds its budget. Unreleased choices block a premature final credit without exposing their contents to clients.
+
+Only staff with project management permission can change these settings. Billed items and items with recorded credit handling cannot have their individual basis silently changed. Shared and no-allowance items cannot generate individual allowance invoices or individual credit dispositions.
+Templates and project copies preserve modes and shared budgets. Loading into an existing project preserves existing section budgets; configure a missing shared budget before loading pooled rows into an existing category. Amend keeps existing row settings; Replace changes matching unreleased rows. Previous approvals are never copied.

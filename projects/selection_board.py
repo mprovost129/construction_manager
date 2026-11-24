@@ -1,29 +1,23 @@
 from collections import OrderedDict
-from decimal import Decimal
+
 from django.db.models import Q
-from .access import can_manage_project, is_project_client, can_view_reconciliation
+
+from .access import can_manage_project, can_view_reconciliation, is_project_client
+from .allowances import pool_members, recorded_price
 from .models import FinishSelection
 from .selection_templates import can_use_templates
 
 
-def selection_totals(rows):
-    """Sum only visible active rows; undecided allowances are not savings."""
-    active = [row for row in rows if row.status != FinishSelection.Status.VOIDED]
-    priced = [row for row in active if row.board_price is not None]
-    unpriced = [row for row in active if row.board_price is None]
-    price = sum((row.board_price for row in priced), Decimal('0'))
-    priced_allowance = sum((row.allowance_amount for row in priced), Decimal('0'))
-    pending_allowance = sum((row.allowance_amount for row in unpriced), Decimal('0'))
-    return dict(price=price, priced_allowance=priced_allowance,
-                remaining=priced_allowance-price, pending_allowance=pending_allowance,
-                allowance=priced_allowance+pending_allowance, priced_count=len(priced),
-                pending_count=len(unpriced), excluded_count=len(rows)-len(active))
+def selection_totals(rows, *, complete_pool_ids=None):
+    from .allowances import allowance_totals
+    return allowance_totals(rows, complete_pool_ids=complete_pool_ids)
 
 
 def board_context(project, user, params):
     selections = project.finish_selections.select_related('chosen_option', 'package').prefetch_related('options__gallery_images', 'reference_photos')
     if is_project_client(user, project):
         selections = selections.exclude(status=FinishSelection.Status.DRAFT)
+    complete_pool_ids = pool_members(list(selections))
     query = params.get('q', '').strip()[:200]
     status = params.get('status', '')
     group = params.get('group', 'category')
@@ -46,8 +40,8 @@ def board_context(project, user, params):
         selection.board_options = options
         selection.board_photos = [photo for photo in selection.reference_photos.all()
                                   if photo.client_visible or can_manage_project(user, project)]
-        selection.board_price = selection.imported_total if selection.status == 'imported' else selection.chosen_option.price if selection.chosen_option_id else None
-        selection.board_remaining = selection.allowance_amount - selection.board_price if selection.board_price is not None else None
+        selection.board_price = recorded_price(selection)
+        selection.board_remaining = selection.allowance_amount - selection.board_price if selection.board_price is not None and selection.has_individual_allowance else None
         selection.board_files = sum(bool(o.image) + bool(o.attachment) + len(o.gallery_images.all()) for o in options) + len(selection.board_photos)
         selection.board_image = next((o for o in options if o.image), None)
         label = ((selection.package.title if selection.package_id else 'Uncategorized') if group == 'category'
@@ -58,8 +52,8 @@ def board_context(project, user, params):
         else:
             standalone.append(selection)
     return {'can_view_reconciliation': can_view_reconciliation(user, project), 'project': project, 'selections': selections, 'board_groups': list(groups.items()),
-            'total_groups': [(label, rows, selection_totals(rows)) for label, rows in groups.items()],
-            'board_totals': selection_totals(selections), 'totals_filtered': bool(query or status),
+            'total_groups': [(label, rows, selection_totals(rows, complete_pool_ids=complete_pool_ids)) for label, rows in groups.items()],
+            'board_totals': selection_totals(selections, complete_pool_ids=complete_pool_ids), 'totals_filtered': bool(query or status),
             'package_groups': list(packages.items()), 'standalone_selections': standalone,
             'can_manage_project': can_manage_project(user, project),
             'can_use_templates': can_manage_project(user, project) and can_use_templates(user, project.organization),

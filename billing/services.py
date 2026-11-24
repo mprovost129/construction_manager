@@ -112,6 +112,8 @@ def create_invoice_from_selection(*, selection_id, actor, form_data):
     ).get(pk=selection_id)
     if selection.status != FinishSelection.Status.SELECTED:
         raise ValidationError('Only a completed selection can originate an invoice.')
+    if not selection.has_individual_allowance:
+        raise ValidationError('Only selections with their own allowance can originate an allowance invoice.')
     if hasattr(selection, 'invoice'):
         raise ValidationError('This selection already has an invoice.')
     invoice = Invoice(

@@ -534,6 +534,7 @@ class FinishSelectionForm(forms.ModelForm):
             'title',
             'description',
             'location',
+            'allowance_mode',
             'allowance_amount',
             'due_date',
         )
@@ -554,6 +555,10 @@ class FinishSelectionForm(forms.ModelForm):
     def __init__(self, *args, project, **kwargs):
         super().__init__(*args, **kwargs)
         self.project = project
+        self.fields['allowance_mode'].required = False
+        self.fields['allowance_amount'].required = False
+        self.fields['allowance_mode'].label = 'Allowance source'
+        self.fields['allowance_amount'].help_text = 'Used only for Own allowance. Zero means the full choice price is additional. No allowance means included in the original contract.'
         self.fields['package'].queryset = project.selection_packages.all()
 
     def clean(self):
@@ -564,6 +569,14 @@ class FinishSelectionForm(forms.ModelForm):
             raise forms.ValidationError(
                 'Choose an existing package or name a new one, not both.'
             )
+        mode = cleaned_data.get('allowance_mode') or self.instance.allowance_mode
+        cleaned_data['allowance_mode'] = mode
+        if cleaned_data.get('allowance_amount') is None:
+            if mode == 'individual':
+                self.add_error('allowance_amount', 'Enter the individual allowance.')
+            cleaned_data['allowance_amount'] = self.instance.allowance_amount or 0
+        if mode == 'section' and (not package or package.allowance_amount is None):
+            self.add_error('allowance_mode', 'Choose a category with a shared allowance. Set it up in Manage allowances first.')
         cleaned_data['new_package_title'] = new_package_title
         return cleaned_data
 

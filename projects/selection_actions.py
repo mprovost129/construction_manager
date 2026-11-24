@@ -134,6 +134,8 @@ def deleted_selections(request, pk):
                 match |= Q(template_row_key=selection.template_row_key)
             if project.finish_selections.filter(match).exists():
                 messages.error(request, 'An active matching selection already exists. Review it before restoring to avoid duplicates.')
+            elif selection.uses_section_allowance and (not selection.package_id or selection.package.allowance_amount is None):
+                messages.error(request, 'Enable this section allowance in Manage allowances before restoring this selection.')
             else:
                 selection.archived_at = None
                 selection.archived_by = None

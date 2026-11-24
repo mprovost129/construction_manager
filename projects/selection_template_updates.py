@@ -60,6 +60,7 @@ def row_state(selection):
                            for p in option.gallery_images.order_by('pk')]
         options.append(data)
     return dict(id=selection.pk, fields=fields, options=options, status=selection.status,
+                section_allowance=str(selection.package.allowance_amount) if selection.package_id else None,
                 chosen_option_id=selection.chosen_option_id, updated_at=selection.updated_at.isoformat())
 
 
@@ -148,7 +149,11 @@ def apply_template(template, project, user, rows, due_date=None, *, mode='add', 
             if row.category:
                 package = project.selection_packages.filter(title__iexact=row.category).first()
                 if not package:
-                    package = SelectionPackage.objects.create(project=project, title=row.category, created_by=user)
+                    section = template.allowance_sections.filter(category__iexact=row.category).first()
+                    package = SelectionPackage.objects.create(project=project, title=row.category, created_by=user,
+                        allowance_amount=section.allowance_amount if section else None)
+            if selection.allowance_mode == 'section' and (not package or package.allowance_amount is None):
+                raise ValidationError(f'Enable a shared allowance for {row.category or "this category"} in Manage allowances before loading pooled rows. Existing section budgets are preserved.')
             selection.package = package
             selection.template_row_key = row.key
             selection.description = reusable_description(row.description, row.title)
@@ -205,7 +210,16 @@ def undo_replacement(backup, user):
         selections = {s.pk: s for s in backup.project.finish_selections.select_for_update().filter(pk__in=ids)}
         if len(selections) != len(ids) or any(s.status != 'draft' or s.chosen_option_id for s in selections.values()):
             raise ValidationError('Undo is unavailable because a replaced selection was removed or released.')
-        if revision([row_state(selections[pk]) for pk in ids]) != backup.after_revision:
+        current = [row_state(selections[pk]) for pk in ids]
+        # Keep pre-allowance-update undo records usable without ignoring a new mode.
+        for state, old in zip(current, backup.before):
+            if 'allowance_mode' not in old['fields']:
+                if state['fields']['allowance_mode'] != 'individual':
+                    raise ValidationError('Allowance settings changed after replacement. Undo would overwrite newer work.')
+                state['fields'].pop('allowance_mode')
+            if 'section_allowance' not in old:
+                state.pop('section_allowance')
+        if revision(current) != backup.after_revision:
             raise ValidationError('These selections were edited after replacement. Undo would overwrite newer work, so no changes were made.')
         storage = SelectionOption._meta.get_field('image').storage
         for state in backup.before:

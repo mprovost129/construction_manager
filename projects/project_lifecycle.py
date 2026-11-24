@@ -251,7 +251,7 @@ def copy_setup(source, user, data):
         for number, row in enumerate(rows, 1):
             if row.package_id and row.package_id not in packages:
                 packages[row.package_id] = SelectionPackage.objects.create(
-                    project=target, title=row.package.title, created_by=user
+                    project=target, title=row.package.title, created_by=user, allowance_amount=row.package.allowance_amount
                 )
             new_row = FinishSelection.objects.create(
                 project=target,

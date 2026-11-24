@@ -2,8 +2,11 @@ from django.urls import path
 from . import selection_template_views as v
 from . import choice_images as gallery
 from . import selection_actions as actions
+from . import allowance_views as allowances
 
 urlpatterns = [
+    path('projects/<int:pk>/selections/allowances/', allowances.project_allowances, name='selection_allowances'),
+    path('companies/<slug:slug>/selection-templates/<int:template_pk>/allowances/', allowances.template_allowances, name='selection_template_allowances'),
     path('projects/<int:pk>/selections/<int:selection_pk>/copy/', actions.copy_selection, name='selection_copy'),
     path('projects/<int:pk>/selections/<int:selection_pk>/delete/', actions.delete_selection, name='selection_delete'),
     path('projects/<int:pk>/selections/delete-template/', actions.delete_project_template, name='selection_delete_template'),

@@ -17,10 +17,11 @@ from .models import (
     SelectionTemplate,
     SelectionTemplateOption,
     SelectionTemplateRow,
+    SelectionTemplateSection,
 )
 from .services import record_activity
 
-ROW_FIELDS = ('title', 'description', 'location', 'allowance_amount')
+ROW_FIELDS = ('title', 'description', 'location', 'allowance_amount', 'allowance_mode')
 OPTION_FIELDS = ('name', 'description', 'price', 'is_recommended', 'sort_order',
                  'vendor_name', 'product_url', 'specification', 'lead_time', 'image_caption')
 
@@ -118,6 +119,8 @@ def save_project_template(project, user, name, description, selections):
                 **{field: reusable_description(selection.description, selection.title) if field == 'description'
                    else getattr(selection, field) for field in ROW_FIELDS})
             copy_options(selection.options.all(), row, saved)
+        for package in project.selection_packages.filter(pk__in=selections.values_list('package_id', flat=True), allowance_amount__isnull=False):
+            SelectionTemplateSection.objects.create(template=template, category=package.title, allowance_amount=package.allowance_amount)
         audit(template, user, 'saved', project)
     return template
 
@@ -133,6 +136,8 @@ def copy_template(source, user, name):
             row = SelectionTemplateRow.objects.create(template=template, category=original.category,
                 sort_order=original.sort_order, **{field: getattr(original, field) for field in ROW_FIELDS})
             copy_options(original.options.all(), row, saved)
+        for section in source.allowance_sections.all():
+            SelectionTemplateSection.objects.create(template=template, category=section.category, allowance_amount=section.allowance_amount)
         audit(template, user, 'copied', source_template_id=source.pk)
     return template
 

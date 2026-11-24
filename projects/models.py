@@ -2094,6 +2094,12 @@ def selection_template_upload_path(instance, filename):
     return f'selection_templates/{instance.row.template.organization_id}/{instance.row.template_id}/{uuid.uuid4().hex}_{Path(filename).name}'
 
 
+class AllowanceMode(models.TextChoices):
+    INDIVIDUAL = 'individual', 'Own allowance'
+    SECTION = 'section', 'Use section allowance'
+    NONE = 'none', 'No allowance — included in contract'
+
+
 class SelectionTemplate(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='selection_templates')
     name = models.CharField(max_length=200)
@@ -2110,6 +2116,18 @@ class SelectionTemplate(models.Model):
         return self.name
 
 
+class SelectionTemplateSection(models.Model):
+    template = models.ForeignKey(SelectionTemplate, on_delete=models.CASCADE, related_name='allowance_sections')
+    category = models.CharField(max_length=200)
+    allowance_amount = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(Lower('category'), 'template', name='template_section_unique_category'),
+            models.CheckConstraint(condition=models.Q(allowance_amount__gte=0), name='template_section_allowance_nonnegative'),
+        ]
+
+
 class SelectionTemplateRow(models.Model):
     template = models.ForeignKey(SelectionTemplate, on_delete=models.CASCADE, related_name='rows')
     key = models.UUIDField(default=uuid.uuid4, editable=False)
@@ -2118,6 +2136,7 @@ class SelectionTemplateRow(models.Model):
     description = models.TextField(blank=True)
     location = models.CharField(max_length=200, blank=True)
     allowance_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    allowance_mode = models.CharField(max_length=12, choices=AllowanceMode.choices, default=AllowanceMode.INDIVIDUAL)
     sort_order = models.PositiveIntegerField(default=0)
 
     class Meta:
@@ -2165,6 +2184,7 @@ class SelectionTemplateOption(models.Model):
 
 
 class SelectionPackage(models.Model):
+    allowance_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
@@ -2188,6 +2208,7 @@ class SelectionPackage(models.Model):
                 'project',
                 name='projects_unique_selection_package_title',
             ),
+            models.CheckConstraint(condition=models.Q(allowance_amount__isnull=True) | models.Q(allowance_amount__gte=0), name='package_allowance_nonnegative'),
         ]
 
     def clean(self):
@@ -2207,6 +2228,7 @@ class ActiveSelectionManager(models.Manager):
 
 
 class FinishSelection(models.Model):
+    allowance_mode = models.CharField(max_length=12, choices=AllowanceMode.choices, default=AllowanceMode.INDIVIDUAL)
     objects = ActiveSelectionManager()
     all_objects = models.Manager()
     archived_at = models.DateTimeField(null=True, blank=True, editable=False)
@@ -2428,9 +2450,25 @@ class FinishSelection(models.Model):
 
     @property
     def selected_variance(self):
-        if not self.chosen_option_id:
+        if not self.chosen_option_id or not self.has_individual_allowance:
             return None
         return self.chosen_option.price - self.allowance_amount
+
+    @property
+    def has_individual_allowance(self):
+        return self.allowance_mode == AllowanceMode.INDIVIDUAL
+
+    @property
+    def uses_section_allowance(self):
+        return self.allowance_mode == AllowanceMode.SECTION
+
+    @property
+    def allowance_description(self):
+        if self.has_individual_allowance:
+            return f'Allowance: ${self.allowance_amount:,.2f}'
+        if self.uses_section_allowance:
+            return 'Uses the shared section allowance'
+        return 'Included in contract'
 
     @property
     def requires_change_order(self):
@@ -2528,11 +2566,13 @@ class SelectionOption(models.Model):
 
     @property
     def allowance_variance(self):
+        if not self.selection.has_individual_allowance:
+            return None
         return self.price - self.selection.allowance_amount
 
     @property
     def allowance_variance_magnitude(self):
-        return abs(self.allowance_variance)
+        return abs(self.allowance_variance) if self.allowance_variance is not None else None
 
     @property
     def margin(self):

@@ -60,6 +60,24 @@ def project_financial_summary(project, *, include_costs=False):
                 + credit
             )
 
+    from .allowances import recorded_price
+    shared = {}
+    for selection in project.finish_selections.filter(allowance_mode='section').exclude(status='voided').select_related('package', 'chosen_option'):
+        if selection.package_id and selection.package.allowance_amount is not None:
+            pool = shared.setdefault(selection.package_id, {'allowance': selection.package.allowance_amount, 'spent': Decimal('0'), 'pending': False})
+            price = recorded_price(selection)
+            if price is None:
+                pool['pending'] = True
+            else:
+                pool['spent'] += price
+    for pool in shared.values():
+        variance = pool['spent'] - pool['allowance']
+        if variance > 0:
+            selection_overage_total += variance
+        elif not pool['pending']:
+            selection_credit_total -= variance
+            selection_credit_by_disposition['undetermined'] = selection_credit_by_disposition.get('undetermined', Decimal('0')) - variance
+
     invoices = list(project.invoices.exclude(status=Invoice.Status.VOIDED))
     invoiced_total = money(sum((invoice.total_amount for invoice in invoices), Decimal('0')))
     paid_total = money(sum((invoice.amount_paid for invoice in invoices), Decimal('0')))

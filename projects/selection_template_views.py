@@ -50,6 +50,13 @@ class RowForm(forms.ModelForm):
         }
         widgets = {'description': forms.Textarea(attrs={'rows': 3})}
 
+    def clean(self):
+        data = super().clean()
+        if self.instance.allowance_mode == 'section' and self.instance.template_id:
+            if not self.instance.template.allowance_sections.filter(category__iexact=data.get('category', '').strip()).exists():
+                self.add_error('category', 'This selection uses a section allowance. Configure the new category in Manage allowances or switch this item to its own allowance first.')
+        return data
+
 
 RowsFormSet = inlineformset_factory(SelectionTemplate, SelectionTemplateRow, form=RowForm,
     fields=('category', 'title', 'location', 'allowance_amount', 'sort_order'), extra=1,

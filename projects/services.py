@@ -674,6 +674,8 @@ def send_estimate_voided_notification(request, estimate):
 
 def format_allowance_variance(option):
     variance = option.allowance_variance
+    if variance is None:
+        return option.selection.allowance_description
     if variance > 0:
         return f'${variance:,.2f} over allowance'
     if variance < 0:
@@ -705,7 +707,7 @@ def send_selection_review_notification(request, selection):
         message=(
             f'{selection.display_number} - {selection.title} is ready for your '
             f'selection for {selection.project.name}.\n\n'
-            f'Allowance: ${selection.allowance_amount:,.2f}\n'
+            f'{selection.allowance_description}\n'
             f'{due_copy}'
         ),
         url_path=detail_path,
