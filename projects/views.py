@@ -85,6 +85,7 @@ from .forms import (
     TeamInvitationForm,
     TeamMembershipForm,
 )
+from .image_previews import private_image_response
 from .message_content import mark_message_sent
 from .models import (
     ActivityEvent,
@@ -159,6 +160,7 @@ from .services import (
     send_team_invitation,
 )
 from .staff_access import staff_projects, visible_notifications
+from .update_photos import PhotoUploadFormMixin, photo_batch, save_update_photos
 
 
 def managed_project_or_404(user, pk):
@@ -372,6 +374,7 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
         return projects_for_user(self.request.user).select_related('organization')
 
     def get_context_data(self, **kwargs):
+        from .project_lifecycle import admin_organizations, can_copy_project
         context = super().get_context_data(**kwargs)
         organization_membership = organization_membership_for(
             self.request.user, self.object.organization
@@ -407,6 +410,8 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
                 'can_manage_project': can_manage_project(
                     self.request.user, self.object
                 ),
+                'can_copy_project': can_copy_project(self.request.user, self.object),
+                'can_delete_project': admin_organizations(self.request.user).filter(pk=self.object.organization_id).exists(),
                 'can_invite_clients': can_invite_clients(
                     self.request.user, self.object
                 ),
@@ -4125,7 +4130,7 @@ class DailyLogListView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class DailyLogCreateView(LoginRequiredMixin, FormView):
+class DailyLogCreateView(PhotoUploadFormMixin, LoginRequiredMixin, FormView):
     form_class = DailyLogForm
     template_name = 'projects/daily_log_form.html'
 
@@ -4139,7 +4144,7 @@ class DailyLogCreateView(LoginRequiredMixin, FormView):
         return context
 
     def form_valid(self, form):
-        with transaction.atomic():
+        with photo_batch() as saved_photos:
             daily_log = form.save(commit=False)
             daily_log.project = self.project
             daily_log.created_by = self.request.user
@@ -4148,6 +4153,7 @@ class DailyLogCreateView(LoginRequiredMixin, FormView):
                 daily_log.published_at = timezone.now()
             daily_log.full_clean()
             daily_log.save()
+            save_update_photos(daily_log, form.cleaned_data.get("images", []), self.request.user, saved_photos)
             record_activity(
                 organization=self.project.organization,
                 project=self.project,
@@ -4182,7 +4188,7 @@ class DailyLogCreateView(LoginRequiredMixin, FormView):
         )
 
 
-class DailyLogUpdateView(LoginRequiredMixin, FormView):
+class DailyLogUpdateView(PhotoUploadFormMixin, LoginRequiredMixin, FormView):
     form_class = DailyLogForm
     template_name = 'projects/daily_log_form.html'
 
@@ -4204,7 +4210,7 @@ class DailyLogUpdateView(LoginRequiredMixin, FormView):
         return context
 
     def form_valid(self, form):
-        with transaction.atomic():
+        with photo_batch() as saved_photos:
             daily_log = get_object_or_404(
                 DailyLog.objects.select_for_update(),
                 project=self.project,
@@ -4219,6 +4225,7 @@ class DailyLogUpdateView(LoginRequiredMixin, FormView):
                 daily_log.published_at = timezone.now()
             daily_log.full_clean()
             daily_log.save()
+            save_update_photos(daily_log, form.cleaned_data.get("images", []), self.request.user, saved_photos)
             record_activity(
                 organization=self.project.organization,
                 project=self.project,
@@ -4330,16 +4337,7 @@ class DailyLogPhotoView(LoginRequiredMixin, View):
         project = daily_logs_project_or_404(request.user, pk)
         daily_log = visible_daily_log_or_404(request.user, project, daily_log_pk)
         photo = get_object_or_404(DailyLogPhoto, daily_log=daily_log, pk=photo_pk)
-        filename = photo.original_filename or Path(photo.image.name).name
-        content_type, _ = mimetypes.guess_type(filename)
-        response = FileResponse(
-            photo.image.open('rb'),
-            as_attachment=False,
-            filename=filename,
-            content_type=content_type or 'application/octet-stream',
-        )
-        response['Cache-Control'] = 'private, no-store'
-        return response
+        return private_image_response(request, photo.image)
 
 
 class DailyLogPhotoDeleteView(LoginRequiredMixin, View):

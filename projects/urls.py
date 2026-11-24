@@ -2,6 +2,7 @@ from django.urls import path
 
 from . import (
     client_preview,
+    project_lifecycle,
     punch,
     selection_deadline,
     selection_photos,
@@ -50,6 +51,10 @@ urlpatterns = [
         name='public_document_download',
     ),
     path('projects/new/', views.ProjectCreateView.as_view(), name='create'),
+    path('projects/deleted/', project_lifecycle.deleted_projects, name='deleted_projects'),
+    path('projects/<int:pk>/copy/', project_lifecycle.copy_project, name='copy'),
+    path('projects/<int:pk>/delete/', project_lifecycle.delete_project, name='delete'),
+    path('projects/<int:pk>/restore/', project_lifecycle.restore_project, name='restore'),
     path('projects/<int:pk>/', views.ProjectDetailView.as_view(), name='detail'),
     path(
         'projects/<int:pk>/actions/',

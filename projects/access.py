@@ -80,6 +80,8 @@ def can_manage_organization(user, organization):
 
 
 def can_manage_project(user, project):
+    if project.deleted_at or getattr(user, '_client_preview_project_id', None):
+        return False
     if user.is_superuser:
         return True
     membership = organization_membership_for(user, project.organization)
@@ -96,6 +98,8 @@ def can_manage_project(user, project):
 
 
 def can_invite_clients(user, project):
+    if project.deleted_at:
+        return False
     if user.is_superuser:
         return True
     membership = organization_membership_for(user, project.organization)
@@ -111,6 +115,8 @@ def can_invite_clients(user, project):
 
 
 def can_use_project_messaging(user, project):
+    if project.deleted_at:
+        return False
     if not user.is_authenticated:
         return False
     if user.is_superuser:
@@ -128,6 +134,8 @@ def can_use_project_messaging(user, project):
 
 
 def is_project_client(user, project):
+    if project.deleted_at:
+        return False
     if getattr(user, '_client_preview_project_id', None):
         return user._client_preview_project_id == project.pk
     if not user.is_authenticated:
@@ -141,6 +149,8 @@ def is_project_client(user, project):
 
 
 def is_project_signer(user, project):
+    if project.deleted_at:
+        return False
     if getattr(user, '_client_preview_project_id', None):
         return False
     if not user.is_authenticated:

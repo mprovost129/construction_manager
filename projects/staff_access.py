@@ -39,4 +39,5 @@ def visible_notifications(user):
     if not user.is_authenticated or not user.is_active or getattr(user, '_client_preview_project_id', None):
         return InAppNotification.objects.none()
     return user.in_app_notifications.filter(
-        Q(staff_thread__isnull=True) | Q(staff_thread__in=staff_threads(user)))
+        Q(staff_thread__isnull=True) | Q(staff_thread__in=staff_threads(user))).filter(
+        Q(project__isnull=True) | Q(project__deleted_at__isnull=True))

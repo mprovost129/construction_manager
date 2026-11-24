@@ -35,7 +35,7 @@ def recipients_for(item):
 def send_deadline(item, *, today=None, dry_run=False):
     today = today or timezone.localdate()
     selection = isinstance(item, FinishSelection)
-    if item.project.status not in (Project.Status.PLANNING, Project.Status.ACTIVE):
+    if item.project.deleted_at or item.project.status not in (Project.Status.PLANNING, Project.Status.ACTIVE):
         return 0
     if item.status not in (('open',) if selection else ('open', 'in_progress')):
         return 0
@@ -87,7 +87,7 @@ def due_items(today, *, overdue_only=False):
     for model, statuses in ((FinishSelection, ('open',)), (PunchItem, ('open', 'in_progress'))):
         if overdue_only and model is PunchItem:
             continue
-        items = model.objects.filter(status__in=statuses, due_date__isnull=False, deadline_reminders_enabled=True,
+        items = model.objects.filter(status__in=statuses, due_date__isnull=False, deadline_reminders_enabled=True, project__deleted_at__isnull=True,
             project__status__in=(Project.Status.PLANNING, Project.Status.ACTIVE)).select_related('project__organization')
         for item in items.iterator(chunk_size=100):
             if (overdue_only and item.due_date < today) or (not overdue_only and scheduled_today(item.due_date, today)):

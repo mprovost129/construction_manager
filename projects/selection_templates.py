@@ -81,11 +81,11 @@ def copied_files():
         raise
 
 
-def copy_options(source_options, destination, saved):
+def copy_options(source_options, destination, saved, *, include_files=True):
     for source in source_options:
         model, parent = (SelectionTemplateOption, {'row': destination}) if isinstance(destination, SelectionTemplateRow) else (SelectionOption, {'selection': destination})
         option = model(**parent, **{field: getattr(source, field) for field in OPTION_FIELDS})
-        for field in ('image', 'attachment'):
+        for field in (('image', 'attachment') if include_files else ()):
             original = getattr(source, field)
             if original:
                 with original.open('rb') as data:
@@ -94,7 +94,7 @@ def copy_options(source_options, destination, saved):
                     saved.append((copied.storage, copied.name))
         option.full_clean()
         option.save()
-        for original_photo in source.gallery_images.all():
+        for original_photo in (source.gallery_images.all() if include_files else ()):
             parent = {'template_option': option} if isinstance(option, SelectionTemplateOption) else {'option': option}
             photo = ChoiceImage(**parent, caption=original_photo.caption, sort_order=original_photo.sort_order)
             with original_photo.image.open('rb') as data:

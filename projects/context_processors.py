@@ -19,6 +19,7 @@ def application_identity(request):
 
 
 def workspace_navigation(request):
+    from .project_lifecycle import admin_organizations
     user = request.user
     if not user.is_authenticated:
         return {
@@ -34,6 +35,7 @@ def workspace_navigation(request):
     ).exists()
     return {
         'has_internal_access': has_internal_access,
+        'can_restore_projects': admin_organizations(user).exists(),
         'can_create_projects': can_create_projects,
         'can_manage_templates': template_organizations(user).exists(),
         'can_manage_integrations': accounting_organizations_for_user(user).exists(),

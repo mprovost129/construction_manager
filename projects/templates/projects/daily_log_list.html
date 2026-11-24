@@ -27,7 +27,7 @@
     {% for daily_log in daily_logs %}
     <article class="daily-log-card">
         {% with photo=daily_log.photos.all|first %}
-        {% if photo %}<a class="daily-log-card__photo" href="{% url 'projects:daily_log_detail' project.pk daily_log.pk %}"><img src="{% url 'projects:daily_log_photo' project.pk daily_log.pk photo.pk %}" alt="{% if photo.caption %}{{ photo.caption }}{% else %}Progress photo for {{ daily_log.title }}{% endif %}"></a>{% endif %}
+        {% if photo %}<a class="daily-log-card__photo" href="{% url 'projects:daily_log_detail' project.pk daily_log.pk %}"><img src="{% url 'projects:daily_log_photo' project.pk daily_log.pk photo.pk %}?thumb=1" loading="lazy" decoding="async" alt="{% if photo.caption %}{{ photo.caption }}{% else %}Progress photo for {{ daily_log.title }}{% endif %}"></a>{% endif %}
         {% endwith %}
         <div class="daily-log-card__body">
             <div class="daily-log-card__meta">

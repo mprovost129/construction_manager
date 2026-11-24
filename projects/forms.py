@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import UserCreationForm
 from django.utils import timezone
 
-from .choice_images import ChoiceGalleryMixin
+from .choice_images import ChoiceGalleryMixin, MultipleImageField
 from .message_content import MessageFormMixin
 from .models import (
     ChangeOrder,
@@ -691,6 +691,9 @@ class ScheduleMilestoneForm(forms.ModelForm):
 
 
 class DailyLogForm(forms.ModelForm):
+    images = MultipleImageField(required=False, label='Progress photos',
+        help_text='Choose multiple photos. JPEG, PNG or WebP; up to 20 photos per upload, 10 MB each and 50 MB total. Thumbnails are created automatically. Photos share this update’s visibility.')
+
     class Meta:
         model = DailyLog
         fields = ('log_date', 'title', 'summary', 'client_visible')

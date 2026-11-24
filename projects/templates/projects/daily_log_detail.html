@@ -34,7 +34,7 @@
     <div class="daily-log-photo-grid">
         {% for photo in photos %}
         <figure class="daily-log-photo">
-            <a href="{% url 'projects:daily_log_photo' project.pk daily_log.pk photo.pk %}" target="_blank" rel="noopener"><img src="{% url 'projects:daily_log_photo' project.pk daily_log.pk photo.pk %}" alt="{% if photo.caption %}{{ photo.caption }}{% else %}Progress photo for {{ daily_log.title }}{% endif %}"></a>
+            <a href="{% url 'projects:daily_log_photo' project.pk daily_log.pk photo.pk %}" target="_blank" rel="noopener"><img src="{% url 'projects:daily_log_photo' project.pk daily_log.pk photo.pk %}?thumb=1" loading="lazy" decoding="async" alt="{% if photo.caption %}{{ photo.caption }}{% else %}Progress photo for {{ daily_log.title }}{% endif %}"></a>
             {% if photo.caption %}<figcaption>{{ photo.caption }}</figcaption>{% endif %}
             {% if can_manage_daily_logs %}
             <form method="post" action="{% url 'projects:daily_log_photo_delete' project.pk daily_log.pk photo.pk %}">

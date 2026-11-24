@@ -20,6 +20,7 @@ from .models import (
     NotificationPreference,
     OrganizationInvitation,
     OrganizationMembership,
+    Project,
     ProjectCostEntry,
     ProjectInvitation,
     ProjectMembership,
@@ -135,6 +136,8 @@ def deliver_project_notification(
     *, request, project, event_type, title, message, url_path, recipient_list, html_message=None
 ):
     """Deliver a project event through each recipient's selected channels."""
+    if not Project.objects.filter(pk=project.pk).exists():
+        return 0
     normalized_emails = {email.strip().casefold() for email in recipient_list if email}
     users = list(
         get_user_model().objects.filter(

@@ -240,7 +240,17 @@ class OrganizationMembership(models.Model):
         return f'{self.user.email} - {self.organization} ({self.get_role_display()})'
 
 
+class ActiveProjectManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+
 class Project(models.Model):
+    objects = ActiveProjectManager()
+    all_objects = models.Manager()
+    deleted_at = models.DateTimeField(null=True, blank=True, editable=False)
+    deleted_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, editable=False, related_name='deleted_projects')
     class Status(models.TextChoices):
         PLANNING = 'planning', 'Planning'
         ACTIVE = 'active', 'Active'
@@ -468,6 +478,7 @@ class ProjectInvitation(models.Model):
             self.accepted_at is None
             and self.revoked_at is None
             and self.expires_at > timezone.now()
+            and self.project.deleted_at is None
         )
 
     def __str__(self):

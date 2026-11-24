@@ -1,0 +1,15 @@
+{% extends 'base.html' %}{% load static %}
+{% block title %}Copy project | {{ project.name }}{% endblock %}
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><span>Copy project</span></nav>
+<section class="form-card form-card--wide"><h1>Copy project</h1>
+<p>Create a new planning project from {{ project.name }}. Choose the setup to bring over.</p>
+<div class="role-banner">Clients, staff assignments, messages, approvals, invoices, change orders, payments and the contract amount are not copied. Selections start unreleased.</div>
+<form method="post" class="stacked-form">{% csrf_token %}{{ form.non_field_errors }}
+{% for field in form %}<div class="form-field{% if field.field.widget.input_type == 'checkbox' %} form-field--checkbox{% endif %}">
+{% if field.name == 'selections' %}<fieldset><legend>{{ field.label }}</legend><label><input type="checkbox" data-select-all-rows> Select all selection rows</label><div class="project-copy-rows">{{ field }}</div></fieldset>{% else %}<label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% endif %}{{ field.errors }}</div>{% endfor %}
+<div class="form-actions"><a class="btn btn-outline-secondary" href="{% url 'projects:detail' project.pk %}">Cancel</a><button class="btn btn-primary" type="submit">Create project copy</button></div>
+</form></section>
+{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/project-management.css' %}">{% endblock %}
+{% block extra_js %}<script src="{% static 'js/project-copy.js' %}" defer></script>{% endblock %}

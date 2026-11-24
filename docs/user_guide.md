@@ -413,3 +413,11 @@ The spreadsheet and printed report include supporting selections. A review warni
 identifies inconsistent linked credits or an unavailable source selection; recorded
 amounts remain unchanged. Manually entered, unlinked change orders still need the
 project manager's overlap check before billing.
+
+### Project updates and project management
+
+Create or edit a project update to upload multiple progress photos before saving. JPEG, PNG and WebP are supported, up to 20 files per batch, 10 MB per photo and 50 MB per batch. The form previews selected images; saved thumbnails and full-size images require project access. Photos follow the update's client-publication setting. Existing photos remain when an update is edited.
+
+Use Edit project or Copy project on the project dashboard. Copy lets authorized project creators select individual selection rows, with optional choices/customer prices, choice photos/attachments, internal notes and dates. Copies start in Planning; copied selections are unreleased. Client/staff assignments, decisions, approvals, financial transactions and contract amounts are not copied. Assign the new project's team before publishing its selections.
+
+Company administrators can Delete project after confirming its name. This is recoverable: the project and its saved files/records remain, while normal project access and reminders stop. Pending invitations are revoked and queued staff emails skipped. Administrators can open Deleted projects from the Projects page and restore a project. Restoration resumes prior access and eligible reminders, but revoked invitations must be sent again.
