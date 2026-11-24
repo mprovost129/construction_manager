@@ -120,6 +120,8 @@ class MessageFormMixin:
             self.fields["submission_id"] = forms.UUIDField(
                 required=False, widget=forms.HiddenInput
             )
+        # ModelForms may already supply this field with a visible text widget.
+        self.fields["submission_id"].widget = forms.HiddenInput()
         self.fields["submission_id"].initial = uuid.uuid4()
 
     def clean(self):

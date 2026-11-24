@@ -59,6 +59,28 @@ class RichProjectMessageTests(TestCase):
     setUpTestData = classmethod(MessagingFixtures.setUpTestData.__func__)
     create_thread = MessagingFixtures.create_thread
 
+    def test_reply_tracking_field_stays_hidden_and_retries_are_deduplicated(self):
+        thread = self.create_thread()
+        url = reverse("projects:message_thread", args=[self.project.pk, thread.pk])
+        token = str(uuid.uuid4())
+        for user in (self.staff_user, self.client_user):
+            self.client.force_login(user)
+            for response in (
+                self.client.get(url),
+                self.client.post(url, {"body": "", "submission_id": token}),
+            ):
+                self.assertEqual(response.status_code, 200)
+                form = response.context["form"]
+                self.assertTrue(form["submission_id"].is_hidden)
+                self.assertContains(response, str(form["submission_id"]), html=True)
+                self.assertIn('type="hidden"', str(form["submission_id"]))
+        payload = {"body": "Thanks for the plans.", "submission_id": token}
+        initial_count = thread.messages.count()
+        for _ in range(2):
+            response = self.client.post(url, payload)
+            self.assertEqual(response.status_code, 302)
+        self.assertEqual(thread.messages.count(), initial_count + 1)
+
     def test_retry_creates_one_formatted_message_and_one_notification_batch(self):
         self.client.force_login(self.admin_user)
         url = reverse("projects:message_create", args=[self.project.pk])
