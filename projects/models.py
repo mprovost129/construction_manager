@@ -10,6 +10,7 @@ from django.db.models import F, Sum
 from django.db.models.functions import Lower
 from django.utils import timezone
 
+from .allowance_groups import validate_groups
 from .money import money
 from .storage import private_document_storage
 
@@ -2117,6 +2118,7 @@ class SelectionTemplate(models.Model):
 
 
 class SelectionTemplateSection(models.Model):
+    allowance_groups = models.JSONField(default=list, blank=True, validators=[validate_groups])
     template = models.ForeignKey(SelectionTemplate, on_delete=models.CASCADE, related_name='allowance_sections')
     category = models.CharField(max_length=200)
     allowance_amount = models.DecimalField(max_digits=12, decimal_places=2)
@@ -2129,6 +2131,7 @@ class SelectionTemplateSection(models.Model):
 
 
 class SelectionTemplateRow(models.Model):
+    allowance_group = models.CharField(max_length=36, blank=True, default="")
     template = models.ForeignKey(SelectionTemplate, on_delete=models.CASCADE, related_name='rows')
     key = models.UUIDField(default=uuid.uuid4, editable=False)
     category = models.CharField(max_length=200, blank=True)
@@ -2184,6 +2187,7 @@ class SelectionTemplateOption(models.Model):
 
 
 class SelectionPackage(models.Model):
+    allowance_groups = models.JSONField(default=list, blank=True, validators=[validate_groups])
     allowance_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     project = models.ForeignKey(
         Project,
@@ -2228,6 +2232,7 @@ class ActiveSelectionManager(models.Manager):
 
 
 class FinishSelection(models.Model):
+    allowance_group = models.CharField(max_length=36, blank=True, default="")
     allowance_mode = models.CharField(max_length=12, choices=AllowanceMode.choices, default=AllowanceMode.INDIVIDUAL)
     objects = ActiveSelectionManager()
     all_objects = models.Manager()
@@ -2467,7 +2472,8 @@ class FinishSelection(models.Model):
         if self.has_individual_allowance:
             return f'Allowance: ${self.allowance_amount:,.2f}'
         if self.uses_section_allowance:
-            return 'Uses the shared section allowance'
+            from .allowance_groups import pool_label
+            return f'Uses {pool_label(self)}'
         return 'Included in contract'
 
     @property

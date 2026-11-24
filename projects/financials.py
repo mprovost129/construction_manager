@@ -61,10 +61,11 @@ def project_financial_summary(project, *, include_costs=False):
             )
 
     from .allowances import recorded_price
+    from .allowance_groups import pool_key, pool_budget
     shared = {}
     for selection in project.finish_selections.filter(allowance_mode='section').exclude(status='voided').select_related('package', 'chosen_option'):
-        if selection.package_id and selection.package.allowance_amount is not None:
-            pool = shared.setdefault(selection.package_id, {'allowance': selection.package.allowance_amount, 'spent': Decimal('0'), 'pending': False})
+        if pool_budget(selection) is not None:
+            pool = shared.setdefault(pool_key(selection), {'allowance': pool_budget(selection), 'spent': Decimal('0'), 'pending': False})
             price = recorded_price(selection)
             if price is None:
                 pool['pending'] = True

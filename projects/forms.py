@@ -535,6 +535,7 @@ class FinishSelectionForm(forms.ModelForm):
             'description',
             'location',
             'allowance_mode',
+            'allowance_group',
             'allowance_amount',
             'due_date',
         )
@@ -555,6 +556,10 @@ class FinishSelectionForm(forms.ModelForm):
     def __init__(self, *args, project, **kwargs):
         super().__init__(*args, **kwargs)
         self.project = project
+        group_choices = [('', 'Shared section allowance')]
+        for package in project.selection_packages.all():
+            group_choices += [(g['id'], f"{package.title} / {g['name']}") for g in package.allowance_groups]
+        self.fields['allowance_group'] = forms.ChoiceField(required=False, choices=group_choices, label='Allowance group', help_text='For a grouped section, choose the budget this selection draws from.')
         self.fields['allowance_mode'].required = False
         self.fields['allowance_amount'].required = False
         self.fields['allowance_mode'].label = 'Allowance source'
@@ -575,6 +580,13 @@ class FinishSelectionForm(forms.ModelForm):
             if mode == 'individual':
                 self.add_error('allowance_amount', 'Enter the individual allowance.')
             cleaned_data['allowance_amount'] = self.instance.allowance_amount or 0
+        group_id = cleaned_data.get('allowance_group') or ''
+        if mode != 'section':
+            cleaned_data['allowance_group'] = ''
+        if mode == 'section' and package and package.allowance_groups and group_id not in [g['id'] for g in package.allowance_groups]:
+            self.add_error('allowance_group', 'Choose an allowance group in this category.')
+        if mode == 'section' and package and not package.allowance_groups and group_id:
+            self.add_error('allowance_group', 'This category does not have that allowance group.')
         if mode == 'section' and (not package or package.allowance_amount is None):
             self.add_error('allowance_mode', 'Choose a category with a shared allowance. Set it up in Manage allowances first.')
         cleaned_data['new_package_title'] = new_package_title

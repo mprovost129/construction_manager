@@ -26,6 +26,7 @@ from .models import (
     SelectionPackage,
     StaffMessageDelivery,
 )
+from .allowance_groups import copied_budget
 from .selection_templates import (
     ROW_FIELDS,
     copied_files,
@@ -251,7 +252,7 @@ def copy_setup(source, user, data):
         for number, row in enumerate(rows, 1):
             if row.package_id and row.package_id not in packages:
                 packages[row.package_id] = SelectionPackage.objects.create(
-                    project=target, title=row.package.title, created_by=user, allowance_amount=row.package.allowance_amount
+                    project=target, title=row.package.title, created_by=user, **copied_budget(row.package, [r.allowance_group for r in rows if r.package_id == row.package_id and r.allowance_mode == 'section'])
                 )
             new_row = FinishSelection.objects.create(
                 project=target,

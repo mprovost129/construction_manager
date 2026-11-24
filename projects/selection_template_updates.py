@@ -10,6 +10,7 @@ from django.db.models import Max
 from django.utils import timezone
 
 from .access import can_manage_project
+from .allowance_groups import pool_budget, copied_budget
 from .models import (
     ActivityEvent,
     ChoiceImage,
@@ -61,6 +62,7 @@ def row_state(selection):
         options.append(data)
     return dict(id=selection.pk, fields=fields, options=options, status=selection.status,
                 section_allowance=str(selection.package.allowance_amount) if selection.package_id else None,
+                allowance_groups=selection.package.allowance_groups if selection.package_id else [],
                 chosen_option_id=selection.chosen_option_id, updated_at=selection.updated_at.isoformat())
 
 
@@ -151,8 +153,9 @@ def apply_template(template, project, user, rows, due_date=None, *, mode='add', 
                 if not package:
                     section = template.allowance_sections.filter(category__iexact=row.category).first()
                     package = SelectionPackage.objects.create(project=project, title=row.category, created_by=user,
-                        allowance_amount=section.allowance_amount if section else None)
-            if selection.allowance_mode == 'section' and (not package or package.allowance_amount is None):
+                        **copied_budget(section, rows.filter(category__iexact=row.category, allowance_mode='section').values_list('allowance_group', flat=True)))
+            selection.package = package
+            if selection.allowance_mode == 'section' and pool_budget(selection) is None:
                 raise ValidationError(f'Enable a shared allowance for {row.category or "this category"} in Manage allowances before loading pooled rows. Existing section budgets are preserved.')
             selection.package = package
             selection.template_row_key = row.key
@@ -217,6 +220,14 @@ def undo_replacement(backup, user):
                 if state['fields']['allowance_mode'] != 'individual':
                     raise ValidationError('Allowance settings changed after replacement. Undo would overwrite newer work.')
                 state['fields'].pop('allowance_mode')
+            if 'allowance_group' not in old['fields']:
+                if state['fields']['allowance_group']:
+                    raise ValidationError('Allowance groups changed after replacement.')
+                state['fields'].pop('allowance_group')
+            if 'allowance_groups' not in old:
+                if state['allowance_groups']:
+                    raise ValidationError('Allowance groups changed after replacement.')
+                state.pop('allowance_groups')
             if 'section_allowance' not in old:
                 state.pop('section_allowance')
         if revision(current) != backup.after_revision:

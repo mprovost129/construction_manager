@@ -436,3 +436,14 @@ Shared section budgets appear once in category and grand totals. A filtered/loca
 
 Only staff with project management permission can change these settings. Billed items and items with recorded credit handling cannot have their individual basis silently changed. Shared and no-allowance items cannot generate individual allowance invoices or individual credit dispositions.
 Templates and project copies preserve modes and shared budgets. Loading into an existing project preserves existing section budgets; configure a missing shared budget before loading pooled rows into an existing category. Amend keeps existing row settings; Replace changes matching unreleased rows. Previous approvals are never copied.
+
+
+### Multiple allowance groups in one section
+
+In **Manage allowances**, find the section and click **Add allowance group**. Name each group (for example Windows and Doors) and enter its budget. The section allowance automatically becomes the sum of these group budgets; it is not an additional allowance.
+
+For each covered selection, choose **Use section allowance**, then pick its **Allowance group**. Multiple selections can draw from one group. Keep **Own allowance** for separate items, or **No allowance — included in contract** when the selected price should not adjust the contract. Click **Save allowances**.
+
+Example: Windows allowance $25,000 and selected prices $27,000; Doors allowance $15,000 and selected prices $14,000. Group balances are $2,000 over and $1,000 under. Combined section allowance is $40,000 against $41,000 spent: $1,000 over. Group balances appear with the section totals and in the client-safe Allowances & project totals details, print view, and spreadsheet export.
+
+Rename groups in the same screen. To remove a group, reassign its selections first. Saving rejects missing assignments, duplicate names, and negative budgets. Amounts can be zero; selected prices can be negative credits. An unfinished group cannot generate a final unused-budget credit. Templates and project copies preserve groups; partial copies bring only the named budgets used by the copied rows. Existing destination budgets are preserved when loading templates; configure matching groups first if needed.

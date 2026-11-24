@@ -110,10 +110,18 @@ def reconciliation_csv(project, report):
         "Allowance source",
     )
     for section in report["sections"]:
-        if section['shared_allowance'] is not None:
-            row(section['label'], 'Shared section budget', section['shared_price'], section['shared_allowance'],
-                'Choices pending; unused balance is not a final credit' if section['provisional'] else 'All choices priced',
-                'Remaining budget', section['shared_remaining'])
+        for pool in section["pools"].values():
+            row(
+                section["label"],
+                pool["label"],
+                pool["price"],
+                pool["allowance"],
+                pool["adjustment"],
+                0,
+                pool["adjustment"],
+                "",
+                "Shared allowance group",
+            )
         for item in section["details"]:
             row(
                 section["label"],
@@ -124,7 +132,7 @@ def reconciliation_csv(project, report):
                 item["covered"],
                 item["net"],
                 ", ".join(order.display_number for order in item["orders"]),
-                item["selection"].get_allowance_mode_display(),
+                item["selection"].allowance_description,
             )
     row(
         "Unpriced selections - excluded from savings",

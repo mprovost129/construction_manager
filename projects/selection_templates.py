@@ -8,6 +8,7 @@ from django.db import transaction
 from django.db.models import Q
 
 from .access import can_manage_project
+from .allowance_groups import copied_budget
 from .models import (
     ActivityEvent,
     ChoiceImage,
@@ -21,7 +22,7 @@ from .models import (
 )
 from .services import record_activity
 
-ROW_FIELDS = ('title', 'description', 'location', 'allowance_amount', 'allowance_mode')
+ROW_FIELDS = ('title', 'description', 'location', 'allowance_amount', 'allowance_mode', 'allowance_group')
 OPTION_FIELDS = ('name', 'description', 'price', 'is_recommended', 'sort_order',
                  'vendor_name', 'product_url', 'specification', 'lead_time', 'image_caption')
 
@@ -120,7 +121,9 @@ def save_project_template(project, user, name, description, selections):
                    else getattr(selection, field) for field in ROW_FIELDS})
             copy_options(selection.options.all(), row, saved)
         for package in project.selection_packages.filter(pk__in=selections.values_list('package_id', flat=True), allowance_amount__isnull=False):
-            SelectionTemplateSection.objects.create(template=template, category=package.title, allowance_amount=package.allowance_amount)
+            budget = copied_budget(package, selections.filter(package=package, allowance_mode='section').values_list('allowance_group', flat=True))
+            if budget['allowance_amount'] is not None:
+                SelectionTemplateSection.objects.create(template=template, category=package.title, **budget)
         audit(template, user, 'saved', project)
     return template
 
@@ -137,7 +140,7 @@ def copy_template(source, user, name):
                 sort_order=original.sort_order, **{field: getattr(original, field) for field in ROW_FIELDS})
             copy_options(original.options.all(), row, saved)
         for section in source.allowance_sections.all():
-            SelectionTemplateSection.objects.create(template=template, category=section.category, allowance_amount=section.allowance_amount)
+            SelectionTemplateSection.objects.create(template=template, category=section.category, allowance_amount=section.allowance_amount, allowance_groups=section.allowance_groups)
         audit(template, user, 'copied', source_template_id=source.pk)
     return template
 

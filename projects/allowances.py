@@ -3,6 +3,7 @@
 from collections import defaultdict
 from decimal import Decimal
 
+from .allowance_groups import pool_budget, pool_key, pool_label
 from .models import FinishSelection
 
 ZERO = Decimal("0")
@@ -30,12 +31,13 @@ def allowance_totals(rows, *, complete_pool_ids=None):
     pools = defaultdict(list)
     for row in active:
         if getattr(row, "uses_section_allowance", False) and row.package_id:
-            pools[row.package_id].append(row)
+            pools[pool_key(row)].append(row)
     shared = []
     partial_pool = False
     for pk, members in pools.items():
         package = members[0].package
-        if package.allowance_amount is None:
+        budget = pool_budget(members[0])
+        if budget is None:
             continue
         if complete_pool_ids is not None and {
             r.pk for r in members
@@ -49,17 +51,25 @@ def allowance_totals(rows, *, complete_pool_ids=None):
         shared.append(
             dict(
                 package=package,
-                allowance=package.allowance_amount,
+                allowance=budget,
+                label=pool_label(members[0]),
                 price=cost,
-                remaining=package.allowance_amount - cost,
+                remaining=budget - cost,
                 pending_count=pending,
             )
         )
-        allowance += package.allowance_amount
+        allowance += budget
         spending += cost
     return dict(
         price=sum((recorded_price(r) for r in priced), ZERO),
-        included_price=sum((recorded_price(r) for r in priced if getattr(r, 'allowance_mode', 'individual') == 'none'), ZERO),
+        included_price=sum(
+            (
+                recorded_price(r)
+                for r in priced
+                if getattr(r, "allowance_mode", "individual") == "none"
+            ),
+            ZERO,
+        ),
         priced_allowance=allowance,
         pending_allowance=pending_allowance,
         allowance=allowance + pending_allowance,
@@ -78,7 +88,7 @@ def pool_members(rows):
     result = defaultdict(set)
     for row in rows:
         if row.uses_section_allowance and row.status != FinishSelection.Status.VOIDED:
-            result[row.package_id].add(row.pk)
+            result[pool_key(row)].add(row.pk)
     return result
 
 

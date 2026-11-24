@@ -53,7 +53,8 @@ class RowForm(forms.ModelForm):
     def clean(self):
         data = super().clean()
         if self.instance.allowance_mode == 'section' and self.instance.template_id:
-            if not self.instance.template.allowance_sections.filter(category__iexact=data.get('category', '').strip()).exists():
+            section = self.instance.template.allowance_sections.filter(category__iexact=data.get('category', '').strip()).first()
+            if not section or (self.instance.allowance_group and self.instance.allowance_group not in [g['id'] for g in section.allowance_groups]) or (section.allowance_groups and not self.instance.allowance_group):
                 self.add_error('category', 'This selection uses a section allowance. Configure the new category in Manage allowances or switch this item to its own allowance first.')
         return data
 

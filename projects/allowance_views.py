@@ -3,15 +3,18 @@
 import hashlib
 import json
 from collections import OrderedDict
+from decimal import Decimal
 
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 
+from .allowance_groups import validate_groups
 from .allowances import financial_links
 from .models import (
     ActivityEvent,
@@ -35,6 +38,7 @@ def setup_state(owner, template=False, lock=False):
     groups = OrderedDict()
     if template:
         budgets = {p.category.casefold(): p.allowance_amount for p in packages}
+        named = {p.category.casefold(): p.allowance_groups for p in packages}
         for row in sorted(
             rows, key=lambda r: (category_key(r.category), r.sort_order, r.pk)
         ):
@@ -45,6 +49,7 @@ def setup_state(owner, template=False, lock=False):
                     label=row.category or "Uncategorized",
                     category=row.category,
                     amount=budgets.get(key),
+                    allowance_groups=named.get(key, []),
                     rows=[],
                     can_share=bool(key),
                 ),
@@ -56,6 +61,7 @@ def setup_state(owner, template=False, lock=False):
                 label=package.title,
                 category=package.pk,
                 amount=package.allowance_amount,
+                allowance_groups=package.allowance_groups,
                 rows=[],
                 can_share=True,
             )
@@ -68,6 +74,7 @@ def setup_state(owner, template=False, lock=False):
                     label="Uncategorized",
                     category=None,
                     amount=None,
+                    allowance_groups=[],
                     rows=[],
                     can_share=False,
                 ),
@@ -80,6 +87,7 @@ def setup_state(owner, template=False, lock=False):
                         r.pk,
                         r.category if template else r.package_id,
                         r.allowance_mode,
+                        r.allowance_group,
                         str(r.allowance_amount),
                         getattr(r, "status", ""),
                         str(getattr(r, "updated_at", "")),
@@ -87,7 +95,12 @@ def setup_state(owner, template=False, lock=False):
                     for r in rows
                 ],
                 [
-                    (p.pk, p.category if template else p.title, str(p.allowance_amount))
+                    (
+                        p.pk,
+                        p.category if template else p.title,
+                        str(p.allowance_amount),
+                        p.allowance_groups,
+                    )
                     for p in packages
                 ],
                 str(owner.updated_at),
@@ -127,6 +140,32 @@ class AllowanceSetupForm(forms.Form):
                 widget=forms.NumberInput(attrs={"step": "0.01"}),
                 disabled=not group["can_share"],
             )
+            groups_key = f"section_{index}_groups"
+            self.fields[groups_key] = forms.JSONField(
+                required=False,
+                initial=group.get("allowance_groups", []),
+                widget=forms.HiddenInput,
+            )
+            try:
+                raw = (
+                    json.loads(self.data.get(groups_key, "[]"))
+                    if self.is_bound
+                    else group.get("allowance_groups", [])
+                )
+                named = (
+                    [
+                        g
+                        for g in raw[:50]
+                        if isinstance(g, dict)
+                        and all(
+                            isinstance(g.get(k), str) for k in ("id", "name", "amount")
+                        )
+                    ]
+                    if isinstance(raw, list)
+                    else []
+                )
+            except (ValueError, TypeError, ValidationError):
+                named = []
             entries = []
             for row in group["rows"]:
                 mode_key, own_key = f"row_{row.pk}_mode", f"row_{row.pk}_amount"
@@ -144,13 +183,39 @@ class AllowanceSetupForm(forms.Form):
                     label=f"{row.title}: own allowance",
                     widget=forms.NumberInput(attrs={"step": "0.01"}),
                 )
-                entries.append(dict(row=row, mode=self[mode_key], amount=self[own_key]))
+                group_key = f"row_{row.pk}_group"
+                self.fields[group_key] = forms.CharField(
+                    required=False,
+                    widget=forms.Select(
+                        choices=[
+                            (
+                                "",
+                                "Choose allowance group"
+                                if named
+                                else "Shared section allowance",
+                            )
+                        ]
+                        + [(g["id"], g["name"]) for g in named]
+                    ),
+                    initial=row.allowance_group,
+                    label=f"{row.title}: allowance group",
+                )
+                entries.append(
+                    dict(
+                        row=row,
+                        mode=self[mode_key],
+                        amount=self[own_key],
+                        group=self[group_key],
+                    )
+                )
             self.layout.append(
                 dict(
                     label=group["label"],
                     enabled=self[enabled_key],
                     amount=self[amount_key],
                     rows=entries,
+                    groups=self[groups_key],
+                    named=named,
                 )
             )
 
@@ -158,6 +223,22 @@ class AllowanceSetupForm(forms.Form):
         data = super().clean()
         for index, group in enumerate(self.groups):
             enabled = data.get(f"section_{index}_enabled")
+            groups_key = f"section_{index}_groups"
+            named = []
+            try:
+                named = validate_groups(data.get(groups_key) or [])
+                data[groups_key] = named
+            except ValidationError as exc:
+                self.add_error(groups_key, exc)
+            if named and not enabled:
+                self.add_error(
+                    groups_key,
+                    "Turn on the section allowance to use allowance groups, or remove the groups.",
+                )
+            if named:
+                data[f"section_{index}_amount"] = sum(
+                    (Decimal(g["amount"]) for g in named), Decimal("0")
+                )
             amount_key = f"section_{index}_amount"
             if enabled and data.get(amount_key) is None:
                 self.add_error(amount_key, "Enter the shared allowance amount.")
@@ -178,9 +259,36 @@ class AllowanceSetupForm(forms.Form):
                     "for the items it covers, or turn off the shared allowance. "
                     "Items with Own allowance do not draw from this budget.",
                 )
+            for named_group in named:
+                if active_rows and not any(
+                    data.get(f"row_{row.pk}_mode") == "section"
+                    and data.get(f"row_{row.pk}_group") == named_group["id"]
+                    for row in active_rows
+                ):
+                    self.add_error(
+                        groups_key,
+                        f"Assign at least one selection to {named_group['name']}, or remove that allowance group.",
+                    )
             for row in group["rows"]:
                 mode_key, own_key = f"row_{row.pk}_mode", f"row_{row.pk}_amount"
                 mode, own = data.get(mode_key), data.get(own_key)
+                group_key = f"row_{row.pk}_group"
+                if (
+                    mode == "section"
+                    and named
+                    and data.get(group_key) not in [g["id"] for g in named]
+                ):
+                    self.add_error(
+                        group_key,
+                        "Choose the allowance group this selection draws from.",
+                    )
+                if mode == "section" and not named and data.get(group_key):
+                    self.add_error(
+                        group_key,
+                        "This section no longer has that allowance group. Choose the shared section allowance.",
+                    )
+                if mode != "section":
+                    data[group_key] = ""
                 if mode == AllowanceMode.SECTION and not enabled:
                     self.add_error(
                         mode_key,
@@ -195,6 +303,7 @@ class AllowanceSetupForm(forms.Form):
                     not self.template
                     and (
                         mode != row.allowance_mode
+                        or data.get(group_key) != row.allowance_group
                         or (mode == "individual" and own != row.allowance_amount)
                     )
                     and financial_links(row)
@@ -261,12 +370,17 @@ def allowance_editor(request, owner, *, template):
                         if form.cleaned_data[f"section_{index}_enabled"]
                         else None
                     )
-                    if amount != group["amount"]:
+                    named = form.cleaned_data[f"section_{index}_groups"]
+                    if amount != group["amount"] or named != group.get(
+                        "allowance_groups", []
+                    ):
                         changes.append(
                             dict(
                                 section=group["label"],
                                 before=str(group["amount"]),
                                 after=str(amount),
+                                groups_before=group.get("allowance_groups", []),
+                                groups_after=named,
                             )
                         )
                     if template:
@@ -280,16 +394,23 @@ def allowance_editor(request, owner, *, template):
                             ).first()
                             if section:
                                 section.allowance_amount = amount
-                                section.save(update_fields=["allowance_amount"])
+                                section.allowance_groups = named
+                                section.save(
+                                    update_fields=[
+                                        "allowance_amount",
+                                        "allowance_groups",
+                                    ]
+                                )
                             else:
                                 SelectionTemplateSection.objects.create(
                                     template=owner,
                                     category=group["category"],
                                     allowance_amount=amount,
+                                    allowance_groups=named,
                                 )
                     elif group["category"]:
                         owner.selection_packages.filter(pk=group["category"]).update(
-                            allowance_amount=amount
+                            allowance_amount=amount, allowance_groups=named
                         )
                     for row in group["rows"]:
                         mode = form.cleaned_data[f"row_{row.pk}_mode"]
@@ -300,20 +421,34 @@ def allowance_editor(request, owner, *, template):
                             if mode == AllowanceMode.INDIVIDUAL
                             else row.allowance_amount
                         )
-                        if (row.allowance_mode, row.allowance_amount) != (mode, own):
+                        group_id = form.cleaned_data[f"row_{row.pk}_group"]
+                        if (
+                            row.allowance_mode,
+                            row.allowance_amount,
+                            row.allowance_group,
+                        ) != (mode, own, group_id):
                             changes.append(
                                 dict(
                                     selection_id=row.pk,
                                     before=[
                                         row.allowance_mode,
                                         str(row.allowance_amount),
+                                        row.allowance_group,
                                     ],
-                                    after=[mode, str(own)],
+                                    after=[mode, str(own), group_id],
                                 )
                             )
-                            row.allowance_mode, row.allowance_amount = mode, own
+                            (
+                                row.allowance_mode,
+                                row.allowance_amount,
+                                row.allowance_group,
+                            ) = mode, own, group_id
                             row.save(
-                                update_fields=["allowance_mode", "allowance_amount"]
+                                update_fields=[
+                                    "allowance_mode",
+                                    "allowance_amount",
+                                    "allowance_group",
+                                ]
                                 + ([] if template else ["updated_at"])
                             )
                 owner.save(update_fields=["updated_at"])
