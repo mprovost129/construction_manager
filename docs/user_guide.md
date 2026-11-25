@@ -12,6 +12,10 @@ every project's notifications automatically; assign an administrator as a projec
 manager if they should receive them. Assign at least one PM to each active project.
 Private staff messages still notify the people explicitly included in that conversation.
 
+Under **People & access**, checking **Assign as a project manager** automatically includes **Manage project workflows** and **Invite and manage clients**. Those permissions cannot be turned off while the person remains an assigned PM. Other team members can still receive separate permissions. Existing assigned PMs receive the same automatic permissions.
+
+A company project manager who creates a job is automatically assigned as its PM. A PM who copies a job is assigned to the new job too. Someone who already manages a project can select themselves under **Internal user**, check **Assign as a project manager**, and save. This does not allow staff to claim projects they cannot already manage. Company administration, QuickBooks permissions, and administrator-controlled budget visibility remain separate.
+
 ## Contents
 
 1. Signing in

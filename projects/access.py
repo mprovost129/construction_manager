@@ -97,6 +97,20 @@ def can_manage_project(user, project):
     ).exists()
 
 
+def is_assigned_project_manager(user, project):
+    if project.deleted_at or getattr(user, '_client_preview_project_id', None):
+        return False
+    membership = organization_membership_for(user, project.organization)
+    return bool(
+        membership
+        and membership.is_internal
+        and ProjectInternalAccess.objects.filter(
+            project=project, membership=membership,
+            is_active=True, is_project_manager=True,
+        ).exists()
+    )
+
+
 def can_invite_clients(user, project):
     if project.deleted_at:
         return False
@@ -127,7 +141,8 @@ def can_use_project_messaging(user, project):
     if (
         organization_membership
         and organization_membership.is_internal
-        and organization_membership.role != OrganizationMembership.Role.ACCOUNTANT
+        and (organization_membership.role != OrganizationMembership.Role.ACCOUNTANT
+             or is_assigned_project_manager(user, project))
     ):
         return projects_for_user(user).filter(pk=project.pk).exists()
     return is_project_client(user, project)
@@ -220,12 +235,15 @@ def can_use_schedule(user, project):
     return bool(
         membership
         and membership.is_internal
-        and membership.role != OrganizationMembership.Role.ACCOUNTANT
+        and (membership.role != OrganizationMembership.Role.ACCOUNTANT
+             or is_assigned_project_manager(user, project))
         and projects_for_user(user).filter(pk=project.pk).exists()
     )
 
 
 def can_manage_schedule(user, project):
+    if is_assigned_project_manager(user, project):
+        return True
     if not user.is_authenticated:
         return False
     if user.is_superuser:

@@ -4611,6 +4611,7 @@ class ProjectCreateView(LoginRequiredMixin, FormView):
                     membership=membership,
                     can_manage=True,
                     can_invite_clients=True,
+                    is_project_manager=membership.role == OrganizationMembership.Role.PROJECT_MANAGER,
                     receives_notifications=True,
                     assigned_by=self.request.user,
                 )

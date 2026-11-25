@@ -948,6 +948,13 @@ class ProjectInternalAccessForm(forms.ModelForm):
             raise forms.ValidationError('Choose an internal team member.')
         return membership
 
+    def clean(self):
+        data = super().clean()
+        if data.get('is_project_manager'):
+            data['can_manage'] = True
+            data['can_invite_clients'] = True
+        return data
+
 
 class ClientInvitationForm(forms.ModelForm):
     class Meta:

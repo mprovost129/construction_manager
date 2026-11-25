@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}People & access | {{ project.name }}{% endblock %}
 
@@ -16,7 +17,7 @@
 
 {% if can_manage_project %}
 <section class="admin-panel">
-    <div class="section-heading"><div><p class="eyebrow">Internal user viewing access</p><h2>Assigned company users</h2></div></div>
+    <div class="section-heading"><div><p class="eyebrow">Project team access</p><h2>Assigned company users</h2><p>Assigned project managers automatically manage project workflows and clients. The separate permission boxes are for other team members. A project manager who creates or copies a job is assigned automatically.</p></div></div>
     {% if internal_access_entries %}
     <div class="table-responsive">
         <table class="admin-table">
@@ -36,7 +37,7 @@
     </div>
     {% else %}<p class="empty-copy">Only company administrators currently have internal access.</p>{% endif %}
 
-    <form method="post" action="{% url 'projects:internal_access_update' project.pk %}" class="stacked-form mt-4">
+    <form method="post" action="{% url 'projects:internal_access_update' project.pk %}" class="stacked-form mt-4" data-project-access-form>
         {% csrf_token %}
         <div class="form-grid">
             {% for field in internal_access_form %}<div class="form-field{% if field.field.widget.input_type == 'checkbox' %} form-field--checkbox{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}
@@ -96,3 +97,4 @@
     {% else %}<p class="empty-copy">No customer invitations have been sent.</p>{% endif %}
 </section>
 {% endblock %}
+{% block extra_js %}<script src="{% static 'js/project-access.js' %}" defer></script>{% endblock %}

@@ -342,6 +342,11 @@ class ProjectInternalAccess(models.Model):
                 fields=('project', 'membership'),
                 name='projects_unique_internal_access',
             ),
+            models.CheckConstraint(
+                condition=models.Q(is_project_manager=False)
+                | models.Q(can_manage=True, can_invite_clients=True),
+                name='projects_pm_has_management_access',
+            ),
         ]
 
     @property
@@ -350,6 +355,9 @@ class ProjectInternalAccess(models.Model):
 
     def clean(self):
         super().clean()
+        if self.is_project_manager:
+            self.can_manage = True
+            self.can_invite_clients = True
         errors = {}
         if self.membership_id and self.project_id:
             if self.membership.organization_id != self.project.organization_id:
@@ -358,6 +366,14 @@ class ProjectInternalAccess(models.Model):
                 errors['membership'] = 'Project internal access requires an internal role.'
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.is_project_manager:
+            self.can_manage = True
+            self.can_invite_clients = True
+            if kwargs.get('update_fields') is not None:
+                kwargs['update_fields'] = set(kwargs['update_fields']) | {'can_manage', 'can_invite_clients'}
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.membership.user.email} - {self.project}'

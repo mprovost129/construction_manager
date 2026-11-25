@@ -57,9 +57,10 @@ def admin_organizations(user):
 def can_copy_project(user, project):
     return (
         can_manage_project(user, project)
-        and internal_organizations_for_user(user, management_only=True)
-        .filter(pk=project.organization_id)
-        .exists()
+        and (internal_organizations_for_user(user, management_only=True)
+             .filter(pk=project.organization_id).exists()
+             or project.internal_access.filter(membership__user=user,
+                 membership__is_active=True, is_active=True, is_project_manager=True).exists())
     )
 
 
@@ -242,6 +243,9 @@ def copy_setup(source, user, data):
                 membership=membership,
                 can_manage=True,
                 can_invite_clients=True,
+                is_project_manager=(membership.role == OrganizationMembership.Role.PROJECT_MANAGER
+                    or source.internal_access.filter(membership=membership, is_active=True,
+                                                     is_project_manager=True).exists()),
                 assigned_by=user,
             )
         packages = {}
