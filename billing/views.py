@@ -61,6 +61,8 @@ class InvoiceListView(LoginRequiredMixin, TemplateView):
     template_name = 'billing/invoice_list.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = invoice_project_or_404(request.user, kwargs['project_id'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -105,6 +107,8 @@ class InvoiceCreateView(LoginRequiredMixin, FormView):
     template_name = 'billing/invoice_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = invoice_project_or_404(request.user, kwargs['project_id'])
         require_invoice_manager(request.user, self.project)
         return super().dispatch(request, *args, **kwargs)
@@ -136,6 +140,8 @@ class InvoiceFromChangeOrderCreateView(LoginRequiredMixin, FormView):
     template_name = 'billing/invoice_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = invoice_project_or_404(request.user, kwargs['project_id'])
         require_invoice_manager(request.user, self.project)
         self.change_order = get_object_or_404(
@@ -190,6 +196,8 @@ class InvoiceFromSelectionCreateView(LoginRequiredMixin, FormView):
     template_name = 'billing/invoice_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = invoice_project_or_404(request.user, kwargs['project_id'])
         require_invoice_manager(request.user, self.project)
         self.selection = get_object_or_404(
@@ -269,6 +277,8 @@ class InvoiceDetailView(LoginRequiredMixin, TemplateView):
     template_name = 'billing/invoice_detail.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = invoice_project_or_404(request.user, kwargs['project_id'])
         self.invoice = visible_invoice_or_404(
             request.user,
@@ -383,6 +393,8 @@ class InvoiceUpdateView(LoginRequiredMixin, FormView):
     template_name = 'billing/invoice_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = invoice_project_or_404(request.user, kwargs['project_id'])
         require_invoice_manager(request.user, self.project)
         self.invoice = get_object_or_404(
@@ -427,6 +439,8 @@ class InvoiceLineItemCreateView(LoginRequiredMixin, FormView):
     template_name = 'billing/invoice_line_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = invoice_project_or_404(request.user, kwargs['project_id'])
         require_invoice_manager(request.user, self.project)
         self.invoice = get_object_or_404(
@@ -470,6 +484,8 @@ class InvoiceLineItemUpdateView(LoginRequiredMixin, FormView):
     template_name = 'billing/invoice_line_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = invoice_project_or_404(request.user, kwargs['project_id'])
         require_invoice_manager(request.user, self.project)
         self.invoice = get_object_or_404(
@@ -626,6 +642,8 @@ class PaymentCreateView(LoginRequiredMixin, FormView):
     template_name = 'billing/payment_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = invoice_project_or_404(request.user, kwargs['project_id'])
         require_invoice_manager(request.user, self.project)
         self.invoice = get_object_or_404(Invoice, project=self.project, pk=kwargs['invoice_id'])
@@ -675,6 +693,8 @@ class CreditMemoDetailView(LoginRequiredMixin, TemplateView):
     template_name = 'billing/credit_memo_detail.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = invoice_project_or_404(request.user, kwargs['project_id'])
         credit_memos = self.project.credit_memos.select_related('source_change_order')
         if is_project_client(request.user, self.project):
@@ -733,6 +753,8 @@ class CreditMemoApplyView(LoginRequiredMixin, FormView):
     template_name = 'billing/credit_memo_detail.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = invoice_project_or_404(request.user, kwargs['project_id'])
         require_invoice_manager(request.user, self.project)
         self.credit_memo = get_object_or_404(

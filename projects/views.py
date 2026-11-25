@@ -466,6 +466,8 @@ class ProjectFinancialSummaryView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/financial_summary.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = financials_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -533,6 +535,8 @@ class ProjectCostEntryCreateView(LoginRequiredMixin, FormView):
     template_name = 'projects/project_cost_entry_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         if not can_view_project_budget(request.user, self.project):
             raise PermissionDenied('Budget access is required to record costs.')
@@ -580,6 +584,8 @@ class ProjectActionCenterView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/action_center.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = action_center_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -599,6 +605,8 @@ class ProjectMessageListView(LoginRequiredMixin, TemplateView):
     paginate_by = 20
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = messaging_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -671,6 +679,8 @@ class ProjectMessageCreateView(LoginRequiredMixin, FormView):
     template_name = 'projects/message_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = messaging_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -814,6 +824,8 @@ class ProjectDocumentListView(LoginRequiredMixin, TemplateView):
     paginate_by = 20
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = documents_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -917,6 +929,8 @@ class ProjectDocumentCreateView(LoginRequiredMixin, FormView):
     template_name = 'projects/document_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -972,6 +986,8 @@ class ClientProjectUploadView(LoginRequiredMixin, FormView):
     template_name = 'projects/client_upload_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = documents_project_or_404(request.user, kwargs['pk'])
         if not is_project_client(request.user, self.project):
             raise PermissionDenied('Only assigned clients can use the client upload area.')
@@ -1032,6 +1048,8 @@ class ProjectDocumentDetailView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/document_detail.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = documents_project_or_404(request.user, kwargs['pk'])
         self.document = visible_document_or_404(
             request.user, self.project, kwargs['document_pk']
@@ -1091,6 +1109,8 @@ class ProjectDocumentVersionCreateView(LoginRequiredMixin, FormView):
     template_name = 'projects/document_version_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         self.document = get_object_or_404(
             ProjectDocument, project=self.project, pk=kwargs['document_pk']
@@ -1248,6 +1268,8 @@ class ProjectDocumentSignatureRequestCreateView(LoginRequiredMixin, FormView):
     template_name = 'projects/document_signature_request_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         self.document = get_object_or_404(
             ProjectDocument,
@@ -1344,6 +1366,8 @@ class ProjectDocumentSignatureReviewView(LoginRequiredMixin, FormView):
     template_name = 'projects/document_signature_review.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = documents_project_or_404(request.user, kwargs['pk'])
         visible_document_or_404(request.user, self.project, kwargs['document_pk'])
         self.signature_request = get_object_or_404(
@@ -1607,6 +1631,8 @@ class ChangeOrderListView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/change_order_list.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = change_orders_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1634,6 +1660,8 @@ class ChangeOrderCreateView(LoginRequiredMixin, FormView):
     template_name = 'projects/change_order_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -1752,6 +1780,8 @@ class ChangeOrderUpdateView(LoginRequiredMixin, FormView):
     template_name = 'projects/change_order_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         self.change_order = get_object_or_404(
             ChangeOrder,
@@ -1817,6 +1847,8 @@ class ChangeOrderDetailView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/change_order_detail.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = change_orders_project_or_404(request.user, kwargs['pk'])
         self.change_order = visible_change_order_or_404(
             request.user, self.project, kwargs['change_order_pk']
@@ -2291,6 +2323,8 @@ class ChangeOrderLineItemCreateView(LoginRequiredMixin, FormView):
     template_name = 'projects/change_order_line_item_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         self.change_order = get_object_or_404(
             ChangeOrder,
@@ -2365,6 +2399,8 @@ class ChangeOrderLineItemUpdateView(LoginRequiredMixin, FormView):
     template_name = 'projects/change_order_line_item_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         self.change_order = get_object_or_404(
             ChangeOrder,
@@ -2491,6 +2527,8 @@ class EstimateListView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/estimate_list.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = estimates_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -2516,6 +2554,8 @@ class EstimateCreateView(LoginRequiredMixin, FormView):
     template_name = 'projects/estimate_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -2565,6 +2605,8 @@ class EstimateUpdateView(LoginRequiredMixin, FormView):
     template_name = 'projects/estimate_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         self.estimate = get_object_or_404(
             Estimate,
@@ -2624,6 +2666,8 @@ class EstimateDetailView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/estimate_detail.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = estimates_project_or_404(request.user, kwargs['pk'])
         self.estimate = visible_estimate_or_404(
             request.user, self.project, kwargs['estimate_pk']
@@ -2988,6 +3032,8 @@ class EstimateLineItemCreateView(LoginRequiredMixin, FormView):
     template_name = 'projects/estimate_line_item_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         self.estimate = get_object_or_404(
             Estimate,
@@ -3051,6 +3097,8 @@ class EstimateLineItemUpdateView(LoginRequiredMixin, FormView):
     template_name = 'projects/estimate_line_item_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         self.estimate = get_object_or_404(
             Estimate,
@@ -3163,6 +3211,8 @@ class FinishSelectionListView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/selection_list.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = selections_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -3178,6 +3228,8 @@ class FinishSelectionCreateView(LoginRequiredMixin, FormView):
     template_name = 'projects/selection_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -3244,6 +3296,8 @@ class FinishSelectionUpdateView(LoginRequiredMixin, FormView):
     template_name = 'projects/selection_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         self.selection = get_object_or_404(
             FinishSelection,
@@ -3311,6 +3365,8 @@ class FinishSelectionDetailView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/selection_detail.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = selections_project_or_404(request.user, kwargs['pk'])
         self.selection = visible_selection_or_404(
             request.user, self.project, kwargs['selection_pk']
@@ -3370,6 +3426,8 @@ class SelectionOptionCreateView(LoginRequiredMixin, FormView):
     template_name = 'projects/selection_option_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         self.selection = get_object_or_404(
             FinishSelection,
@@ -3435,6 +3493,8 @@ class SelectionOptionUpdateView(LoginRequiredMixin, FormView):
     template_name = 'projects/selection_option_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         self.selection = get_object_or_404(
             FinishSelection,
@@ -3799,6 +3859,8 @@ class SelectionPackageDetailView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/selection_package_detail.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = selections_project_or_404(request.user, kwargs['pk'])
         self.package = get_object_or_404(
             SelectionPackage, project=self.project, pk=kwargs['package_pk']
@@ -3833,6 +3895,8 @@ class SelectionPackageUpdateView(LoginRequiredMixin, FormView):
     template_name = 'projects/selection_package_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         self.package = get_object_or_404(
             SelectionPackage, project=self.project, pk=kwargs['package_pk']
@@ -3902,6 +3966,8 @@ class SelectionCustomRequestCreateView(LoginRequiredMixin, FormView):
     http_method_names = ('post',)
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = selections_project_or_404(request.user, kwargs['pk'])
         if not is_project_client(request.user, self.project):
             raise PermissionDenied('Only assigned clients can request a custom option.')
@@ -4101,6 +4167,8 @@ class DailyLogListView(LoginRequiredMixin, TemplateView):
     paginate_by = 12
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = daily_logs_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -4135,6 +4203,8 @@ class DailyLogCreateView(PhotoUploadFormMixin, LoginRequiredMixin, FormView):
     template_name = 'projects/daily_log_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -4193,6 +4263,8 @@ class DailyLogUpdateView(PhotoUploadFormMixin, LoginRequiredMixin, FormView):
     template_name = 'projects/daily_log_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         self.daily_log = get_object_or_404(
             DailyLog, project=self.project, pk=kwargs['daily_log_pk']
@@ -4259,6 +4331,8 @@ class DailyLogDetailView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/daily_log_detail.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = daily_logs_project_or_404(request.user, kwargs['pk'])
         self.daily_log = visible_daily_log_or_404(
             request.user, self.project, kwargs['daily_log_pk']
@@ -4286,6 +4360,8 @@ class DailyLogPhotoCreateView(LoginRequiredMixin, FormView):
     http_method_names = ('post',)
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         self.daily_log = get_object_or_404(
             DailyLog, project=self.project, pk=kwargs['daily_log_pk']
@@ -4382,6 +4458,8 @@ class ProjectScheduleView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/schedule.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = schedule_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -4423,6 +4501,8 @@ class ScheduleMilestoneCreateView(LoginRequiredMixin, FormView):
     template_name = 'projects/schedule_milestone_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = schedule_project_or_404(request.user, kwargs['pk'])
         if not can_manage_schedule(request.user, self.project):
             raise PermissionDenied(
@@ -4469,6 +4549,8 @@ class ScheduleMilestoneUpdateView(LoginRequiredMixin, FormView):
     template_name = 'projects/schedule_milestone_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = schedule_project_or_404(request.user, kwargs['pk'])
         if not can_manage_schedule(request.user, self.project):
             raise PermissionDenied(
@@ -4579,6 +4661,8 @@ class ProjectCreateView(LoginRequiredMixin, FormView):
         )
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         if not self.get_organizations().exists():
             raise PermissionDenied('You cannot create projects.')
         return super().dispatch(request, *args, **kwargs)
@@ -4631,6 +4715,8 @@ class ProjectUpdateView(LoginRequiredMixin, FormView):
     template_name = 'projects/project_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = managed_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -4672,6 +4758,8 @@ class ProjectPeopleView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/project_people.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = people_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -4818,6 +4906,8 @@ class ClientInviteView(LoginRequiredMixin, FormView):
     template_name = 'projects/invite_client.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = people_project_or_404(request.user, kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -5074,6 +5164,8 @@ class ProjectNotificationSettingsView(LoginRequiredMixin, TemplateView):
         return [(value, label) for value, label in NotificationPreference.Event.choices if allowed[value]]
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.project = get_object_or_404(
             projects_for_user(request.user).select_related('organization'),
             pk=kwargs['pk'],
@@ -5120,6 +5212,8 @@ class OrganizationDisclosureListView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/disclosure_list.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.organization = get_object_or_404(Organization, slug=kwargs['slug'])
         if not can_manage_organization(request.user, self.organization):
             raise PermissionDenied('You cannot manage disclosures for this company.')
@@ -5153,6 +5247,8 @@ class OrganizationDisclosureUpdateView(LoginRequiredMixin, FormView):
     template_name = 'projects/disclosure_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.organization = get_object_or_404(Organization, slug=kwargs['slug'])
         if not can_manage_organization(request.user, self.organization):
             raise PermissionDenied('You cannot manage disclosures for this company.')
@@ -5183,6 +5279,8 @@ class CompanyTeamView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/company_team.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.organization = internal_organization_or_404(
             request.user, kwargs['slug']
         )
@@ -5230,6 +5328,8 @@ class TeamInviteView(LoginRequiredMixin, FormView):
         return initial
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.organization = managed_organization_or_404(
             request.user, kwargs['slug']
         )
@@ -5279,6 +5379,8 @@ class CompanyTaxSettingsView(LoginRequiredMixin, FormView):
     template_name = 'projects/company_tax_settings.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.organization = managed_organization_or_404(request.user, kwargs['slug'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -5305,6 +5407,8 @@ class CostCodeListView(LoginRequiredMixin, TemplateView):
     template_name = 'projects/cost_code_list.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.organization = internal_organization_or_404(request.user, kwargs['slug'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -5327,6 +5431,8 @@ class CostCodeCreateView(LoginRequiredMixin, FormView):
     template_name = 'projects/cost_code_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.organization = managed_organization_or_404(request.user, kwargs['slug'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -5354,6 +5460,8 @@ class CostCodeUpdateView(LoginRequiredMixin, FormView):
     template_name = 'projects/cost_code_form.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.organization = managed_organization_or_404(request.user, kwargs['slug'])
         self.cost_code = get_object_or_404(
             CostCode,

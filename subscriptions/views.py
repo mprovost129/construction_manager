@@ -43,6 +43,8 @@ class SubscriptionDetailView(LoginRequiredMixin, TemplateView):
     template_name = 'subscriptions/detail.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.organization = subscription_admin_or_403(request.user, kwargs['slug'])
         return super().dispatch(request, *args, **kwargs)
 
