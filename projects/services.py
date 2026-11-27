@@ -683,7 +683,7 @@ def format_allowance_variance(option):
     return 'Within allowance'
 
 
-def send_selection_review_notification(request, selection):
+def send_selection_review_notification(request, selection, *, message_to_client=""):
     recipients = document_client_recipients(selection.project)
     if not recipients:
         return 0
@@ -709,6 +709,7 @@ def send_selection_review_notification(request, selection):
             f'selection for {selection.project.name}.\n\n'
             f'{selection.allowance_description}\n'
             f'{due_copy}'
+            + (f'\nMessage to client:\n{message_to_client}\n' if message_to_client else '')
         ),
         url_path=detail_path,
         recipient_list=recipients,

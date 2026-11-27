@@ -463,3 +463,8 @@ Contracts, change-order documents, spreadsheets, pending or declined documents, 
 A replacement document version, changed product specification/photo, withdrawn approval, hidden document or archived selection is withheld until eligible and reviewed again. The management screen identifies withheld materials. Save the reviewed choices to update the page without changing the printed code.
 
 **Disable job-site access** immediately stops the page and its downloads/photos; **Replace link & QR code** invalidates the old link and requires a new printed sign. Deleting a project revokes access permanently until staff explicitly publish again, even if the project is later restored. Downloaded copies cannot be recalled. New and copied projects start without public job-site access. Changes are recorded in the project audit trail.
+
+
+### Sending a note with a selection
+
+Open a draft selection and choose **Publish to client**. On the publishing screen, review the recipients and optionally enter a **Message to client** before publishing. The note is included in the publishing email and in-app notification according to each client's notification preferences. It does not change the selection description and is not repeated in reminders or reopened-selection notifications. Leave it blank to publish without a note.

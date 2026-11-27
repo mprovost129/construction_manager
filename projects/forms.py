@@ -649,6 +649,14 @@ class SelectionOptionForm(ChoiceGalleryMixin, forms.ModelForm):
         return attachment
 
 
+class SelectionPublishForm(forms.Form):
+    message_to_client = forms.CharField(
+        label='Message to client', required=False, max_length=5000,
+        widget=forms.Textarea(attrs={'rows': 5}),
+        help_text='Optional. Included in this publishing notification only, not in reminders or the selection description.',
+    )
+
+
 class SelectionDecisionForm(forms.Form):
     option = forms.ModelChoiceField(
         queryset=SelectionOption.objects.none(),

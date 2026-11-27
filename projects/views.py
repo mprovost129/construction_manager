@@ -82,6 +82,7 @@ from .forms import (
     SelectionDecisionForm,
     SelectionOptionForm,
     SelectionPackageForm,
+    SelectionPublishForm,
     TeamInvitationForm,
     TeamMembershipForm,
 )
@@ -3617,35 +3618,38 @@ class SelectionOptionDeleteView(LoginRequiredMixin, View):
 
 
 class FinishSelectionPublishView(LoginRequiredMixin, View):
-    http_method_names = ('post',)
+    http_method_names = ('get', 'post')
+
+    def render_form(self, request, project, selection, form):
+        return render(request, 'projects/selection_publish.html', {
+            'project': project, 'selection': selection, 'form': form,
+            'recipients': document_client_recipients(project),
+        })
+
+    def get(self, request, pk, selection_pk):
+        project = managed_project_or_404(request.user, pk)
+        selection = get_object_or_404(FinishSelection, project=project, pk=selection_pk)
+        if selection.status != FinishSelection.Status.DRAFT:
+            raise PermissionDenied('Only draft selections can be published.')
+        return self.render_form(request, project, selection, SelectionPublishForm())
 
     def post(self, request, pk, selection_pk):
         project = managed_project_or_404(request.user, pk)
-        if not document_client_recipients(project):
-            messages.error(
-                request,
-                'Assign an active client to the project before publishing.',
-            )
-            return redirect(
-                'projects:selection_detail',
-                pk=project.pk,
-                selection_pk=selection_pk,
-            )
+        form = SelectionPublishForm(request.POST)
         with transaction.atomic():
             selection = get_object_or_404(
                 FinishSelection.objects.select_for_update(),
-                project=project,
-                pk=selection_pk,
+                project=project, pk=selection_pk,
             )
             if selection.status != FinishSelection.Status.DRAFT:
                 raise PermissionDenied('Only draft selections can be published.')
+            valid = form.is_valid()
+            if not document_client_recipients(project):
+                form.add_error(None, 'Assign an active client to the project before publishing.')
             if not selection.options.exists():
-                messages.error(request, 'Add at least one option before publishing.')
-                return redirect(
-                    'projects:selection_detail',
-                    pk=project.pk,
-                    selection_pk=selection.pk,
-                )
+                form.add_error(None, 'Add at least one option before publishing.')
+            if not valid or form.errors:
+                return self.render_form(request, project, selection, form)
             selection.status = FinishSelection.Status.OPEN
             selection.opened_by = request.user
             selection.opened_at = timezone.now()
@@ -3668,7 +3672,9 @@ class FinishSelectionPublishView(LoginRequiredMixin, View):
                     'option_count': selection.options.count(),
                 },
             )
-        delivery_result = send_selection_review_notification(request, selection)
+        delivery_result = send_selection_review_notification(
+            request, selection, message_to_client=form.cleaned_data['message_to_client'],
+        )
         warn_if_notification_failed(request, delivery_result)
         messages.success(request, 'The selection was published to the client.')
         return redirect(
