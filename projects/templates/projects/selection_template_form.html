@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block title %}{{ title }} | Heritage 360{% endblock %}
+{% block content %}
+<nav class="breadcrumb-nav"><a href="{{ back_url }}">Back to selections</a></nav>
+<div class="form-shell form-shell--top"><section class="form-card form-card--wide"><p class="eyebrow">Selection templates</p><h1>{{ title }}</h1><p>{{ help_text }}</p>
+{% if form.cover_url %}<figure class="choice-cover-preview"><img src="{{ form.cover_url }}" alt="Current cover image"><figcaption>Current cover</figcaption></figure>{% endif %}
+<form method="post" enctype="multipart/form-data" class="stacked-form">{% csrf_token %}{{ form.non_field_errors }}
+{% for field in form.main_fields|default:form %}{% if field.is_hidden %}{{ field }}{% else %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}{% if field.help_text %}<p class="help-text">{{ field.help_text }}</p>{% endif %}</div>{% endif %}{% endfor %}
+{% include "projects/_choice_gallery_editor.html" %}
+<div class="form-actions"><a class="btn btn-outline-secondary" href="{{ back_url }}">Cancel</a><button class="btn btn-primary" type="submit">{% if submit_label %}{{ submit_label }}{% elif 'Load ' in title %}Apply template{% else %}Save{% endif %}</button></div></form></section></div>
+{% endblock %}

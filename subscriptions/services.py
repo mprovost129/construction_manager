@@ -30,7 +30,7 @@ class StripeWebhookInvalid(Exception):
 
 
 def stripe_subscriptions_configured():
-    return bool(getattr(settings, 'STRIPE_SUBSCRIPTIONS_CONFIGURED', False))
+    return bool(settings.SUBSCRIPTION_BILLING_ENABLED and settings.STRIPE_SUBSCRIPTIONS_CONFIGURED)
 
 
 def validate_stripe_configuration():

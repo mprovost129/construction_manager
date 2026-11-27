@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Notification settings | {{ project.name }}{% endblock %}
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:detail' project.pk %}">{{ project.name }}</a><i class="bi bi-chevron-right"></i><span>Notification settings</span></nav>
+<section class="page-heading"><div><p class="eyebrow">{{ project.name }}</p><h1>Notification settings</h1><p class="text-secondary mb-0">Choose how each type of project update reaches you.</p></div></section>
+<form method="post" class="admin-panel stacked-form">{% csrf_token %}
+<div class="table-responsive"><table class="admin-table"><thead><tr><th>Update type</th><th>Email</th><th>In app</th></tr></thead><tbody>
+{% for row in preference_rows %}<tr><td><strong>{{ row.label }}</strong></td><td><input type="checkbox" name="{{ row.value }}_email" {% if row.email_enabled %}checked{% endif %} aria-label="Email for {{ row.label }}"></td><td><input type="checkbox" name="{{ row.value }}_in_app" {% if row.in_app_enabled %}checked{% endif %} aria-label="In-app for {{ row.label }}"></td></tr>{% endfor %}
+</tbody></table></div><div class="form-actions"><button class="btn btn-primary" type="submit">Save preferences</button></div></form>
+{% endblock %}

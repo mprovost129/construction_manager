@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}{% if project %}Edit {{ project.name }}{% else %}New project{% endif %} | Construction Manager{% endblock %}
+{% block title %}{% if project %}Edit {{ project.name }}{% else %}New project{% endif %} | {{ app_name }}{% endblock %}
 
 {% block content %}
 <nav class="breadcrumb-nav" aria-label="Breadcrumb">

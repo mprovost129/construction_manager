@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
-{% block title %}QuickBooks disconnected | Construction Manager{% endblock %}
-{% block meta_description %}QuickBooks Online disconnection information for Construction Manager.{% endblock %}
+{% block title %}QuickBooks disconnected | {{ app_name }}{% endblock %}
+{% block meta_description %}QuickBooks Online disconnection information for {{ app_name }}.{% endblock %}
 
 {% block content %}
 <section class="form-shell">
@@ -10,7 +10,7 @@
         <p class="eyebrow">QuickBooks Online</p>
         <h1>Connection ended</h1>
         <p>
-            QuickBooks access has been disconnected. Construction Manager will not make new accounting API requests for this connection.
+            QuickBooks access has been disconnected. {{ app_name }} will not make new accounting API requests for this connection.
         </p>
         {% if realm_id %}<p class="text-secondary">QuickBooks company: {{ realm_id }}</p>{% endif %}
         <p>

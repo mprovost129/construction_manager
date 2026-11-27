@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block title %}{% if restoring %}Restore{% else %}Delete{% endif %} project | {{ project.name }}{% endblock %}
+{% block content %}<section class="form-card form-card--wide">
+<h1>{% if restoring %}Restore{% else %}Delete{% endif %} project</h1><h2>{{ project.name }}</h2>
+{% if restoring %}<p>Restore this project and its saved records. Existing staff and client access will resume, along with eligible reminders. Old pending invitations stay revoked.</p>
+{% else %}<p>This moves the project to Deleted projects. It will disappear from active project lists, client access and reminders. Its records and files are retained, and an administrator can restore it.</p>{% endif %}
+<form method="post" class="stacked-form">{% csrf_token %}{{ form.as_p }}<div class="form-actions"><a class="btn btn-outline-secondary" href="{% if restoring %}{% url 'projects:deleted_projects' %}{% else %}{% url 'projects:detail' project.pk %}{% endif %}">Cancel</a><button class="btn {% if restoring %}btn-primary{% else %}btn-outline-danger{% endif %}" type="submit">{% if restoring %}Restore project{% else %}Delete project{% endif %}</button></div></form>
+</section>{% endblock %}

@@ -1,0 +1,26 @@
+.recovery-account { color: #4d5b52; overflow-wrap: anywhere; }
+.recovery-code-list { padding-left: 2rem; margin: 1.5rem 0; }
+.recovery-code-list li { padding: 0.2rem 0 0.2rem 0.3rem; }
+.recovery-code-list code { color: #17231d; font-size: clamp(0.7rem, 2.6vw, 0.95rem); white-space: nowrap; }
+.recovery-safety { font-size: 0.9rem; }
+.recovery-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.recovery-actions[hidden] { display: none; }
+.recovery-feedback { font-size: 0.9rem; margin: 0.75rem 0; }
+
+@media print {
+    @page { margin: 18mm; }
+    body.app-body { background: #fff; color: #000; }
+    .app-header, .recovery-actions, .recovery-feedback, .recovery-done,
+    noscript, .cf-turnstile { display: none !important; }
+    .app-main { margin: 0 !important; padding: 0 !important; width: 100%; }
+    .app-main > .card {
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0;
+        box-shadow: none;
+    }
+    .recovery-sheet { break-inside: avoid; font-size: 11pt; }
+    .recovery-sheet h1 { font-size: 20pt; }
+    .recovery-code-list code { color: #000; font-size: 11pt; }
+}

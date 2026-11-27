@@ -1,8 +1,45 @@
 (() => {
     'use strict';
 
+    if (document.querySelector('.client-preview-banner')) {
+        document.querySelectorAll('form:not([data-preview-control])').forEach((form) => {
+            if (form.method.toLowerCase() === 'get') return;
+            form.querySelectorAll('input:not([type="hidden"]), select, textarea, button').forEach((control) => {
+                control.disabled = true;
+                control.title = 'Client preview is read-only. Return to staff view to make changes.';
+            });
+            form.addEventListener('submit', (event) => {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }, true);
+        });
+    }
+
     const navigationToggle = document.querySelector('.app-nav__toggle');
     const navigationMenu = document.querySelector('.app-nav__menu');
+    const navigationDropdowns = [...document.querySelectorAll('.app-nav__dropdown')];
+    function closeNavigationDropdowns(except) {
+        navigationDropdowns.forEach((dropdown) => {
+            if (dropdown !== except) dropdown.open = false;
+        });
+    }
+    navigationDropdowns.forEach((dropdown) => {
+        dropdown.addEventListener('toggle', () => {
+            if (dropdown.open) closeNavigationDropdowns(dropdown);
+        });
+    });
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('.app-nav__dropdown')) closeNavigationDropdowns();
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        const openDropdown = navigationDropdowns.find((dropdown) => dropdown.open);
+        if (openDropdown) {
+            closeNavigationDropdowns();
+            openDropdown.querySelector('summary').focus();
+            event.preventDefault();
+        }
+    });
     if (navigationToggle && navigationMenu) {
         navigationMenu.setAttribute('data-collapsible', '');
         navigationToggle.hidden = false;
@@ -61,6 +98,7 @@
 
     document.addEventListener('submit', (event) => {
         const form = event.target;
+        if (event.defaultPrevented) return;
         if (!(form instanceof HTMLFormElement)) {
             return;
         }
@@ -77,13 +115,14 @@
 
         form.dataset.submitting = 'true';
         form.setAttribute('aria-busy', 'true');
-        form.querySelectorAll(submitControlSelector).forEach((control) => {
+        // Let the browser capture the clicked button's name/value first.
+        window.setTimeout(() => form.querySelectorAll(submitControlSelector).forEach((control) => {
             if (control.disabled) {
                 return;
             }
             control.disabled = true;
             control.dataset.submissionLock = 'true';
-        });
+        }), 0);
         if (event.submitter) {
             event.submitter.classList.add('is-submitting');
             event.submitter.setAttribute('aria-busy', 'true');

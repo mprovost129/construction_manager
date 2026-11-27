@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Templates | {{ app_name }}{% endblock %}
+{% block content %}
+<section class="page-heading"><div><p class="eyebrow">Reusable selections</p><h1>Templates</h1><p>Choose a company to create, edit, duplicate, or delete its selection templates.</p></div></section>
+<div class="project-grid">
+{% for organization in organizations %}
+<article class="project-card"><h2>{{ organization.name }}</h2><a class="btn btn-primary" href="{% url 'projects:selection_template_library' organization.slug %}">Open templates</a></article>
+{% endfor %}
+</div>
+{% endblock %}

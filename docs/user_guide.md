@@ -1,10 +1,20 @@
-# Construction Manager First Time User Guide
+# Heritage 360 First Time User Guide
 
 Version 1.0 · September 2026
 
-Construction Manager gives a construction company and its clients one project workspace for approvals, finish selections, documents, messages, estimates, change orders, invoices, and financial status. This guide covers the first setup steps for company users and the normal portal experience for clients.
+Heritage 360 gives Heritage and its clients one project workspace for approvals, finish selections, documents, messages, estimates, change orders, invoices, and financial status. This guide covers the first setup steps for company users and the normal portal experience for clients.
 
 The recommended starting sequence is simple. A company administrator completes company settings and team roles. A project manager creates a project, assigns staff, and invites the client. Staff then prepare and publish the information the client should see. Both sides use the Action center to find work that needs attention.
+
+Internal project message, document, and selection notifications go to the active
+project managers assigned under **People & access**. Administrators do not receive
+every project's notifications automatically; assign an administrator as a project
+manager if they should receive them. Assign at least one PM to each active project.
+Private staff messages still notify the people explicitly included in that conversation.
+
+Under **People & access**, checking **Assign as a project manager** automatically includes **Manage project workflows** and **Invite and manage clients**. Those permissions cannot be turned off while the person remains an assigned PM. Other team members can still receive separate permissions. Existing assigned PMs receive the same automatic permissions.
+
+A company project manager who creates a job is automatically assigned as its PM. A PM who copies a job is assigned to the new job too. Someone who already manages a project can select themselves under **Internal user**, check **Assign as a project manager**, and save. This does not allow staff to claim projects they cannot already manage. Company administration, QuickBooks permissions, and administrator-controlled budget visibility remain separate.
 
 ## Contents
 
@@ -28,7 +38,7 @@ The recommended starting sequence is simple. A company administrator completes c
 
 ## Signing In
 
-Open Construction Manager and select **Log in**. Use the email address connected to your account. Select **Forgot your password** if you need a reset link.
+Open Heritage 360 and select **Log in**. Use the email address connected to your account. Select **Forgot your password** if you need a reset link.
 
 New team members and clients normally join through an email invitation. The invitation must be opened by the person who owns the invited email address. Invitations expire after seven days. A company user with permission can resend an expired invitation.
 
@@ -40,7 +50,7 @@ Company administrators should complete these steps before a client begins using 
 
 ### Confirm the company workspace
 
-Open **Company** from the main navigation and select the company. This screen contains team roles, invitations, company settings, subscription access, and links to cost codes and tax settings.
+Open **Company** from the main navigation and select the company. This screen contains team roles, invitations, company settings, links to cost codes and tax settings.
 
 ### Set the default tax rate
 
@@ -107,7 +117,7 @@ Review the client-visible setting on each document. Draft estimates, draft chang
 
 | Role | Typical access |
 | --- | --- |
-| Admin | All company projects, company and team settings, QuickBooks, cost codes, tax settings, and subscription controls |
+| Admin | All company projects, company and team settings, QuickBooks, cost codes, tax settings |
 | Manager | Assigned projects and management workflows; can create projects |
 | Project manager | Assigned projects and day-to-day project workflows; can create projects |
 | Staff | Assigned projects; available actions depend on project permissions |
@@ -153,7 +163,7 @@ If more than one client approval is required, set the required approval count be
 
 ### Replace a document with a new version
 
-Open the document and upload a new version instead of creating a separate document. Construction Manager retains the version history and records client decisions against the version that was reviewed.
+Open the document and upload a new version instead of creating a separate document. Heritage 360 retains the version history and records client decisions against the version that was reviewed.
 
 ### Request an electronic signature
 
@@ -201,7 +211,7 @@ Use Selections for finishes, materials, allowances, and client choices.
 
 ### After the client chooses
 
-Construction Manager compares the selected price with the allowance.
+Heritage 360 compares the selected price with the allowance.
 
 - An overage is flagged for staff and includes a shortcut to prepare a change order.
 - An unused credit is flagged for staff. The company can apply it elsewhere, return it at closing, or retain it as margin according to the project decision.
@@ -230,7 +240,7 @@ Invoices can begin as manual drafts or can be created from approved project work
 2. Add or review the client, due date, notes, tax rate, and line items.
 3. Issue the invoice when the totals are correct. Issuing assigns the permanent invoice number and makes the invoice visible to the client.
 4. Download the invoice PDF when a printable copy is needed.
-5. Record a manual payment or import payments from QuickBooks.
+5. Record payments manually while the Desktop integration is being prepared.
 
 Issued invoice totals and line items are intentionally locked. Correct an issued invoice through the supported void and reissue process rather than changing its history.
 
@@ -254,28 +264,19 @@ Each milestone can include a start date, end date, status, description, internal
 
 ## QuickBooks
 
-QuickBooks is the accounting source of truth. Company administrators control the connection and synchronization actions.
+Heritage uses QuickBooks Desktop. Administrators can open **QuickBooks** in the
+navigation or **QuickBooks setup** from Company to save onboarding details.
+Save partial information now and complete it as details are confirmed.
 
-### Connect the company
+Collect the edition and year, Windows computer or hosting provider, number of
+company files, setup contact, customer/job structure, invoice items, tax handling,
+invoice numbering, and credit workflow. Do not enter passwords or company-file paths.
 
-1. Open **QuickBooks** from the main navigation.
-2. Select the connection action and sign in to Intuit.
-3. Choose the correct QuickBooks company.
-4. Confirm the company name, environment, connection status, and available capabilities shown after connection.
-
-### Map the project and cost codes
-
-Each Construction Manager project maps to a QuickBooks Customer. The integration does not depend on QuickBooks Jobs. Match an existing customer when appropriate or create one through the supported sync action.
-
-Each cost code used on an invoice line must map to a QuickBooks Product or Service item. Matching an existing QuickBooks item is the most reliable setup path.
-
-### Synchronize invoices and payments
-
-Issue the invoice in Construction Manager first. On the invoice detail page, use **Sync to QuickBooks**. The app blocks the sync if a required project customer or cost-code item mapping is missing.
-
-Use **Sync payments from QuickBooks** on the invoice detail page to import and recheck payments and supported QuickBooks credit memos linked to that invoice. Review possible duplicates instead of recording the same payment twice.
-
-Use the QuickBooks screen to review failed attempts. Correct the mapping or accounting issue before retrying or marking an exception resolved.
+The setup screen does not connect to QuickBooks or transfer accounting records.
+The Desktop adapter still requires development and validation with a test company
+file before an accounting administrator approves the first live transfer. Intuit
+Web Connector is the planned Windows connection method. QuickBooks Online
+connection controls remain unavailable in Heritage.
 
 ## Client Portal Walkthrough
 
@@ -309,7 +310,7 @@ The invitation may be expired, revoked, already accepted, or opened while signed
 
 ### Why will an invoice not synchronize
 
-Confirm the QuickBooks company is connected, the project has a customer mapping, every invoice cost code has an active item mapping, and the QuickBooks company allows the requested action. Review the synchronization error before retrying.
+Heritage’s Desktop connection is not active yet. Open QuickBooks setup to review the details still needed. Do not use the separate QuickBooks Online connection flow for a Desktop company file.
 
 ### Why can the invoice no longer be edited
 
@@ -321,6 +322,149 @@ Start on Projects. Open the project with the highest attention count, then use A
 
 ## Pilot Feature Notes
 
-The current pilot includes the core client portal, project access, messaging, documents and uploads, approvals, estimates, finish selections, change orders, invoices, financial summaries, internal schedule milestones, audit history, and administrator-controlled QuickBooks integration.
+The current pilot includes the core client portal, project access, messaging, documents and uploads, approvals, estimates, finish selections, change orders, invoices, financial summaries, internal schedule milestones, audit history, and administrator-only QuickBooks Desktop setup preparation.
 
-The current release does not include online invoice payment, tasks and punch lists, two-factor authentication, schedule dependencies, recurring schedule items, or external calendar synchronization. Production use also requires verified persistent file storage, database backups, email delivery, monitoring, legal details, and live QuickBooks and subscription configuration.
+The current release does not include online invoice payment, tasks and punch lists, two-factor authentication, schedule dependencies, recurring schedule items, or external calendar synchronization. Production use also requires verified persistent file storage, database backups, email delivery, monitoring, legal details, and verified accounting setup.
+
+
+## Punch lists and selection deadlines
+
+Open a project and choose **Punch list**. Staff with project management access
+can add an item, choose its location and due date, and assign an active project
+team member. Items start internal. Check **Share this item and its photos with
+clients** only when the description, photos and captions are ready for the client.
+Internal notes and assignment details stay private. Clients can view shared
+items but cannot change them.
+
+The assignee can start work and mark it **Ready for verification**. A staff member
+with management access then selects **Verify complete** after checking the work.
+Use **Reopen** for further work or **Cancel item** to retain a record without
+keeping it on the active list. Filter by status or **Assigned to me**. Open the
+item to add up to 20 photos, one at a time; staff managers can remove individual
+photos. Photos use the item's sharing setting.
+
+On a pending selection, staff can use **Selection deadline** to change its due
+date or pause scheduled reminders. Punch-list items have the same reminder
+checkbox in their edit form. When the daily reminder service is enabled,
+reminders are sent 3 days before, 1 day before, on the due date, 1 day overdue,
+and weekly after that. Selection reminders go to primary clients; punch-list
+reminders go to the assignee. Ready-for-verification, verified and cancelled
+punch items do not generate deadline reminders. Projects on hold or completed
+also stop scheduled reminders.
+
+Use each project's **Notification settings** to choose email and/or in-app
+alerts. The selection **Send reminder** button remains available to staff;
+repeated clicks do not send multiple reminders to the same person that day.
+
+## Internal staff messages
+
+Open **Staff messages** in the navigation bar, then **New conversation**. Choose
+the company and either a project or **General conversation — no project**.
+Select the staff recipients, enter a subject and message, and send. The project's
+**Staff messages** card opens conversations for that project.
+
+Only the selected participants can read and reply. Clients and subcontractors
+cannot use this inbox. Project conversations also require current internal access
+to that project. Administrators are not automatically included in conversations.
+The existing client/project Messages area remains separate.
+
+Recipients receive an in-app alert and an email containing the message and a link
+to open the conversation. Sign in to reply in Heritage; replying to the email
+does not post a message. Email delivery normally takes up to five minutes. Use
+the inbox search, **General**, project context, and **Unread only** filters to
+find conversations. Opening the newest messages marks their alerts as read.
+
+Uncheck **Email me about new replies** and save to mute email for one
+conversation. In-app alerts remain enabled. Removing someone's company or
+project access also prevents further access and stops queued email to them.
+
+
+## Allowances and project totals
+
+Open **Allowances & project totals** from the project dashboard or Selections. Primary clients see only their own project’s published customer-facing information. Staff with project financial access can also use the sheet. It is available in staff’s client preview.
+
+The sheet itemizes approved change orders and shows each priced selection category’s selected price, allowance, overage/credit, amount already in linked approved change orders, and remaining adjustment. Categories with no priced amount are omitted; an unselected allowance is never treated as savings. Draft and pending change orders stay outside the total, and clients never see drafts. Internal costs, margins, vendor details, and staff notes are not included.
+
+**Original contract price + net adjustment = new project total.** Net adjustment combines approved change orders with selection overages/credits not already in linked approved change orders. Existing manually entered overages may not be linked: review overlap before final billing. This is a working price reconciliation, not the invoice balance. It does not deduct payments or applied credit memos, issue invoices, approve change orders, or transfer records to QuickBooks. Credits remain subject to the contract’s terms and project review.
+
+Use **Print / save PDF** or **Download spreadsheet** (CSV) to retain a copy. The same access rules apply to the download. The Selections list and card views also include category/location subtotals and a grand total for the visible filtered selections, with unpriced allowances separate. Remaining allowance is green under, red over, and neutral at zero.
+
+
+## Message and selection usability improvements
+
+Staff and project message composers support bold, italic, bulleted/numbered lists,
+and links. Email notifications include the same safe formatting plus a plain-text
+version. The audience notice identifies staff-only conversations and client-visible
+project conversations before sending.
+
+Unfinished messages save privately in the current browser tab for up to 24 hours.
+They recover after refresh or returning to the conversation in that tab. They are
+cleared after successful sending, signing out, or switching accounts. Closing the
+tab may discard them; drafts do not synchronize between devices. Use **Discard
+draft** to remove an unfinished message. If storage is unavailable, the composer
+says so. A retry of the same submission does not create a second message.
+
+Selections remember grouping, sort order, status and list/card view for the current
+signed-in session and project. Client preview has separate preferences. Search text
+is temporary; **Reset** clears remembered settings. List headings stay visible
+inside the scrolling table. Click a product photo to browse its cover and additional
+views with Previous/Next, arrow keys or a swipe on a phone. Escape or Close returns
+to the selection. Full-size originals are retained.
+
+Click a section name in **Allowances & project totals** to expand the underlying
+customer prices and allowances. Linked change-order credits include direct links.
+The spreadsheet and printed report include supporting selections. A review warning
+identifies inconsistent linked credits or an unavailable source selection; recorded
+amounts remain unchanged. Manually entered, unlinked change orders still need the
+project manager's overlap check before billing.
+
+### Project updates and project management
+
+Create or edit a project update to upload multiple progress photos before saving. JPEG, PNG and WebP are supported, up to 20 files per batch, 10 MB per photo and 50 MB per batch. The form previews selected images; saved thumbnails and full-size images require project access. Photos follow the update's client-publication setting. Existing photos remain when an update is edited.
+
+Use Edit project or Copy project on the project dashboard. Copy lets authorized project creators select individual selection rows, with optional choices/customer prices, choice photos/attachments, internal notes and dates. Copies start in Planning; copied selections are unreleased. Client/staff assignments, decisions, approvals, financial transactions and contract amounts are not copied. Assign the new project's team before publishing its selections.
+
+Company administrators can Delete project after confirming its name. This is recoverable: the project and its saved files/records remain, while normal project access and reminders stop. Pending invitations are revoked and queued staff emails skipped. Administrators can open Deleted projects from the Projects page and restore a project. Restoration resumes prior access and eligible reminders, but revoked invitations must be sent again.
+
+
+### Shared and individual selection allowances
+
+Open **Selections > Manage allowances**, or **Templates > Edit template > Manage allowances**.
+Enable a shared section allowance and enter the budget. **Use section allowance for all items here** assigns the section's rows to that budget; adjust exceptions with each row's source:
+- **Use section allowance**: the selected customer price draws from the section budget.
+- **Own allowance**: compare this row's selected price against its own amount; exclude it from the shared budget.
+- **No allowance — included in contract**: show the customer price without an allowance or an adjustment to the original contract.
+
+Existing individual amounts (including zero) are preserved. A zero individual allowance still means the full selected price is an addition or credit. No-allowance is a separate, explicit setting.
+Shared section budgets appear once in category and grand totals. A filtered/location slice containing only part of a shared section omits that section balance; use the complete category to see it. The client totals sheet treats unused shared budget as remaining funds until all active shared choices have a recorded price; an overage is shown as soon as the section exceeds its budget. Unreleased choices block a premature final credit without exposing their contents to clients.
+
+Only staff with project management permission can change these settings. Billed items and items with recorded credit handling cannot have their individual basis silently changed. Shared and no-allowance items cannot generate individual allowance invoices or individual credit dispositions.
+Templates and project copies preserve modes and shared budgets. Loading into an existing project preserves existing section budgets; configure a missing shared budget before loading pooled rows into an existing category. Amend keeps existing row settings; Replace changes matching unreleased rows. Previous approvals are never copied.
+
+
+### Multiple allowance groups in one section
+
+In **Manage allowances**, find the section and click **Add allowance group**. Name each group (for example Windows and Doors) and enter its budget. The section allowance automatically becomes the sum of these group budgets; it is not an additional allowance.
+
+For each covered selection, choose **Use section allowance**, then pick its **Allowance group**. Multiple selections can draw from one group. Keep **Own allowance** for separate items, or **No allowance — included in contract** when the selected price should not adjust the contract. Click **Save allowances**.
+
+Example: Windows allowance $25,000 and selected prices $27,000; Doors allowance $15,000 and selected prices $14,000. Group balances are $2,000 over and $1,000 under. Combined section allowance is $40,000 against $41,000 spent: $1,000 over. Group balances appear with the section totals and in the client-safe Allowances & project totals details, print view, and spreadsheet export.
+
+Rename groups in the same screen. To remove a group, reassign its selections first. Saving rejects missing assignments, duplicate names, and negative budgets. Amounts can be zero; selected prices can be negative credits. An unfinished group cannot generate a final unused-budget credit. Templates and project copies preserve groups; partial copies bring only the named budgets used by the copied rows. Existing destination budgets are preserved when loading templates; configure matching groups first if needed.
+
+## Job-site QR codes for subcontractors
+
+Project managers and administrators with project management access can open **Project → Job-site QR**. Choose current, client-visible PDFs or images and approved selections, review their contents, confirm the sharing checkbox, enable access, and save. Download the QR image or open **Print sign / Save as PDF** to hang it at the job site.
+
+No account is needed to scan the code. Anyone who receives the link or a photo of the sign can view the selected materials. The page contains only the chosen product names, specifications, locations and product photos, plus the explicitly selected document versions. It does not expose application prices, allowances, messages, clients, internal descriptions or financial records. Staff must inspect file contents and product images: the app cannot redact private information embedded inside a file. Only share materials intended for this audience.
+
+Contracts, change-order documents, spreadsheets, pending or declined documents, and unapproved selections are excluded. Documents that do not require a client decision can be explicitly reviewed and published by staff. Imported historical selections are excluded because they do not have a current approved product choice.
+
+A replacement document version, changed product specification/photo, withdrawn approval, hidden document or archived selection is withheld until eligible and reviewed again. The management screen identifies withheld materials. Save the reviewed choices to update the page without changing the printed code.
+
+**Disable job-site access** immediately stops the page and its downloads/photos; **Replace link & QR code** invalidates the old link and requires a new printed sign. Deleting a project revokes access permanently until staff explicitly publish again, even if the project is later restored. Downloaded copies cannot be recalled. New and copied projects start without public job-site access. Changes are recorded in the project audit trail.
+
+
+### Sending a note with a selection
+
+Open a draft selection and choose **Publish to client**. On the publishing screen, review the recipients and optionally enter a **Message to client** before publishing. The note is included in the publishing email and in-app notification according to each client's notification preferences. It does not change the selection description and is not repeated in reminders or reopened-selection notifications. Leave it blank to publish without a note.

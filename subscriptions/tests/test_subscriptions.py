@@ -26,6 +26,7 @@ from subscriptions.services import (
 )
 
 STRIPE_TEST_SETTINGS = {
+    'SUBSCRIPTION_BILLING_ENABLED': True,
     'APP_ENVIRONMENT': 'development',
     'STRIPE_SECRET_KEY': 'sk_test_example',
     'STRIPE_WEBHOOK_SECRET': 'whsec_example',

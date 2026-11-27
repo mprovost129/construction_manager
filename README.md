@@ -1,23 +1,32 @@
-# Construction Manager
+# Heritage 360
 
-Construction Manager is a Django application for residential builders and their clients. It concentrates the project workflows the initial pilot company uses instead of reproducing every Buildertrend module.
+Developer monitoring and infrastructure roadmap: [Operations guide](docs/operations.md).
+
+Heritage 360 is a Django construction-management application for Heritage and its clients. The underlying application remains configurable so the reusable contractor features can support future branded deployments.
 
 ## Current capabilities
 
 - Company roles, project assignments, invitations, and scoped access
 - Portfolio dashboard, Action center, activity history, and CSV export
 - Project messages and email notifications
+- Per-user email and in-app notification controls
 - Client progress updates with private job-site photos and controlled publishing
 - Private documents, client uploads, file versions, and approvals
 - Estimates, cost-coded line items, tax, revisions, and client approval
 - Finish selections, allowances, option details, packages, overages, and credits
+- Single designated client account holder per project and expanded client audit history
 - Change orders, approval history, revisions, invoice and credit-memo handoff
 - Invoices, PDF downloads, payment records, and client-safe balances
 - Project financial summaries and internal job costing
 - Internal milestone schedule
 - Installable mobile web app with Home Screen icons and responsive navigation
-- QuickBooks OAuth, customer and item mappings, invoice sync, and payment import
+- Dormant QuickBooks Online integration foundation. Heritage's future QuickBooks
+  Desktop adapter is limited to invoices and credits and is not part of launch
 - Dormant Stripe subscription infrastructure, excluded from the Heritage MVP
+
+See [the Heritage controlled-launch checklist](docs/heritage_launch_checklist.md)
+for the production settings, smoke test, and explicitly deferred work for the
+first customer rollout.
 
 See [the implementation roadmap](docs/implementation_roadmap.md) for the exact delivered status, known gaps, and production gates. See [the first-time user guide](docs/user_guide.md) for the staff and client workflow.
 
@@ -48,7 +57,7 @@ Open `http://localhost:8000` after the services start.
 
 ## Local setup without Docker
 
-Construction Manager requires Python 3.13 or newer, PostgreSQL, and Redis for the normal development configuration.
+Heritage 360 requires Python 3.13 or newer, PostgreSQL, and Redis for the normal development configuration.
 
 ```bash
 python -m venv .venv

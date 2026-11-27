@@ -6,6 +6,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import UserCreationForm
 from django.utils import timezone
 
+from .choice_images import ChoiceGalleryMixin, MultipleImageField
+from .message_content import MessageFormMixin
 from .models import (
     ChangeOrder,
     ChangeOrderLineItem,
@@ -19,6 +21,7 @@ from .models import (
     EstimateLineItem,
     FinishSelection,
     Organization,
+    OrganizationDisclosure,
     OrganizationInvitation,
     OrganizationMembership,
     Project,
@@ -26,6 +29,7 @@ from .models import (
     ProjectDocument,
     ProjectInternalAccess,
     ProjectInvitation,
+    ProjectMembership,
     ScheduleMilestone,
     SelectionCustomRequest,
     SelectionOption,
@@ -130,11 +134,19 @@ class ClientProjectUploadForm(forms.Form):
 
 
 class DocumentDecisionForm(forms.ModelForm):
+    version_id = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
+    decision = forms.ChoiceField(
+        choices=(
+            (DocumentDecision.Decision.APPROVED, 'Approve'),
+            (DocumentDecision.Decision.DECLINED, 'Decline'),
+        ),
+        widget=forms.RadioSelect,
+    )
+
     class Meta:
         model = DocumentDecision
         fields = ('decision', 'comment')
         widgets = {
-            'decision': forms.RadioSelect,
             'comment': forms.Textarea(attrs={'rows': 4}),
         }
 
@@ -508,7 +520,7 @@ class SelectionPackageForm(forms.ModelForm):
 class FinishSelectionForm(forms.ModelForm):
     new_package_title = forms.CharField(
         required=False,
-        label='New package name',
+        label='New category name',
         help_text=(
             'Group this choice with others due together, e.g. "Kitchen." '
             'Leave blank to keep it standalone.'
@@ -522,13 +534,16 @@ class FinishSelectionForm(forms.ModelForm):
             'title',
             'description',
             'location',
+            'allowance_mode',
+            'allowance_group',
             'allowance_amount',
             'due_date',
         )
-        labels = {'allowance_amount': 'Client allowance', 'package': 'Existing package'}
+        labels = {'allowance_amount': 'Client allowance', 'package': 'Category'}
         help_texts = {
             'allowance_amount': (
-                'Clients will see each option as over, under, or within this allowance.'
+                'Clients will see each option as over, under, or within this allowance. '
+                'For a standalone credit, use a zero allowance and a negative choice price.'
             ),
             'package': 'Choose an existing package instead of naming a new one below.',
         }
@@ -541,6 +556,14 @@ class FinishSelectionForm(forms.ModelForm):
     def __init__(self, *args, project, **kwargs):
         super().__init__(*args, **kwargs)
         self.project = project
+        group_choices = [('', 'Shared section allowance')]
+        for package in project.selection_packages.all():
+            group_choices += [(g['id'], f"{package.title} / {g['name']}") for g in package.allowance_groups]
+        self.fields['allowance_group'] = forms.ChoiceField(required=False, choices=group_choices, label='Allowance group', help_text='For a grouped section, choose the budget this selection draws from.')
+        self.fields['allowance_mode'].required = False
+        self.fields['allowance_amount'].required = False
+        self.fields['allowance_mode'].label = 'Allowance source'
+        self.fields['allowance_amount'].help_text = 'Used only for Own allowance. Zero means the full choice price is additional. No allowance means included in the original contract.'
         self.fields['package'].queryset = project.selection_packages.all()
 
     def clean(self):
@@ -551,11 +574,26 @@ class FinishSelectionForm(forms.ModelForm):
             raise forms.ValidationError(
                 'Choose an existing package or name a new one, not both.'
             )
+        mode = cleaned_data.get('allowance_mode') or self.instance.allowance_mode
+        cleaned_data['allowance_mode'] = mode
+        if cleaned_data.get('allowance_amount') is None:
+            if mode == 'individual':
+                self.add_error('allowance_amount', 'Enter the individual allowance.')
+            cleaned_data['allowance_amount'] = self.instance.allowance_amount or 0
+        group_id = cleaned_data.get('allowance_group') or ''
+        if mode != 'section':
+            cleaned_data['allowance_group'] = ''
+        if mode == 'section' and package and package.allowance_groups and group_id not in [g['id'] for g in package.allowance_groups]:
+            self.add_error('allowance_group', 'Choose an allowance group in this category.')
+        if mode == 'section' and package and not package.allowance_groups and group_id:
+            self.add_error('allowance_group', 'This category does not have that allowance group.')
+        if mode == 'section' and (not package or package.allowance_amount is None):
+            self.add_error('allowance_mode', 'Choose a category with a shared allowance. Set it up in Manage allowances first.')
         cleaned_data['new_package_title'] = new_package_title
         return cleaned_data
 
 
-class SelectionOptionForm(forms.ModelForm):
+class SelectionOptionForm(ChoiceGalleryMixin, forms.ModelForm):
     class Meta:
         model = SelectionOption
         fields = (
@@ -570,6 +608,7 @@ class SelectionOptionForm(forms.ModelForm):
             'specification',
             'lead_time',
             'image',
+            'image_caption',
             'attachment',
         )
         labels = {
@@ -580,7 +619,8 @@ class SelectionOptionForm(forms.ModelForm):
             'product_url': 'Product link',
         }
         help_texts = {
-            'cost': 'Internal only and never shown to clients.',
+            'price': 'Use a negative amount for a client credit, e.g. -250.00. The allowance is subtracted from this price to calculate the selection difference.',
+            'cost': 'Internal only and never shown to clients. Use a negative amount for a vendor or project cost credit.',
             'sort_order': 'Lower numbers appear first.',
             'product_url': "Link to the vendor's product page.",
             'lead_time': 'Free text, e.g. "6-8 weeks" or "In stock."',
@@ -592,6 +632,8 @@ class SelectionOptionForm(forms.ModelForm):
             'specification': forms.Textarea(attrs={'rows': 4}),
             'price': forms.NumberInput(attrs={'step': '0.01'}),
             'cost': forms.NumberInput(attrs={'step': '0.01'}),
+            'image': forms.FileInput(attrs={'accept': 'image/png,image/jpeg,image/webp'}),
+            'attachment': forms.FileInput(),
         }
 
     def clean_image(self):
@@ -605,6 +647,14 @@ class SelectionOptionForm(forms.ModelForm):
         if attachment and hasattr(attachment, 'content_type'):
             return validate_document_file(attachment)
         return attachment
+
+
+class SelectionPublishForm(forms.Form):
+    message_to_client = forms.CharField(
+        label='Message to client', required=False, max_length=5000,
+        widget=forms.Textarea(attrs={'rows': 5}),
+        help_text='Optional. Included in this publishing notification only, not in reminders or the selection description.',
+    )
 
 
 class SelectionDecisionForm(forms.Form):
@@ -674,6 +724,9 @@ class ScheduleMilestoneForm(forms.ModelForm):
 
 
 class DailyLogForm(forms.ModelForm):
+    images = MultipleImageField(required=False, label='Progress photos',
+        help_text='Choose multiple photos. JPEG, PNG or WebP; up to 20 photos per upload, 10 MB each and 50 MB total. Thumbnails are created automatically. Photos share this update’s visibility.')
+
     class Meta:
         model = DailyLog
         fields = ('log_date', 'title', 'summary', 'client_visible')
@@ -706,7 +759,7 @@ class DailyLogPhotoForm(forms.ModelForm):
         return validate_image_file(self.cleaned_data['image'])
 
 
-class ConversationThreadForm(forms.Form):
+class ConversationThreadForm(MessageFormMixin, forms.Form):
     subject = forms.CharField(max_length=200)
     body = forms.CharField(
         label='Message',
@@ -714,23 +767,23 @@ class ConversationThreadForm(forms.Form):
     )
 
 
-class ConversationReplyForm(forms.ModelForm):
+class ConversationReplyForm(MessageFormMixin, forms.ModelForm):
     class Meta:
         model = ConversationMessage
-        fields = ('body',)
+        fields = ('body', 'body_html', 'submission_id')
         labels = {'body': 'Reply'}
         widgets = {'body': forms.Textarea(attrs={'rows': 5})}
 
     def clean_body(self):
         body = self.cleaned_data['body'].strip()
-        if not body:
-            raise forms.ValidationError('Reply cannot be blank.')
         return body
 
 
 class ProjectForm(forms.ModelForm):
     class Meta:
         model = Project
+        labels = {'description': 'Internal project notes'}
+        help_texts = {'description': 'Visible to company staff only. Share client updates through Project updates.'}
         fields = (
             'organization',
             'name',
@@ -752,10 +805,47 @@ class ProjectForm(forms.ModelForm):
         self.fields['organization'].disabled = lock_organization
 
 
-class TeamInvitationForm(forms.ModelForm):
+class MFARequirementForm(forms.Form):
+    mfa_required = forms.BooleanField(required=False, label='Require two-step verification (2FA)',
+        help_text='Checked: this person must use an authenticator. Unchecked: optional; an existing authenticator stays on until its owner turns it off in Account security. A requirement from another company still applies.')
+
+
+class FeatureAccessForm(forms.ModelForm):
+    mfa_required = MFARequirementForm.base_fields['mfa_required']
+    desktop_manage = forms.BooleanField(required=False, label='Manage QuickBooks connection',
+        help_text='Create or reset the shared connection, download its setup file, and disconnect it. Requires View QuickBooks setup.')
+    desktop_check = forms.BooleanField(required=False, label='Request QuickBooks connection checks',
+        help_text='Queue a company-file check for the connection computer. Financial transfers are not enabled. Requires View QuickBooks setup.')
+    accounting_view = forms.BooleanField(required=False, label='View QuickBooks setup',
+        help_text='Read company setup details and the accountant checklist.')
+    accounting_edit = forms.BooleanField(required=False, label='Update QuickBooks setup',
+        help_text='Save setup details and checklist progress. Requires View QuickBooks setup.')
+    project_budget_view = forms.BooleanField(required=False, label='View assigned project budgets',
+        help_text='See internal costs and profitability on assigned projects. Project assignment is still required.')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in ('accounting_view', 'accounting_edit', 'project_budget_view', 'desktop_manage', 'desktop_check'):
+            if getattr(self.instance, name, None) is None:
+                membership = OrganizationMembership(role=getattr(self.instance, 'role', ''))
+                self.initial.setdefault(name, membership.feature_allowed(name))
+                if self.initial[name] is None:
+                    self.initial[name] = membership.feature_allowed(name)
+
+    def clean(self):
+        data = super().clean()
+        if data.get('accounting_edit') and not data.get('accounting_view'):
+            self.add_error('accounting_edit', 'Also select View QuickBooks setup to allow updates.')
+        for name in ('desktop_manage', 'desktop_check'):
+            if data.get(name) and not data.get('accounting_view'):
+                self.add_error(name, 'Also select View QuickBooks setup to grant this permission.')
+        return data
+
+
+class TeamInvitationForm(FeatureAccessForm):
     class Meta:
         model = OrganizationInvitation
-        fields = ('email', 'role')
+        fields = ('email', 'role', 'mfa_required', 'accounting_view', 'accounting_edit', 'desktop_manage', 'desktop_check', 'project_budget_view')
         widgets = {
             'email': forms.EmailInput(
                 attrs={'autocomplete': 'email', 'placeholder': 'team@example.com'}
@@ -790,7 +880,7 @@ class TeamInvitationForm(forms.ModelForm):
         return email
 
 
-class TeamMembershipForm(forms.ModelForm):
+class TeamMembershipForm(FeatureAccessForm):
     role = forms.ChoiceField(
         choices=(
             (
@@ -826,7 +916,7 @@ class TeamMembershipForm(forms.ModelForm):
 
     class Meta:
         model = OrganizationMembership
-        fields = ('role', 'is_active')
+        fields = ('role', 'is_active', 'mfa_required', 'accounting_view', 'accounting_edit', 'desktop_manage', 'desktop_check', 'project_budget_view')
 
 
 class ProjectInternalAccessForm(forms.ModelForm):
@@ -834,15 +924,15 @@ class ProjectInternalAccessForm(forms.ModelForm):
         model = ProjectInternalAccess
         fields = (
             'membership',
+            'is_project_manager',
             'can_manage',
             'can_invite_clients',
-            'receives_notifications',
         )
         labels = {
             'membership': 'Internal user',
+            'is_project_manager': 'Assign as a project manager',
             'can_manage': 'Manage project workflows',
             'can_invite_clients': 'Invite and manage clients',
-            'receives_notifications': 'Receive project email notifications',
         }
 
     def __init__(self, *args, project, **kwargs):
@@ -866,11 +956,18 @@ class ProjectInternalAccessForm(forms.ModelForm):
             raise forms.ValidationError('Choose an internal team member.')
         return membership
 
+    def clean(self):
+        data = super().clean()
+        if data.get('is_project_manager'):
+            data['can_manage'] = True
+            data['can_invite_clients'] = True
+        return data
+
 
 class ClientInvitationForm(forms.ModelForm):
     class Meta:
         model = ProjectInvitation
-        fields = ('email',)
+        fields = ('client_access_type', 'email')
         widgets = {
             'email': forms.EmailInput(
                 attrs={'autocomplete': 'email', 'placeholder': 'customer@example.com'}
@@ -882,9 +979,39 @@ class ClientInvitationForm(forms.ModelForm):
         self.project = project
         self.expired_invitation = None
         self.fields['email'].label = 'Customer email'
+        self.fields['client_access_type'].required = False
+
+    def clean_client_access_type(self):
+        return (
+            self.cleaned_data.get('client_access_type')
+            or ProjectMembership.ClientAccessType.PRIMARY
+        )
 
     def clean_email(self):
         email = self.cleaned_data['email'].strip().lower()
+        access_type = self.cleaned_data.get(
+            'client_access_type',
+            ProjectMembership.ClientAccessType.PRIMARY,
+        )
+        if access_type == ProjectMembership.ClientAccessType.PRIMARY and self.project.project_memberships.filter(
+            role=OrganizationMembership.Role.CLIENT,
+            client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
+            is_active=True,
+        ).exists():
+            raise forms.ValidationError(
+                'This project already has a designated client account holder. '
+                'Revoke that access before inviting a replacement.'
+            )
+        if access_type == ProjectMembership.ClientAccessType.PRIMARY and self.project.invitations.filter(
+            role=OrganizationMembership.Role.CLIENT,
+            client_access_type=ProjectMembership.ClientAccessType.PRIMARY,
+            accepted_at__isnull=True,
+            revoked_at__isnull=True,
+            expires_at__gt=timezone.now(),
+        ).exclude(email__iexact=email).exists():
+            raise forms.ValidationError(
+                'A designated client invitation is already pending for this project.'
+            )
         user = get_user_model().objects.filter(email__iexact=email).first()
         if user and self.project.project_memberships.filter(user=user).exists():
             raise forms.ValidationError('This customer already has access to the project.')
@@ -900,6 +1027,27 @@ class ClientInvitationForm(forms.ModelForm):
                 )
             self.expired_invitation = pending_invitation
         return email
+
+
+class OrganizationDisclosureForm(forms.ModelForm):
+    class Meta:
+        model = OrganizationDisclosure
+        fields = (
+            'title',
+            'body',
+            'include_on_change_orders',
+            'include_on_invoices',
+            'is_active',
+            'sort_order',
+        )
+        widgets = {'body': forms.Textarea(attrs={'rows': 6})}
+
+
+class PublicDocumentVerificationForm(forms.Form):
+    human_verified = forms.BooleanField(
+        label='I am a person requesting this project document',
+        required=True,
+    )
 
 
 class InvitationSignupForm(UserCreationForm):

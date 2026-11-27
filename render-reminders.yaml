@@ -1,0 +1,89 @@
+# Separate, optional Blueprint. Apply only after the app migrations are live.
+# Render resolves existing credentials internally; no secret values belong here.
+services:
+  - type: cron
+    name: heritage360-deadline-reminders
+    runtime: docker
+    dockerfilePath: ./Dockerfile.reminders
+    repo: https://github.com/mprovost129/construction_manager
+    branch: feature/heritage-mvp-launch
+    region: ohio
+    plan: 0.5c-512mb
+    autoDeployTrigger: "off"
+    schedule: "*/5 * * * *" # Staff mail every five minutes; daily deadlines after 14:00 UTC.
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - key: APP_ENVIRONMENT
+        value: production
+      - key: APP_NAME
+        value: Heritage 360
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_HOSTS
+        value: heritage360cm.com
+      - key: SITE_BASE_URL
+        value: https://www.heritage360cm.com
+      - key: SUBSCRIPTION_BILLING_ENABLED
+        value: "false"
+      - key: PRIVATE_STORAGE_BACKEND
+        value: local
+      - key: DB_NAME
+        fromService:
+          type: web
+          name: heritage360
+          envVarKey: DB_NAME
+      - key: DB_USER
+        fromService:
+          type: web
+          name: heritage360
+          envVarKey: DB_USER
+      - key: DB_PASSWORD
+        fromService:
+          type: web
+          name: heritage360
+          envVarKey: DB_PASSWORD
+      - key: DB_HOST
+        fromService:
+          type: web
+          name: heritage360
+          envVarKey: DB_HOST
+      - key: DB_PORT
+        fromService:
+          type: web
+          name: heritage360
+          envVarKey: DB_PORT
+      - key: EMAIL_BACKEND
+        value: core.mail_backend.EmailBackend
+      - key: EMAIL_HOST
+        fromService:
+          type: web
+          name: heritage360
+          envVarKey: EMAIL_HOST
+      - key: EMAIL_PORT
+        fromService:
+          type: web
+          name: heritage360
+          envVarKey: EMAIL_PORT
+      - key: EMAIL_USE_TLS
+        value: "true"
+      - key: EMAIL_HOST_USER
+        fromService:
+          type: web
+          name: heritage360
+          envVarKey: EMAIL_HOST_USER
+      - key: EMAIL_HOST_PASSWORD
+        fromService:
+          type: web
+          name: heritage360
+          envVarKey: EMAIL_HOST_PASSWORD
+      - key: DEFAULT_FROM_EMAIL
+        fromService:
+          type: web
+          name: heritage360
+          envVarKey: DEFAULT_FROM_EMAIL
+      - key: DEFAULT_REPLY_TO_EMAIL
+        fromService:
+          type: web
+          name: heritage360
+          envVarKey: DEFAULT_REPLY_TO_EMAIL

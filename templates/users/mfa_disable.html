@@ -1,0 +1,8 @@
+{% extends 'users/mfa_base.html' %}
+{% block content %}
+<h1>Turn off two-step verification</h1>
+<p>Your account will use your password without an authenticator code. Your existing recovery codes will stop working. You can set up two-step verification again at any time.</p>
+<p>Confirm your current Heritage password and a fresh authenticator code, or use one unused recovery code.</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn btn-outline-danger" type="submit">Turn off two-step verification</button></form>
+<p class="mt-3"><a href="{% url 'users:security' %}">Keep two-step verification on</a></p>
+{% endblock %}

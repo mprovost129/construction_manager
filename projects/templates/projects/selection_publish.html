@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block title %}Publish selection | {{ project.name }}{% endblock %}
+{% block content %}
+<div class="auth-shell"><section class="admin-panel">
+<p class="eyebrow">{{ project.name }} · {{ selection.display_number }}</p>
+<h1>Publish to client</h1>
+<h2>{{ selection.title }}</h2>
+<p>Make this selection and its choices available to the client.</p>
+<div class="alert alert-info"><strong>Client-visible message</strong><br>
+Sent to: {% for recipient in recipients %}{{ recipient }}{% if not forloop.last %}, {% endif %}{% empty %}No active client assigned{% endfor %}. Their notification preferences apply.</div>
+<form method="post" class="stacked-form">
+{% csrf_token %}
+{{ form.non_field_errors }}
+<div class="form-field"><label for="{{ form.message_to_client.id_for_label }}">Message to client <span class="text-secondary">(optional)</span></label>
+{{ form.message_to_client }}
+<p class="help-text">{{ form.message_to_client.help_text }}</p>
+{{ form.message_to_client.errors }}</div>
+<div class="form-actions"><a class="btn btn-outline-secondary" href="{% url 'projects:selection_detail' project.pk selection.pk %}">Cancel</a><button type="submit" class="btn btn-primary">Publish to client</button></div>
+</form></section></div>
+{% endblock %}

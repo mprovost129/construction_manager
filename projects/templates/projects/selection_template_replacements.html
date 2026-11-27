@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block title %}Template replacement history | {{ project.name }}{% endblock %}
+{% block content %}
+<nav class="breadcrumb-nav"><a href="{% url 'projects:selection_list' project.pk %}">{{ project.name }} selections</a></nav>
+<section class="page-heading"><div><p class="eyebrow">{{ project.name }}</p><h1>Template replacement history</h1><p>Undo restores the replaced rows, choices, photos, and internal costs. Newly added rows are kept. Undo is blocked if a replaced row was edited or released afterward, to protect newer work.</p></div></section>
+{% for replacement in page_obj %}<section class="admin-panel"><div><h2>{{ replacement.template_name }}</h2><p>{{ replacement.created_at|date:"M j, Y g:i A" }} · {{ replacement.before|length }} replaced rows</p>
+{% if replacement.restored_at %}<p>Undone {{ replacement.restored_at|date:"M j, Y g:i A" }}</p>{% else %}<form method="post" class="stacked-form">{% csrf_token %}<input type="hidden" name="replacement" value="{{ replacement.pk }}"><label><input type="checkbox" name="confirm" required> Restore the rows replaced in this update.</label><button class="btn btn-outline-secondary">Undo replacement</button></form>{% endif %}</div></section>{% empty %}<p>No template replacements yet. Amend and Add only do not overwrite existing choices.</p>{% endfor %}
+{% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}{% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+{% endblock %}

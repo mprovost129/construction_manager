@@ -17,7 +17,7 @@ def project_financial_summary(project, *, include_costs=False):
     change_orders = list(project.change_orders.exclude(status=ChangeOrder.Status.VOIDED))
     approved_change_order_total = money(
         sum(
-            (co.price_delta for co in change_orders if co.status == ChangeOrder.Status.APPROVED),
+            (co.price_delta for co in change_orders if co.status in (ChangeOrder.Status.APPROVED, ChangeOrder.Status.IMPORTED)),
             Decimal('0'),
         )
     )
@@ -60,6 +60,25 @@ def project_financial_summary(project, *, include_costs=False):
                 + credit
             )
 
+    from .allowances import recorded_price
+    from .allowance_groups import pool_key, pool_budget
+    shared = {}
+    for selection in project.finish_selections.filter(allowance_mode='section').exclude(status='voided').select_related('package', 'chosen_option'):
+        if pool_budget(selection) is not None:
+            pool = shared.setdefault(pool_key(selection), {'allowance': pool_budget(selection), 'spent': Decimal('0'), 'pending': False})
+            price = recorded_price(selection)
+            if price is None:
+                pool['pending'] = True
+            else:
+                pool['spent'] += price
+    for pool in shared.values():
+        variance = pool['spent'] - pool['allowance']
+        if variance > 0:
+            selection_overage_total += variance
+        elif not pool['pending']:
+            selection_credit_total -= variance
+            selection_credit_by_disposition['undetermined'] = selection_credit_by_disposition.get('undetermined', Decimal('0')) - variance
+
     invoices = list(project.invoices.exclude(status=Invoice.Status.VOIDED))
     invoiced_total = money(sum((invoice.total_amount for invoice in invoices), Decimal('0')))
     paid_total = money(sum((invoice.amount_paid for invoice in invoices), Decimal('0')))
@@ -81,7 +100,7 @@ def project_financial_summary(project, *, include_costs=False):
     if include_costs:
         approved_change_order_cost_total = money(
             sum(
-                (co.cost_delta for co in change_orders if co.status == ChangeOrder.Status.APPROVED),
+                (co.cost_delta for co in change_orders if co.status in (ChangeOrder.Status.APPROVED, ChangeOrder.Status.IMPORTED)),
                 Decimal('0'),
             )
         )

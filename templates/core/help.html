@@ -1,13 +1,13 @@
 {% extends 'base.html' %}
 
-{% block title %}User guide | Construction Manager{% endblock %}
-{% block meta_description %}First-use guide for Construction Manager company users and clients.{% endblock %}
+{% block title %}User guide | {{ app_name }}{% endblock %}
+{% block meta_description %}First-use guide for {{ app_name }} company users and clients.{% endblock %}
 
 {% block content %}
 <section class="help-hero">
     <div>
         <p class="eyebrow">First-use guide</p>
-        <h1>Get started with Construction Manager</h1>
+        <h1>Get started with {{ app_name }}</h1>
         <p>Set up a company workspace, organize a project, invite the right people, and move client decisions from draft to approval.</p>
     </div>
     {% if user.is_authenticated %}
@@ -23,7 +23,7 @@
     <a href="#daily-workflow">Daily workflow</a>
     <a href="#client-portal">Client portal</a>
     <a href="#install-mobile">Install on a phone</a>
-    <a href="#quickbooks">QuickBooks</a>
+    {% if quickbooks_integration_enabled %}<a href="#quickbooks">QuickBooks</a>{% endif %}
     <a href="#roles-and-access">Roles and access</a>
 </nav>
 
@@ -38,7 +38,7 @@
         <li><span>2</span><div><h3>Set the tax rate</h3><p>Open <strong>Tax settings</strong> and enter the default rate used when new estimates and invoices are created.</p></div></li>
         <li><span>3</span><div><h3>Create cost codes</h3><p>Open <strong>Cost codes</strong> and add the product, material, labor, subcontractor, and other codes used for project pricing.</p></div></li>
         <li><span>4</span><div><h3>Invite the team</h3><p>Use <strong>Invite team member</strong> to assign each person an internal role. Project access is assigned separately after a project is created.</p></div></li>
-        <li><span>5</span><div><h3>Connect QuickBooks when ready</h3><p>A company administrator can connect the correct QuickBooks company and complete customer and item mappings before invoice synchronization.</p></div></li>
+        {% if quickbooks_integration_enabled %}<li><span>5</span><div><h3>Connect QuickBooks when ready</h3><p>A company administrator can connect the correct QuickBooks company and complete customer and item mappings before invoice synchronization.</p></div></li>{% endif %}
     </ol>
 </section>
 
@@ -109,14 +109,14 @@
 <section class="guide-section" id="install-mobile">
     <div class="guide-section__heading">
         <p class="eyebrow">Mobile access</p>
-        <h2>Install Construction Manager on a phone</h2>
+        <h2>Install {{ app_name }} on a phone</h2>
         <p>The installed web app opens from the Home Screen and uses the same secure, synchronized account as the desktop version. An internet connection is required for project data.</p>
     </div>
     <div class="guide-two-column">
         <div>
             <h3>iPhone or iPad</h3>
             <ol>
-                <li>Open Construction Manager in Safari.</li>
+                <li>Open {{ app_name }} in Safari.</li>
                 <li>Tap the <strong>Share</strong> button.</li>
                 <li>Choose <strong>Add to Home Screen</strong>.</li>
                 <li>Confirm the name and tap <strong>Add</strong>.</li>
@@ -125,18 +125,18 @@
         <div>
             <h3>Android</h3>
             <ol>
-                <li>Open Construction Manager in Chrome.</li>
+                <li>Open {{ app_name }} in Chrome.</li>
                 <li>Open Chrome's menu.</li>
                 <li>Choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</li>
                 <li>Confirm the installation.</li>
             </ol>
         </div>
     </div>
-    <button class="btn btn-primary" type="button" data-install-app hidden>Install Construction Manager</button>
+    <button class="btn btn-primary" type="button" data-install-app hidden>Install {{ app_name }}</button>
     <p class="guide-note"><strong>Security note:</strong> Use a screen lock on the device and log out before sharing it. Project pages and confidential files are not stored for offline use.</p>
 </section>
 
-<section class="guide-section" id="quickbooks">
+{% if quickbooks_integration_enabled %}<section class="guide-section" id="quickbooks">
     <div class="guide-section__heading">
         <p class="eyebrow">Company administrators</p>
         <h2>Connect and synchronize QuickBooks</h2>
@@ -146,12 +146,12 @@
         <li><span>1</span><div><h3>Connect the company</h3><p>Open <strong>QuickBooks</strong>, sign in to Intuit, and select the correct company.</p></div></li>
         <li><span>2</span><div><h3>Map the project customer</h3><p>Match or create the QuickBooks customer that represents the construction project. The app does not depend on QuickBooks Jobs.</p></div></li>
         <li><span>3</span><div><h3>Map cost code items</h3><p>Match each cost code used on invoice lines to a QuickBooks Product or Service item before sending the invoice.</p></div></li>
-        <li><span>4</span><div><h3>Send the invoice</h3><p>Issue the invoice in Construction Manager, then use the invoice detail page to synchronize it to QuickBooks.</p></div></li>
+        <li><span>4</span><div><h3>Send the invoice</h3><p>Issue the invoice in {{ app_name }}, then use the invoice detail page to synchronize it to QuickBooks.</p></div></li>
         <li><span>5</span><div><h3>Bring payments back</h3><p>Use <strong>Sync payments from QuickBooks</strong> on the invoice to update local payment records and balance status.</p></div></li>
         <li><span>6</span><div><h3>Resolve exceptions</h3><p>Review failed or blocked synchronization attempts on the QuickBooks screen. Confirm mappings and accounting data before retrying.</p></div></li>
     </ol>
     <p class="guide-note"><strong>Current payment workflow:</strong> Clients can view invoices and payment status, but they cannot pay online through this app.</p>
-</section>
+</section>{% endif %}
 
 <section class="guide-section" id="roles-and-access">
     <div class="guide-section__heading">
@@ -163,7 +163,7 @@
         <table class="guide-table">
             <thead><tr><th>Role</th><th>Typical access</th></tr></thead>
             <tbody>
-                <tr><td>Admin</td><td>All company projects, team administration, company settings, QuickBooks, and subscription controls.</td></tr>
+                <tr><td>Admin</td><td>All company projects, team administration, company settings, and accounting setup.</td></tr>
                 <tr><td>Manager and Project manager</td><td>Assigned projects and project workflows. These roles can create projects; project-level permissions still determine management and client-invitation access.</td></tr>
                 <tr><td>Staff, Office manager, and Real estate agent</td><td>Assigned projects. Available actions depend on the permissions selected under People and access.</td></tr>
                 <tr><td>Accountant</td><td>Assigned financial records and accounting work without client messages, documents, the action center, or the schedule.</td></tr>
@@ -182,7 +182,7 @@
         <li><i class="bi bi-check-circle"></i><span>Confirm the client-visible setting before uploading a file.</span></li>
         <li><i class="bi bi-check-circle"></i><span>Submit or publish drafts when they are ready; clients cannot see unfinished drafts.</span></li>
         <li><i class="bi bi-check-circle"></i><span>Use the exact invitation email the client or team member will use to sign in.</span></li>
-        <li><i class="bi bi-check-circle"></i><span>Map every invoice cost code to a QuickBooks item before synchronization.</span></li>
+        {% if quickbooks_integration_enabled %}<li><i class="bi bi-check-circle"></i><span>Map every invoice cost code to a QuickBooks item before synchronization.</span></li>{% endif %}
         <li><i class="bi bi-check-circle"></i><span>Keep files at or below 25 MB and use a supported document or image format.</span></li>
         <li><i class="bi bi-check-circle"></i><span>Review the Action center before each client update so pending decisions and drafts are not missed.</span></li>
     </ul>

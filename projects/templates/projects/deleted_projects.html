@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% block title %}Deleted projects | {{ app_name }}{% endblock %}
+{% block content %}<nav class="breadcrumb-nav"><a href="{% url 'core:home' %}">Projects</a><span>Deleted projects</span></nav>
+<section class="page-heading"><div><h1>Deleted projects</h1><p>Retained for recovery. Only company administrators can view this list and restore projects.</p></div></section>
+{% for project in page_obj %}<article class="admin-panel"><h2>{{ project.name }}</h2><p>{{ project.organization.name }} · Deleted {{ project.deleted_at|date:'M j, Y g:i A' }}</p><a class="btn btn-outline-secondary" href="{% url 'projects:restore' project.pk %}">Restore project</a></article>{% empty %}<p>No deleted projects.</p>{% endfor %}
+{% if page_obj.has_other_pages %}<nav class="pagination-nav" aria-label="Deleted project pages">{% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}">Next</a>{% endif %}</nav>{% endif %}
+{% endblock %}

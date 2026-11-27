@@ -1,0 +1,7 @@
+{% extends 'users/mfa_base.html' %}
+{% block content %}
+<h1>Replace recovery codes</h1>
+<p>This replaces all previous recovery codes. Confirm your password and enter a fresh authenticator code or an unused recovery code.</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary" type="submit">Generate replacement codes</button></form>
+<a class="mt-3" href="{% url 'users:security' %}">Cancel</a>
+{% endblock %}

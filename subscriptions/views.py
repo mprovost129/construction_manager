@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError
-from django.http import HttpResponse, HttpResponseBadRequest, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils.decorators import method_decorator
 from django.views import View
@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 
 
 def subscription_admin_or_403(user, slug):
+    if not settings.SUBSCRIPTION_BILLING_ENABLED:
+        raise Http404
     organization = get_object_or_404(Organization, slug=slug)
     if not can_manage_organization(user, organization):
         raise PermissionDenied('Only a company administrator can manage billing.')
@@ -41,6 +43,8 @@ class SubscriptionDetailView(LoginRequiredMixin, TemplateView):
     template_name = 'subscriptions/detail.html'
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.organization = subscription_admin_or_403(request.user, kwargs['slug'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -133,6 +137,8 @@ class StripeWebhookView(View):
     http_method_names = ('post',)
 
     def post(self, request):
+        if not settings.SUBSCRIPTION_BILLING_ENABLED:
+            raise Http404
         signature = request.headers.get('Stripe-Signature', '')
         try:
             outcome = process_stripe_webhook(request.body, signature)

@@ -20,9 +20,9 @@ This checklist intentionally leaves out decisions that have already been confirm
 - Prefer a smaller, complete workflow over a broad module with unfinished behavior.
 - Preserve clean boundaries that could support a future SaaS product, but do not let hypothetical multi-company needs expand the pilot scope.
 
-## 1. QuickBooks Online Integration
+## 1. QuickBooks Desktop Integration
 
-1. Which records must the app exchange with QuickBooks Online?
+1. Which records must the app exchange with QuickBooks Desktop?
 
    - Customers/clients
    - Projects/jobs
@@ -227,7 +227,16 @@ This checklist intentionally leaves out decisions that have already been confirm
 ## Confirmed Decisions - Do Not Re-Ask Unless Something Has Changed
 
 - The initial product is for one construction company, with a possible SaaS version later.
-- The accounting platform is QuickBooks Online, and QuickBooks is the accounting source of truth.
+- The accounting platform is QuickBooks Desktop. Only invoices and credits need
+  to synchronize. The integration is deferred until after launch.
+- Each project has one primary client account and may have additional authorized
+  signers with separate logins.
+- A project may have one or multiple assigned project managers. Client messages
+  route to all assigned project managers, and managers are notified when assigned.
+- Punch-list items do not require client sign-off. Sign-off may be added later.
+- Every notification category must allow each user to choose email, in-app, both,
+  or neither.
+- The product name is Heritage 360; the group support email remains undecided.
 - Required roles are admin, staff, accountant, client, and subcontractor; the subcontractor permissions remain undecided.
 - Only admins and accountants may see company-level financial information.
 - Staff may see project-level costs and financial information, but not company-level financials.

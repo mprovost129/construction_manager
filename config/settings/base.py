@@ -11,6 +11,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / '.env')
 
 APP_ENVIRONMENT = os.environ.get('APP_ENVIRONMENT', 'development').lower()
+APP_NAME = os.environ.get('APP_NAME', 'Heritage 360')
+APP_RELEASE = os.environ.get('RENDER_GIT_COMMIT', '')
+OPERATIONS_DASHBOARD_URLS = {
+    name: os.environ.get(f'OPERATIONS_{key}_URL', '')
+    for name, key in (
+        ('Render', 'RENDER'), ('Cloudflare', 'CLOUDFLARE'),
+        ('Resend', 'RESEND'), ('Sentry', 'SENTRY'),
+        ('Better Stack', 'UPTIME'), ('GitHub', 'GITHUB'),
+    )
+}
 
 
 def env_bool(name, default=False):
@@ -34,6 +44,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # Third-party
     'axes',
+    'django_otp',
+    'django_otp.plugins.otp_totp',
     # Local
     'users',
     'core',
@@ -52,10 +64,17 @@ AUTHENTICATION_BACKENDS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'core.request_timing.RequestTimingMiddleware',
+    'core.request_memory.RequestMemoryMiddleware',
+    'core.operations.OperationalFailureMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'users.mfa.AdministratorMFAMiddleware',
+    'core.security.BrowserSecurityMiddleware',
+    'projects.client_preview.ClientPreviewMiddleware',
+    'projects.middleware.ClientViewAuditMiddleware',
     'axes.middleware.AxesMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -79,6 +98,9 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'projects.context_processors.workspace_navigation',
+                'projects.context_processors.application_identity',
+                'projects.client_preview.preview_navigation',
+                'core.security.form_security',
             ],
         },
     },
@@ -111,6 +133,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 PRIVATE_MEDIA_ROOT = Path(
     os.environ.get('PRIVATE_MEDIA_ROOT', BASE_DIR / 'private_media')
 )
+PRIVATE_STORAGE_BACKEND = os.environ.get('PRIVATE_STORAGE_BACKEND', 'local')
 DOCUMENT_MAX_UPLOAD_SIZE = (
     int(os.environ.get('DOCUMENT_MAX_UPLOAD_SIZE_MB', '25')) * 1024 * 1024
 )
@@ -121,6 +144,15 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
+
+# Enrolled accounts always require MFA. Administrators must enroll in production.
+MFA_SESSION_SECONDS = 8 * 60 * 60
+MFA_SETUP_SECONDS = 10 * 60
+OTP_TOTP_ISSUER = APP_NAME
+OTP_TOTP_THROTTLE_FACTOR = 2
+# Retain old application keys during a key rotation so encrypted authenticators
+# can still be read. Never rotate SECRET_KEY without following the MFA runbook.
+SECRET_KEY_FALLBACKS = [key.strip() for key in os.environ.get('SECRET_KEY_FALLBACKS', '').split(',') if key.strip()]
 
 # Cache — overridden per environment
 CACHES = {
@@ -148,6 +180,16 @@ LOGGING = {
         },
     },
     'loggers': {
+        'heritage.request_memory': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'heritage.request_timing': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
         'django': {
             'handlers': DJANGO_LOG_HANDLERS,
             'level': os.environ.get('DJANGO_LOG_LEVEL', 'INFO'),
@@ -189,6 +231,8 @@ EMAIL_USE_SSL = env_bool('EMAIL_USE_SSL', False)
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'webmaster@localhost')
+DEFAULT_REPLY_TO_EMAIL = os.environ.get('DEFAULT_REPLY_TO_EMAIL', '')
+EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '15'))
 
 # Base URL used to build absolute links in emails sent outside of a request
 # context (e.g. management commands run by an external scheduler).
@@ -198,13 +242,26 @@ SITE_BASE_URL = os.environ.get('SITE_BASE_URL', 'http://localhost:8000')
 # before requesting production access from third-party platforms.
 LEGAL_BUSINESS_NAME = os.environ.get('LEGAL_BUSINESS_NAME', 'Construction Manager')
 LEGAL_CONTACT_EMAIL = os.environ.get('LEGAL_CONTACT_EMAIL', 'support@localhost')
+SUPPORT_EMAIL = os.environ.get('SUPPORT_EMAIL', LEGAL_CONTACT_EMAIL)
 LEGAL_BUSINESS_ADDRESS = os.environ.get('LEGAL_BUSINESS_ADDRESS', '')
 LEGAL_GOVERNING_LAW = os.environ.get(
     'LEGAL_GOVERNING_LAW', 'applicable laws of the United States'
 )
 LEGAL_EFFECTIVE_DATE = os.environ.get('LEGAL_EFFECTIVE_DATE', 'July 31, 2026')
 
-# QuickBooks Online. Sandbox credentials are development-only. Realm/company IDs
+# Cloudflare Turnstile protects browser form submissions; public QR access is retired.
+TURNSTILE_SITE_KEY = os.environ.get('TURNSTILE_SITE_KEY', '')
+TURNSTILE_SECRET_KEY = os.environ.get('TURNSTILE_SECRET_KEY', '')
+TURNSTILE_FORMS_ENABLED = env_bool('TURNSTILE_FORMS_ENABLED', APP_ENVIRONMENT == 'production')
+
+# QuickBooks integration is hidden for the Heritage launch. Heritage uses
+# QuickBooks Desktop, which requires a separate Web Connector/qbXML adapter.
+QUICKBOOKS_INTEGRATION_ENABLED = env_bool('QUICKBOOKS_INTEGRATION_ENABLED', False)
+# This enables only the restricted company verification protocol. No accounting
+# write generator exists. Every company still needs explicit credential setup.
+QUICKBOOKS_DESKTOP_CONNECTOR_ENABLED = env_bool('QUICKBOOKS_DESKTOP_CONNECTOR_ENABLED', True)
+
+# Dormant QuickBooks Online foundation. Sandbox credentials are development-only. Realm/company IDs
 # are captured per organization during OAuth rather than configured globally.
 QUICKBOOKS_ENVIRONMENT = os.environ.get('QUICKBOOKS_ENVIRONMENT', 'sandbox').lower()
 QUICKBOOKS_CLIENT_ID = os.environ.get('QUICKBOOKS_CLIENT_ID', '')
@@ -244,9 +301,9 @@ QUICKBOOKS_CONFIGURED = all(
     )
 )
 
-# Stripe Billing charges construction companies for access to this SaaS. Each
-# company's connected QuickBooks account remains separate and continues to own
-# that company's homeowner invoices and accounting data.
+# Dedicated deployments do not use application access billing. This separate
+# feature must be explicitly enabled by deployments that offer paid access.
+SUBSCRIPTION_BILLING_ENABLED = env_bool('SUBSCRIPTION_BILLING_ENABLED', False)
 STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
 STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
 STRIPE_MONTHLY_SUBSCRIPTION_PRICE_ID = os.environ.get(

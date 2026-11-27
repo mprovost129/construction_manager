@@ -1,11 +1,68 @@
 from django.urls import path
 
-from . import views
+from . import (
+    client_preview,
+    job_site,
+    project_lifecycle,
+    punch,
+    selection_deadline,
+    selection_photos,
+    staff_messaging,
+    views,
+)
 
 app_name = 'projects'
 
 urlpatterns = [
+    path('projects/<int:pk>/job-site/', job_site.manage, name='job_site_manage'),
+    path('projects/<int:pk>/job-site/sign/', job_site.sign, name='job_site_sign'),
+    path('projects/<int:pk>/job-site/qr.png', job_site.qr, name='job_site_qr'),
+    path('job-site/<uuid:token>/', job_site.public, name='job_site_public'),
+    path('job-site/<uuid:token>/documents/<int:version_pk>/', job_site.document, name='job_site_document'),
+    path('job-site/<uuid:token>/selections/<int:selection_pk>/image/', job_site.photo, name='job_site_photo'),
+    path('job-site/<uuid:token>/selections/<int:selection_pk>/images/<int:photo_pk>/', job_site.photo, name='job_site_gallery'),
+    path('staff/messages/', staff_messaging.inbox, name='staff_message_inbox'),
+    path('staff/messages/new/', staff_messaging.start, name='staff_message_start'),
+    path('staff/messages/compose/', staff_messaging.compose, name='staff_message_compose'),
+    path('staff/messages/<int:thread_pk>/', staff_messaging.conversation, name='staff_message_thread'),
+    path('staff/messages/<int:thread_pk>/preferences/', staff_messaging.preferences, name='staff_message_preferences'),
+    path('projects/<int:pk>/selections/<int:selection_pk>/deadline/', selection_deadline.update, name='selection_deadline'),
+    path('projects/<int:pk>/punch-list/', punch.listing, name='punch_list'),
+    path('projects/<int:pk>/punch-list/new/', punch.edit, name='punch_create'),
+    path('projects/<int:pk>/punch-list/<int:item_pk>/', punch.detail, name='punch_detail'),
+    path('projects/<int:pk>/punch-list/<int:item_pk>/edit/', punch.edit, name='punch_edit'),
+    path('projects/<int:pk>/punch-list/<int:item_pk>/photos/<int:photo_pk>/', punch.photo, name='punch_photo'),
+    path('client-preview/', client_preview.start, name='client_preview_start'),
+    path('client-preview/stop/', client_preview.stop, name='client_preview_stop'),
+    path('projects/<int:pk>/selections/photos/', selection_photos.photo_import, name='selection_photo_import'),
+    path('projects/<int:pk>/selections/photos/<int:photo_pk>/visibility/', selection_photos.photo_visibility, name='selection_photo_visibility'),
+    path('projects/<int:pk>/selections/<int:selection_pk>/photos/<int:photo_pk>/', selection_photos.photo_image, name='selection_reference_image'),
+    path('notifications/', views.NotificationListView.as_view(), name='notification_list'),
+    path(
+        'notifications/read-all/',
+        views.NotificationMarkAllReadView.as_view(),
+        name='notification_mark_all_read',
+    ),
+    path(
+        'notifications/<int:notification_pk>/read/',
+        views.NotificationMarkReadView.as_view(),
+        name='notification_mark_read',
+    ),
+    path(
+        'public/documents/<uuid:token>/',
+        views.PublicDocumentView.as_view(),
+        name='public_document',
+    ),
+    path(
+        'public/documents/<uuid:token>/download/',
+        views.PublicDocumentDownloadView.as_view(),
+        name='public_document_download',
+    ),
     path('projects/new/', views.ProjectCreateView.as_view(), name='create'),
+    path('projects/deleted/', project_lifecycle.deleted_projects, name='deleted_projects'),
+    path('projects/<int:pk>/copy/', project_lifecycle.copy_project, name='copy'),
+    path('projects/<int:pk>/delete/', project_lifecycle.delete_project, name='delete'),
+    path('projects/<int:pk>/restore/', project_lifecycle.restore_project, name='restore'),
     path('projects/<int:pk>/', views.ProjectDetailView.as_view(), name='detail'),
     path(
         'projects/<int:pk>/actions/',
@@ -21,6 +78,11 @@ urlpatterns = [
         'projects/<int:pk>/people/',
         views.ProjectPeopleView.as_view(),
         name='people',
+    ),
+    path(
+        'projects/<int:pk>/notification-settings/',
+        views.ProjectNotificationSettingsView.as_view(),
+        name='notification_settings',
     ),
     path(
         'projects/<int:pk>/people/internal-access/',
@@ -81,6 +143,11 @@ urlpatterns = [
         'projects/<int:pk>/documents/<int:document_pk>/versions/<int:version_pk>/download/',
         views.ProjectDocumentDownloadView.as_view(),
         name='document_download',
+    ),
+    path(
+        'projects/<int:pk>/documents/<int:document_pk>/versions/<int:version_pk>/public-share/',
+        views.ProjectDocumentPublicShareView.as_view(),
+        name='document_public_share',
     ),
     path(
         'projects/<int:pk>/documents/<int:document_pk>/decision/',
@@ -227,6 +294,7 @@ urlpatterns = [
         views.EstimateLineItemDeleteView.as_view(),
         name='estimate_line_item_delete',
     ),
+    path('projects/<int:pk>/financials/reconciliation/', views.ProjectReconciliationView.as_view(), name='reconciliation'),
     path(
         'projects/<int:pk>/financials/',
         views.ProjectFinancialSummaryView.as_view(),
@@ -429,6 +497,16 @@ urlpatterns = [
         name='cost_code_list',
     ),
     path(
+        'companies/<slug:slug>/disclosures/',
+        views.OrganizationDisclosureListView.as_view(),
+        name='disclosure_list',
+    ),
+    path(
+        'companies/<slug:slug>/disclosures/<int:disclosure_pk>/edit/',
+        views.OrganizationDisclosureUpdateView.as_view(),
+        name='disclosure_edit',
+    ),
+    path(
         'companies/<slug:slug>/cost-codes/new/',
         views.CostCodeCreateView.as_view(),
         name='cost_code_create',
@@ -453,6 +531,8 @@ urlpatterns = [
         views.TeamInvitationRevokeView.as_view(),
         name='revoke_team_invitation',
     ),
+    path('companies/<slug:slug>/team/own-two-step/', views.OwnMFARequirementUpdateView.as_view(),
+         name='update_own_mfa_requirement'),
     path(
         'companies/<slug:slug>/team/members/<int:membership_pk>/update/',
         views.TeamMembershipUpdateView.as_view(),
@@ -464,3 +544,7 @@ urlpatterns = [
         name='accept_team_invitation',
     ),
 ]
+
+from .selection_template_urls import urlpatterns as selection_template_patterns
+
+urlpatterns += selection_template_patterns

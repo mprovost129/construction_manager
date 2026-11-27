@@ -3,6 +3,8 @@ import os
 from sentry_sdk.integrations.excepthook import ExcepthookIntegration
 
 from config.monitoring import configure_sentry, get_traces_sample_rate
+from config.runtime import database_runtime_settings
+from config.storage import r2_storage_config
 
 os.environ['APP_ENVIRONMENT'] = 'production'
 
@@ -11,6 +13,8 @@ from .base import *  # noqa: E402,F403
 DEBUG = False
 
 ALLOWED_HOSTS = [host.strip() for host in os.environ['ALLOWED_HOSTS'].split(',') if host.strip()]
+if os.environ.get('RENDER_EXTERNAL_HOSTNAME'):
+    ALLOWED_HOSTS.append(os.environ['RENDER_EXTERNAL_HOSTNAME'])
 
 # Whitenoise — insert after SecurityMiddleware
 MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')  # noqa: F405
@@ -23,9 +27,14 @@ STORAGES = {
         'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
 }
+if PRIVATE_STORAGE_BACKEND == 'r2':  # noqa: F405
+    STORAGES['private_documents'] = r2_storage_config(os.environ)
 
-# Persistent DB connections
-CONN_MAX_AGE = 60
+# Django reads persistence settings from each database, not a top-level variable.
+DATABASES['default'] = database_runtime_settings(  # noqa: F405
+    DATABASES['default'],  # noqa: F405
+    management_command=os.environ.get('SENTRY_MANAGEMENT_COMMAND') == '1',
+)
 
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
@@ -39,6 +48,8 @@ CACHES = {
         'LOCATION': os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/1'),
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'SOCKET_CONNECT_TIMEOUT': 3,
+            'SOCKET_TIMEOUT': 3,
         },
     }
 }
@@ -58,7 +69,7 @@ if env_bool('TRUST_PROXY_SSL_HEADER', False):  # noqa: F405
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 if env_bool('DB_SSL_REQUIRE', True):  # noqa: F405
-    DATABASES['default']['OPTIONS'] = {'sslmode': 'require'}  # noqa: F405
+    DATABASES['default']['OPTIONS']['sslmode'] = 'require'  # noqa: F405
 
 # Error monitoring is enabled only when a production DSN is supplied. Render
 # exposes its source commit automatically, giving each event an exact release.

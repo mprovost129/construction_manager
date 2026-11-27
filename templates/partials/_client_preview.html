@@ -1,0 +1,6 @@
+{% if client_preview_active %}
+<aside class="client-preview-banner" aria-label="Client preview">
+<div><strong>Client view · Read-only{% if client_preview_project %} · {{ client_preview_project.name }}{% endif %}</strong><p>You are still signed in as staff. This preview applies to all tabs in this browser session. Client actions are disabled.</p></div>
+<form method="post" action="{% url 'projects:client_preview_stop' %}" data-preview-control>{% csrf_token %}<button type="submit" class="btn btn-primary">Back to staff view</button></form>
+</aside>
+{% endif %}

@@ -1,8 +1,14 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
+from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from .models import User
+
+# Device enrollment/recovery is only available through the reauthenticated flow.
+# Do not expose plaintext seed fields or direct device edits in Django admin.
+if admin.site.is_registered(TOTPDevice):
+    admin.site.unregister(TOTPDevice)
 
 
 @admin.register(User)

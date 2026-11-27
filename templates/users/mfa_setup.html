@@ -1,0 +1,17 @@
+{% extends 'users/mfa_base.html' %}
+{% block content %}
+<h1>Set up two-step verification</h1>
+{% if setup_active %}
+<p>Scan this QR code with your authenticator app. Then enter its six-digit code to finish setup. This setup expires after ten minutes.</p>
+<img src="data:image/png;base64,{{ qr_code }}" alt="Authenticator setup QR code for your account" width="280" height="280" style="max-width: 100%; height: auto;">
+<details class="my-3"><summary>Enter the setup key manually</summary><p style="overflow-wrap:anywhere"><code>{{ manual_key }}</code></p></details>
+<p>Keep this QR code and setup key private.</p>
+<form method="post">{% csrf_token %}<input type="hidden" name="step" value="confirm"><input type="hidden" name="next" value="{{ next }}">
+{{ code_form.as_p }}<button class="btn btn-primary" type="submit">Confirm and show recovery codes</button></form>
+{% else %}
+<p>Use an authenticator app on your phone. You will also receive one-use recovery codes in case you lose access to it.</p>
+<p>Confirm your current password to begin. Company information remains locked until required setup is complete.</p>
+<form method="post">{% csrf_token %}<input type="hidden" name="step" value="start"><input type="hidden" name="next" value="{{ next }}">
+{{ password_form.as_p }}<button class="btn btn-primary" type="submit">Begin setup</button></form>
+{% endif %}
+{% endblock %}

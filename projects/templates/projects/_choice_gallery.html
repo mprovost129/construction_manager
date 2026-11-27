@@ -1,0 +1,7 @@
+{% if option.gallery_images.all %}
+<div class="choice-gallery" aria-label="More photos of {{ option.name }}">
+{% for photo in option.gallery_images.all %}
+<figure><a data-photo-viewer href="{{ photo.get_absolute_url }}" target="_blank" rel="noopener" aria-label="Open {{ photo.caption|default:option.name }} full size"><img src="{{ photo.get_absolute_url }}?thumb=1" alt="{{ photo.caption|default:option.name }}" loading="lazy"></a>{% if photo.caption %}<figcaption>{{ photo.caption }}</figcaption>{% endif %}</figure>
+{% endfor %}
+</div>
+{% endif %}

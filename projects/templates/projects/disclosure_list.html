@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Disclosures | {{ organization.name }}{% endblock %}
+{% block content %}
+<nav class="breadcrumb-nav" aria-label="Breadcrumb"><a href="{% url 'projects:company_list' %}">Company</a><i class="bi bi-chevron-right"></i><span>Disclosures</span></nav>
+<section class="page-heading"><div><p class="eyebrow">{{ organization.name }}</p><h1>Document disclosures</h1><p class="text-secondary mb-0">Active text is copied into a permanent snapshot when a change order is submitted or an invoice is issued.</p></div></section>
+<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">Reusable terms</p><h2>Current disclosures</h2></div></div>
+{% for disclosure in disclosures %}<article class="version-row"><div><h3>{{ disclosure.title }} {% if not disclosure.is_active %}<span class="status-pill">Inactive</span>{% endif %}</h3><p>{{ disclosure.body|linebreaksbr }}</p><small>{% if disclosure.include_on_change_orders %}Change orders{% endif %}{% if disclosure.include_on_change_orders and disclosure.include_on_invoices %} · {% endif %}{% if disclosure.include_on_invoices %}Invoices{% endif %}</small></div><a class="btn btn-sm btn-outline-secondary" href="{% url 'projects:disclosure_edit' organization.slug disclosure.pk %}">Edit</a></article>{% empty %}<p class="empty-copy">No disclosures have been added.</p>{% endfor %}
+</section>
+<section class="admin-panel"><div class="section-heading"><div><p class="eyebrow">New input</p><h2>Add disclosure</h2></div></div><form method="post" class="stacked-form">{% csrf_token %}{{ form.non_field_errors }}{% for field in form %}<div class="form-field{% if field.field.widget.input_type == 'checkbox' %} form-field--checkbox{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}<button class="btn btn-primary" type="submit">Add disclosure</button></form></section>
+{% endblock %}

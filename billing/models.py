@@ -36,6 +36,7 @@ class Invoice(models.Model):
     number = models.PositiveBigIntegerField(null=True, blank=True)
     title = models.CharField(max_length=200)
     notes = models.TextField(blank=True)
+    disclosure_snapshot = models.TextField(blank=True)
     status = models.CharField(
         max_length=20,
         choices=Status.choices,

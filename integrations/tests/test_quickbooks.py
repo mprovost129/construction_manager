@@ -24,6 +24,7 @@ TEST_FERNET_KEY = Fernet.generate_key().decode()
 OLD_FERNET_KEY = Fernet.generate_key().decode()
 
 QUICKBOOKS_SETTINGS = {
+    'QUICKBOOKS_INTEGRATION_ENABLED': True,
     'QUICKBOOKS_CONFIGURED': True,
     'QUICKBOOKS_ENVIRONMENT': 'sandbox',
     'QUICKBOOKS_CLIENT_ID': 'client-id',

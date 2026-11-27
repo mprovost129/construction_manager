@@ -9,6 +9,53 @@ from billing.models import Invoice, Payment
 from projects.models import CostCode, Organization, Project
 
 from .crypto import decrypt_token, encrypt_token
+from .desktop_models import (  # noqa: F401
+    DesktopAuthThrottle,
+    DesktopConnection,
+    DesktopExport,
+    DesktopSession,
+)
+
+
+class QuickBooksDesktopOnboarding(models.Model):
+    """Setup intake only; saving this record never authorizes accounting access."""
+
+    class Hosting(models.TextChoices):
+        OFFICE = 'office', 'Office Windows computer or server'
+        HOSTED = 'hosted', 'Hosted by a provider'
+
+    organization = models.OneToOneField(
+        Organization, on_delete=models.CASCADE, related_name='desktop_onboarding'
+    )
+    edition_year = models.CharField('QuickBooks edition and year', max_length=150, blank=True)
+    hosting = models.CharField('Where the company file is hosted', max_length=20, choices=Hosting.choices, blank=True)
+    workstation = models.CharField('Windows computer or hosting provider', max_length=200, blank=True)
+    company_file_count = models.PositiveSmallIntegerField('Number of company files', null=True, blank=True)
+    setup_contact = models.EmailField('Accounting or IT setup contact', blank=True)
+    customer_structure = models.TextField('How customers and jobs are organized', max_length=2000, blank=True)
+    item_tax_notes = models.TextField('Invoice items, accounts, and sales tax', max_length=2000, blank=True)
+    numbering_credits = models.TextField('Invoice numbering and credit handling', max_length=2000, blank=True)
+    operator_ready = models.BooleanField('QuickBooks administrator is available to approve setup', default=False)
+    storage_reviewed = models.BooleanField('IT has checked the active file location and OneDrive sync status', default=False)
+    backup_ready = models.BooleanField('A current backup is available before connection testing', default=False)
+    test_company_ready = models.BooleanField('A separate test company file is ready', default=False)
+    existing_apps_reviewed = models.BooleanField('Existing QuickBooks connected apps have been reviewed', default=False)
+    connector_installed = models.BooleanField('A compatible Intuit Web Connector is installed on the setup computer', default=False)
+    revision = models.PositiveIntegerField(default=0, editable=False)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def missing_details(self):
+        fields = ('edition_year', 'hosting', 'workstation', 'company_file_count',
+                  'setup_contact', 'customer_structure', 'item_tax_notes', 'numbering_credits')
+        return [self._meta.get_field(name).verbose_name for name in fields if not getattr(self, name)]
+
+    @property
+    def missing_preparation(self):
+        names = ('operator_ready', 'storage_reviewed', 'backup_ready', 'test_company_ready',
+                 'existing_apps_reviewed', 'connector_installed')
+        return [self._meta.get_field(name).verbose_name for name in names if not getattr(self, name)]
 
 
 class QuickBooksConnection(models.Model):
